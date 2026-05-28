@@ -11,31 +11,29 @@ Web app statica per gestire le spese condominiali di più immobili, con persiste
 
 ## File
 
-| File | Descrizione |
+| Path | Descrizione |
 |---|---|
-| `gestione-spese-condominiali-supabase.html` | App completa (unico file) |
-| `supabase-schema.sql` | Schema DB + policy RLS |
-| `vercel.json` | Config routing Vercel |
+| `index.html` | Entry point applicazione |
+| `css/app.css` | Stili |
+| `js/` | Moduli ES (auth, api, fiscal, import Intesa, UI) |
+| `gestione-spese-condominiali-supabase.html` | Redirect legacy → `index.html` |
+| `supabase/migrations/` | Migration versionate |
+| `references/intesa-format.md` | Formato export Excel Banca Intesa |
+| `vercel.json` | Routing Vercel |
 
 ---
 
 ## Avvio in locale
 
-L'app è un singolo file HTML. Poiché usa ES Modules importati da CDN (`esm.sh`), alcuni browser bloccano le richieste da `file://`. Usa un mini server HTTP:
+L'app usa ES Modules serviti staticamente. Avvia un mini server HTTP:
 
 ```bash
-# Node.js
 npx serve .
-
-# Python 3
-python -m http.server 8080
-
-# oppure apri direttamente con VS Code → "Open with Live Server"
 ```
 
-Poi naviga su `http://localhost:8080` (o la porta mostrata dal server).
+Poi naviga su `http://localhost:3000` (o la porta mostrata).
 
-> **Alternativa**: apri direttamente `gestione-spese-condominiali-supabase.html` nel browser. Funziona in Chrome/Edge moderni anche da `file://`, ma se vedi errori CORS usa il server HTTP.
+Entry point: **`index.html`**
 
 ---
 
@@ -45,7 +43,10 @@ Questi passaggi non sono automatizzabili dal pipeline CI/CD perché richiedono i
 
 1. Crea un account su [supabase.com](https://supabase.com)
 2. Crea un nuovo progetto (nota: il provisioning richiede ~2 minuti)
-3. Vai in **SQL Editor** ed esegui **tutto** il contenuto di `supabase-schema.sql`
+3. Vai in **SQL Editor** ed esegui le migration in ordine:
+   - `supabase/migrations/20240101000000_initial_schema.sql`
+   - `supabase/migrations/20260528100000_fiscal_and_bank.sql`  
+   *(La seconda migration ricrea `dues`/`payments` — usa solo se non hai dati da conservare.)*
 4. In **Authentication → Users** crea almeno un utente email/password
 5. Vai in **Project Settings → API** e copia:
    - **Project URL** → es. `https://abcdefgh.supabase.co`
@@ -57,17 +58,11 @@ Questi passaggi non sono automatizzabili dal pipeline CI/CD perché richiedono i
 
 ### Opzione A — Hardcode nel file (consigliato per uso privato/monoente)
 
-Apri `gestione-spese-condominiali-supabase.html` e cerca la riga:
+Apri `js/config.js` e imposta:
 
 ```js
-const DEFAULT_SUPABASE_URL = '';
-```
-
-Sostituisci con:
-
-```js
-const DEFAULT_SUPABASE_URL = 'https://xxxx.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY = 'eyJ...';
+export const DEFAULT_SUPABASE_URL = 'https://xxxx.supabase.co';
+export const DEFAULT_SUPABASE_ANON_KEY = 'eyJ...';
 ```
 
 ### Opzione B — Runtime via UI
@@ -173,12 +168,10 @@ Non committare mai la `service_role key` nel codice o nei secrets pubblici.
 ## Funzionalità
 
 - Gestione multi-casa
-- Dovuti per annualità
-- Versamenti con data e metodo
-- Saldo per anno (eccedenza / debito / pareggio)
+- **Esercizio fiscale configurabile** per casa (es. giugno–maggio, etichetta 2024/2025)
+- Dovuti e versamenti legati all'esercizio fiscale
+- **Import Excel Banca Intesa** (Lista Operazioni) con anteprima, match suggerito e coda manuale
+- Saldo per esercizio (eccedenza / debito / pareggio)
 - Dashboard con metriche aggregate
-- Tema chiaro/scuro
-- Responsive mobile
-- Import/export JSON locale
-- Persistenza Supabase con autenticazione
-- RLS per isolamento dati per utente
+- Tema chiaro/scuro · Responsive · Import/export JSON
+- Persistenza Supabase con autenticazione e RLS

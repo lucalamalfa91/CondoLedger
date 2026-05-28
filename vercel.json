@@ -1,12 +1,6 @@
 {
   "rewrites": [
-    {
-      "source": "/",
-      "destination": "/gestione-spese-condominiali-supabase.html"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/gestione-spese-condominiali-supabase.html"
-    }
+    { "source": "/", "destination": "/index.html" },
+    { "source": "/((?!js/|css/|references/).*)", "destination": "/index.html" }
   ]
 }

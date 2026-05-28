@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="it" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gestione Spese Condominiali</title>
+  <link rel="preconnect" href="https://api.fontshare.com" />
+  <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <div class="login-screen" id="loginScreen">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="logo"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V8.5L12 4l8 4.5V20"/><path d="M8 20v-6h8v6"/></svg></div>
+        <div>
+          <div class="login-title">Gestione Spese Condominiali</div>
+          <div class="login-subtitle">Accedi per gestire i tuoi immobili</div>
+        </div>
+      </div>
+      <form id="loginForm" class="login-form">
+        <div id="loginError" class="login-error hidden" role="alert"></div>
+        <div>
+          <label for="loginEmail">Email</label>
+          <input id="loginEmail" name="email" type="email" autocomplete="username" required placeholder="nome@email.it" />
+        </div>
+        <div>
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="La tua password" />
+        </div>
+        <button class="btn btn-primary" type="submit" id="loginSubmitBtn">Accedi</button>
+      </form>
+      <div class="login-footer">
+        <span class="muted">Accesso riservato agli utenti registrati.</span>
+        <button class="icon-btn" id="loginThemeToggle" aria-label="Cambia tema"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="login-screen hidden" id="recoveryScreen">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="logo"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 11v2M12 7h.01M8 9h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z"/></svg></div>
+        <div>
+          <div class="login-title">Nuova password</div>
+          <div class="login-subtitle" id="recoverySubtitle">Scegli una password sicura per il tuo account</div>
+        </div>
+      </div>
+      <form id="recoveryForm" class="login-form">
+        <div id="recoveryError" class="login-error hidden" role="alert"></div>
+        <div id="recoverySuccess" class="login-success hidden" role="status"></div>
+        <div>
+          <label for="recoveryPassword">Nuova password</label>
+          <input id="recoveryPassword" name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="Minimo 6 caratteri" />
+        </div>
+        <div>
+          <label for="recoveryPasswordConfirm">Conferma password</label>
+          <input id="recoveryPasswordConfirm" name="passwordConfirm" type="password" autocomplete="new-password" required minlength="6" placeholder="Ripeti la password" />
+        </div>
+        <button class="btn btn-primary" type="submit" id="recoverySubmitBtn">Salva nuova password</button>
+      </form>
+      <div class="login-footer">
+        <span class="muted">Link di recupero inviato da Supabase.</span>
+        <button class="icon-btn" id="recoveryThemeToggle" aria-label="Cambia tema"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="dashboard hidden" id="appShell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="logo"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V8.5L12 4l8 4.5V20"/><path d="M8 20v-6h8v6"/></svg></div>
+        <div><div class="page-title" style="font-size:var(--text-lg)">Condominio</div><div class="muted">Gestione spese</div></div>
+      </div>
+
+      <div class="section-title">Menu</div>
+      <nav class="nav-list" id="navList">
+        <button class="nav-btn active" data-view="dashboard"><strong>Dashboard</strong><span>Riepilogo casa selezionata</span></button>
+        <button class="nav-btn" data-view="annualita"><strong>Annualità</strong><span>Esercizio fiscale e saldi</span></button>
+        <button class="nav-btn" data-view="versamenti"><strong>Versamenti</strong><span>Pagamenti e storico</span></button>
+        <button class="nav-btn" data-view="importbanca"><strong>Import banca</strong><span>Excel Banca Intesa</span></button>
+        <button class="nav-btn" data-view="immobile"><strong>Immobile</strong><span>Dati casa e fiscalità</span></button>
+        <button class="nav-btn" data-view="archivio"><strong>Archivio</strong><span>Import, export e backup</span></button>
+        <button class="nav-btn" data-view="account"><strong>Account</strong><span>Password e profilo</span></button>
+      </nav>
+
+      <div class="section-title">Immobili</div>
+      <div id="houseList" class="house-list"></div>
+      <button class="btn btn-primary" id="addHouseBtn">+ Nuova casa</button>
+    </aside>
+
+    <header class="header">
+      <div class="topbar-left">
+        <button class="icon-btn menu-toggle" id="menuToggle" aria-label="Apri menu"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+        <div><div class="page-title" id="viewTitle">Dashboard</div><div class="muted" id="viewSubtitle">Riepilogo della casa selezionata</div></div>
+      </div>
+      <div class="header-actions">
+        <div class="user-chip" id="userChip" title=""><span id="authStatus"></span></div>
+        <button class="btn btn-secondary" id="logoutBtn" type="button">Esci</button>
+        <button class="icon-btn" id="themeToggle" aria-label="Cambia tema"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="view active" data-view-panel="dashboard">
+        <div class="hero">
+          <div>
+            <h2 class="page-title" id="currentHouseTitle">Nessuna casa selezionata</h2>
+            <p class="muted" id="currentHouseMeta">Crea il primo immobile dalla barra laterale.</p>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-primary" data-nav-target="annualita">+ Dovuto</button>
+            <button class="btn btn-secondary" data-nav-target="versamenti">+ Versamento</button>
+          </div>
+        </div>
+        <section class="cards" id="metrics"></section>
+        <section class="grid-2">
+          <div class="panel">
+            <div class="panel-head"><div><h2>Riepilogo annualità</h2><p class="subtle">Confronto per esercizio fiscale.</p></div><select id="periodFilter"><option value="all">Tutti</option></select></div>
+            <div id="annualTableWrap"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div><h2>Scadenzario sintetico</h2><p class="subtle">Saldi aperti o in eccedenza.</p></div></div>
+            <div id="annualCards"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" data-view-panel="annualita">
+        <div class="forms">
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Nuovo dovuto</h2><p class="subtle">Registra quote per esercizio fiscale.</p></div></div>
+            <form id="dueForm" class="stack">
+              <div class="field-grid">
+                <div><label for="duePeriod">Esercizio fiscale</label><select id="duePeriod" name="fiscalPeriodId" required></select></div>
+                <div><label for="dueAmount">Importo dovuto</label><input id="dueAmount" name="amount" type="number" min="0" step="0.01" required /></div>
+              </div>
+              <div><label for="dueDescription">Descrizione</label><input id="dueDescription" name="description" type="text" placeholder="Preventivo, saldo, conguaglio..." /></div>
+              <button class="btn btn-primary" type="submit">Salva dovuto</button>
+            </form>
+          </div>
+          <div class="card"><div class="panel-head"><div><h2>Situazione annualità</h2><p class="subtle">Tutti gli esercizi registrati.</p></div></div><div id="annualPageCards"></div></div>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="versamenti">
+        <div class="forms">
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Nuovo versamento</h2><p class="subtle">Registra un pagamento effettuato.</p></div></div>
+            <form id="paymentForm" class="stack">
+              <div class="field-grid">
+                <div><label for="paymentPeriod">Esercizio fiscale</label><select id="paymentPeriod" name="fiscalPeriodId" required></select></div>
+                <div><label for="paymentAmount">Importo versato</label><input id="paymentAmount" name="amount" type="number" min="0" step="0.01" required /></div>
+              </div>
+              <div class="field-grid">
+                <div><label for="paymentDate">Data versamento</label><input id="paymentDate" name="date" type="date" /></div>
+                <div><label for="paymentMethod">Metodo</label><input id="paymentMethod" name="method" type="text" placeholder="Bonifico, contanti..." /></div>
+              </div>
+              <button class="btn btn-primary" type="submit">Salva versamento</button>
+            </form>
+          </div>
+          <div class="card"><div class="panel-head"><div><h2>Storico versamenti</h2><p class="subtle">Elenco dei pagamenti registrati.</p></div></div><div id="paymentsTable"></div></div>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="importbanca">
+        <div class="forms">
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Import Excel Banca Intesa</h2><p class="subtle">Formato export &quot;Lista Operazioni&quot; (colonne Data, Operazione, Dettagli, Importo).</p></div></div>
+            <label class="btn btn-secondary" for="bankImportFile">Carica file Excel</label>
+            <input class="file-input" id="bankImportFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
+            <p class="muted">I movimenti con match incerto restano non associati. Puoi selezionarli manualmente prima di confermare.</p>
+            <button class="btn btn-primary" id="bankImportConfirm" type="button">Conferma import selezionati</button>
+            <div id="bankImportPreview"></div>
+          </div>
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Da associare manualmente</h2><p class="subtle">Movimenti importati senza esercizio fiscale.</p></div></div>
+            <div id="unlinkedMovements"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="immobile">
+        <div class="forms">
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Gestione immobile</h2><p class="subtle">Dati casa e configurazione esercizio fiscale.</p></div></div>
+            <form id="houseForm" class="stack">
+              <div class="field-grid">
+                <div><label for="houseName">Nome casa</label><input id="houseName" name="name" type="text" required placeholder="Appartamento Milano" /></div>
+                <div><label for="houseLocation">Località</label><input id="houseLocation" name="location" type="text" placeholder="Milano" /></div>
+              </div>
+              <div class="field-grid">
+                <div><label for="fiscalStartMonth">Mese inizio esercizio</label>
+                  <select id="fiscalStartMonth" name="fiscalStartMonth">
+                    <option value="1">Gennaio (anno solare)</option>
+                    <option value="6" selected>Giugno (es. 2024/2025)</option>
+                    <option value="7">Luglio</option>
+                    <option value="9">Settembre</option>
+                  </select>
+                </div>
+              </div>
+              <div><label for="houseNotes">Note</label><textarea id="houseNotes" name="notes" placeholder="Amministratore, millesimi, appunti..."></textarea></div>
+              <button class="btn btn-secondary" type="submit">Aggiorna casa</button>
+            </form>
+          </div>
+          <div class="card stack"><div class="panel-head"><div><h2>Riepilogo immobile</h2><p class="subtle">Visione sintetica della casa selezionata.</p></div></div><div class="kpi-inline" id="houseSummary"></div><button class="btn btn-danger" id="deleteHouseBtn">Elimina casa</button></div>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="archivio">
+        <div class="forms">
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Backup e dati</h2><p class="subtle">Esporta o importa backup JSON.</p></div></div>
+            <label class="btn btn-secondary" for="importFile">Importa JSON</label>
+            <input class="file-input" id="importFile" type="file" accept="application/json" />
+            <button class="btn btn-secondary" id="exportBtn" type="button">Esporta JSON</button>
+            <button class="btn btn-secondary" id="demoBtn" type="button">Carica demo</button>
+            <p class="muted">Export v2 (schemaVersion 2). Import richiede login e sincronizza su Supabase. I backup v1 con campo year vengono convertiti automaticamente.</p>
+            <div id="movements"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="account">
+        <div class="forms">
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Cambia password</h2><p class="subtle">Aggiorna la password del tuo account senza email.</p></div></div>
+            <form id="accountPasswordForm" class="stack">
+              <div id="accountPasswordError" class="login-error hidden" role="alert"></div>
+              <div id="accountPasswordSuccess" class="login-success hidden" role="status"></div>
+              <div>
+                <label for="accountPassword">Nuova password</label>
+                <input id="accountPassword" name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="Minimo 6 caratteri" />
+              </div>
+              <div>
+                <label for="accountPasswordConfirm">Conferma password</label>
+                <input id="accountPasswordConfirm" name="passwordConfirm" type="password" autocomplete="new-password" required minlength="6" placeholder="Ripeti la password" />
+              </div>
+              <button class="btn btn-primary" type="submit" id="accountPasswordSubmitBtn">Salva password</button>
+            </form>
+          </div>
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Profilo</h2><p class="subtle">Account connesso.</p></div></div>
+            <div class="mini-card"><div class="metric-label">Email</div><div id="accountEmail" class="metric-value" style="font-size:1.1rem;">—</div></div>
+            <p class="muted">Se non ricordi la password e non riesci ad accedere, chiedi il reset dal pannello Supabase.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

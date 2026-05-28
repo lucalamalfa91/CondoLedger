@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="it" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gestione Spese Condominiali Supabase</title>
+  <link rel="preconnect" href="https://api.fontshare.com" />
+  <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet" />
+  <style>
+    :root, [data-theme="light"] {
+      --text-xs: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
+      --text-sm: clamp(0.875rem, 0.8rem + 0.35vw, 1rem);
+      --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+      --text-lg: clamp(1.125rem, 1rem + 0.75vw, 1.5rem);
+      --text-xl: clamp(1.5rem, 1.2rem + 1.25vw, 2rem);
+      --space-2: .5rem; --space-3: .75rem; --space-4: 1rem; --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem;
+      --color-bg: #f7f6f2; --color-surface: #f9f8f5; --color-surface-2: #fbfbf9; --color-surface-offset: #f3f0ec;
+      --color-divider: #dcd9d5; --color-text: #28251d; --color-text-muted: #7a7974; --color-text-inverse: #f9f8f4;
+      --color-primary: #01696f; --color-primary-hover: #0c4e54; --color-primary-highlight: #cedcd8;
+      --color-success: #437a22; --color-success-highlight: #d4dfcc; --color-warning: #964219; --color-warning-highlight: #ddcfc6; --color-error: #a12c7b; --color-error-highlight: #e0ced7;
+      --radius-md: .5rem; --radius-lg: .75rem; --radius-xl: 1rem; --radius-full: 9999px; --shadow-sm: 0 1px 2px rgba(40,37,29,.06);
+      --font-body: 'Satoshi', Inter, sans-serif; --transition: 180ms cubic-bezier(0.16, 1, 0.3, 1); --sidebar-w: 320px;
+    }
+    [data-theme="dark"] {
+      --color-bg: #171614; --color-surface: #1c1b19; --color-surface-2: #201f1d; --color-surface-offset: #1d1c1a; --color-divider: #262523;
+      --color-text: #cdccca; --color-text-muted: #979691; --color-text-inverse: #2b2a28; --color-primary: #4f98a3; --color-primary-hover: #227f8b; --color-primary-highlight: #313b3b;
+      --color-success: #6daa45; --color-success-highlight: #3a4435; --color-warning: #bb653b; --color-warning-highlight: #564942; --color-error: #d163a7; --color-error-highlight: #4c3d46;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+    body { min-height: 100dvh; font-family: var(--font-body); font-size: var(--text-base); line-height: 1.55; color: var(--color-text); background: var(--color-bg); }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; border: none; background: none; }
+    input, select, textarea { width: 100%; min-height: 44px; background: var(--color-surface-2); border: 1px solid rgba(0,0,0,.1); border-radius: var(--radius-md); padding: .8rem .9rem; }
+    textarea { min-height: 92px; resize: vertical; }
+    .dashboard { display:grid; grid-template-columns: var(--sidebar-w) 1fr; grid-template-rows: 72px 1fr; height:100dvh; }
+    .sidebar { grid-row:1 / -1; overflow-y:auto; background:var(--color-surface); border-right:1px solid var(--color-divider); padding: var(--space-5); }
+    .header { grid-column:2; display:flex; align-items:center; justify-content:space-between; gap:var(--space-4); padding: 0 var(--space-6); border-bottom:1px solid var(--color-divider); background:color-mix(in srgb, var(--color-bg) 88%, transparent); backdrop-filter: blur(8px); }
+    .main { grid-column:2; overflow-y:auto; padding:var(--space-6); }
+    .brand, .topbar-left { display:flex; align-items:center; gap: .85rem; }
+    .brand { margin-bottom: var(--space-6); }
+    .logo { width: 42px; height: 42px; border-radius: 12px; background: var(--color-primary-highlight); color: var(--color-primary); display:grid; place-items:center; }
+    .section-title { font-size: var(--text-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .08em; margin: var(--space-6) 0 var(--space-3); }
+    .nav-list, .house-list, .stack, .view { display:grid; gap: .75rem; }
+    .nav-btn, .house-btn, .btn { border-radius: var(--radius-lg); border:1px solid rgba(0,0,0,.08); width:100%; }
+    .nav-btn, .house-btn { text-align:left; padding: .9rem 1rem; background: transparent; }
+    .nav-btn.active, .house-btn.active { background: var(--color-primary-highlight); border-color: color-mix(in srgb, var(--color-primary) 28%, transparent); }
+    .nav-btn strong, .house-btn strong { display:block; font-size: var(--text-sm); }
+    .nav-btn span, .muted, .subtle, .hint { color: var(--color-text-muted); font-size: var(--text-sm); }
+    .btn { min-height:44px; padding: .8rem 1rem; display:inline-flex; align-items:center; justify-content:center; gap:.55rem; transition: background var(--transition), transform var(--transition); }
+    .btn:hover { transform: translateY(-1px); }
+    .btn-primary { background: var(--color-primary); color: var(--color-text-inverse); }
+    .btn-primary:hover { background: var(--color-primary-hover); }
+    .btn-secondary { background: var(--color-surface-offset); }
+    .btn-danger { background: var(--color-error-highlight); color: var(--color-error); }
+    .icon-btn { width:44px; height:44px; border-radius: var(--radius-full); border:1px solid rgba(0,0,0,.1); display:grid; place-items:center; }
+    .menu-toggle { display:none; }
+    .page-title { font-size: var(--text-xl); line-height:1.05; }
+    .header-actions, .toolbar { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
+    .hero { display:flex; justify-content:space-between; gap:var(--space-6); align-items:flex-start; }
+    .cards { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
+    .card, .panel { background: var(--color-surface); border:1px solid rgba(0,0,0,.08); border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); padding: var(--space-5); }
+    .metric-label { color: var(--color-text-muted); font-size: var(--text-sm); margin-bottom: .45rem; }
+    .metric-value { font-size: clamp(1.4rem, 1.1rem + 1vw, 2rem); font-weight: 900; font-variant-numeric: tabular-nums lining-nums; }
+    .metric-foot { margin-top: .5rem; font-size: var(--text-xs); color: var(--color-text-muted); }
+    .positive { color: var(--color-success); } .negative { color: var(--color-error); } .warning { color: var(--color-warning); }
+    .grid-2, .forms, .field-grid, .kpi-inline { display:grid; gap: var(--space-6); }
+    .grid-2 { grid-template-columns: 1.1fr .9fr; } .forms { grid-template-columns: repeat(2, minmax(0, 1fr)); } .field-grid, .kpi-inline { grid-template-columns: repeat(2, minmax(0,1fr)); gap: .9rem; }
+    .panel-head { display:flex; justify-content:space-between; align-items:center; gap:var(--space-3); margin-bottom: var(--space-4); }
+    table { width:100%; border-collapse: collapse; } th, td { padding: .85rem .6rem; border-bottom:1px solid var(--color-divider); text-align:left; font-variant-numeric: tabular-nums lining-nums; } th { color: var(--color-text-muted); font-size: var(--text-xs); text-transform: uppercase; }
+    .amount { font-weight: 700; } .badge { display:inline-flex; align-items:center; gap:.4rem; padding:.3rem .6rem; border-radius: var(--radius-full); font-size: var(--text-xs); }
+    .badge.success { background: var(--color-success-highlight); color: var(--color-success); } .badge.warn { background: var(--color-warning-highlight); color: var(--color-warning); } .badge.error { background: var(--color-error-highlight); color: var(--color-error); }
+    .annual-list { display:grid; gap: .8rem; } .annual-item, .mini-card { background: var(--color-surface-2); border:1px solid rgba(0,0,0,.08); border-radius: var(--radius-lg); padding: .9rem 1rem; }
+    .annual-item { display:flex; justify-content:space-between; align-items:center; gap:var(--space-3); }
+    .empty { border:1px dashed rgba(0,0,0,.16); border-radius: var(--radius-lg); padding: var(--space-8); text-align:center; color: var(--color-text-muted); background: var(--color-surface-2); }
+    .view { display:none; } .view.active { display:grid; } .file-input { display:none; }
+    .banner { margin-bottom: var(--space-6); padding: var(--space-4) var(--space-5); border-radius: var(--radius-lg); background: var(--color-surface-offset); border: 1px solid rgba(0,0,0,.08); display:flex; justify-content:space-between; gap:var(--space-4); align-items:center; }
+    .auth-box { display:grid; gap: .75rem; }
+    .status { font-size: var(--text-sm); color: var(--color-text-muted); }
+    @media (max-width: 1100px) { .cards, .forms, .grid-2, .kpi-inline { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 860px) {
+      .dashboard { grid-template-columns: 1fr; grid-template-rows: 72px 1fr; }
+      .sidebar { position: fixed; inset: 72px auto 0 0; width: min(88vw, 320px); z-index: 20; transform: translateX(-100%); transition: transform var(--transition); }
+      .sidebar.open { transform: translateX(0); }
+      .header, .main { grid-column: 1; } .menu-toggle { display:inline-flex; }
+      .hero, .cards, .forms, .grid-2, .field-grid, .kpi-inline { grid-template-columns: 1fr; display:grid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="dashboard">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="logo"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V8.5L12 4l8 4.5V20"/><path d="M8 20v-6h8v6"/></svg></div>
+        <div><div class="page-title" style="font-size:var(--text-lg)">Condominio</div><div class="muted">Supabase + Vercel</div></div>
+      </div>
+
+      <div class="section-title">Menu</div>
+      <nav class="nav-list" id="navList">
+        <button class="nav-btn active" data-view="dashboard"><strong>Dashboard</strong><span>Riepilogo casa selezionata</span></button>
+        <button class="nav-btn" data-view="annualita"><strong>Annualità</strong><span>Dovuto e saldi per anno</span></button>
+        <button class="nav-btn" data-view="versamenti"><strong>Versamenti</strong><span>Pagamenti e storico</span></button>
+        <button class="nav-btn" data-view="immobile"><strong>Immobile</strong><span>Dati casa e note</span></button>
+        <button class="nav-btn" data-view="archivio"><strong>Config</strong><span>Supabase, import/export, demo</span></button>
+      </nav>
+
+      <div class="section-title">Immobili</div>
+      <div id="houseList" class="house-list"></div>
+      <button class="btn btn-primary" id="addHouseBtn">+ Nuova casa</button>
+    </aside>
+
+    <header class="header">
+      <div class="topbar-left">
+        <button class="icon-btn menu-toggle" id="menuToggle" aria-label="Apri menu"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+        <div><div class="page-title" id="viewTitle">Dashboard</div><div class="muted" id="viewSubtitle">Riepilogo della casa selezionata</div></div>
+      </div>
+      <div class="header-actions">
+        <span class="status" id="authStatus">Non connesso</span>
+        <button class="icon-btn" id="themeToggle" aria-label="Cambia tema"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+      </div>
+    </header>
+
+    <main class="main">
+      <div class="banner">
+        <div>
+          <strong>Persistenza Supabase</strong>
+          <div class="muted">Inserisci URL e anon key nella sezione Config oppure sostituisci le costanti nel file prima del deploy.</div>
+        </div>
+        <button class="btn btn-secondary" data-nav-target="archivio">Apri Config</button>
+      </div>
+
+      <section class="view active" data-view-panel="dashboard">
+        <div class="hero">
+          <div>
+            <h2 class="page-title" id="currentHouseTitle">Nessuna casa selezionata</h2>
+            <p class="muted" id="currentHouseMeta">Accedi con Supabase, poi crea il primo immobile.</p>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-primary" data-nav-target="annualita">+ Dovuto</button>
+            <button class="btn btn-secondary" data-nav-target="versamenti">+ Versamento</button>
+          </div>
+        </div>
+        <section class="cards" id="metrics"></section>
+        <section class="grid-2">
+          <div class="panel">
+            <div class="panel-head"><div><h2>Riepilogo annualità</h2><p class="subtle">Confronto per anno tra dovuto e versato.</p></div><select id="yearFilter"><option value="all">Tutte</option></select></div>
+            <div id="annualTableWrap"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div><h2>Scadenzario sintetico</h2><p class="subtle">Saldi aperti o in eccedenza.</p></div></div>
+            <div id="annualCards"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" data-view-panel="annualita">
+        <div class="forms">
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Nuovo dovuto</h2><p class="subtle">Registra quote ordinarie o straordinarie.</p></div></div>
+            <form id="dueForm" class="stack">
+              <div class="field-grid">
+                <div><label for="dueYear">Annualità</label><input id="dueYear" name="year" type="number" min="2000" max="2100" required /></div>
+                <div><label for="dueAmount">Importo dovuto</label><input id="dueAmount" name="amount" type="number" min="0" step="0.01" required /></div>
+              </div>
+              <div><label for="dueDescription">Descrizione</label><input id="dueDescription" name="description" type="text" placeholder="Preventivo, saldo, conguaglio..." /></div>
+              <button class="btn btn-primary" type="submit">Salva dovuto</button>
+            </form>
+          </div>
+          <div class="card"><div class="panel-head"><div><h2>Situazione annualità</h2><p class="subtle">Tutti gli anni registrati.</p></div></div><div id="annualPageCards"></div></div>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="versamenti">
+        <div class="forms">
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Nuovo versamento</h2><p class="subtle">Registra un pagamento effettuato.</p></div></div>
+            <form id="paymentForm" class="stack">
+              <div class="field-grid">
+                <div><label for="paymentYear">Annualità</label><input id="paymentYear" name="year" type="number" min="2000" max="2100" required /></div>
+                <div><label for="paymentAmount">Importo versato</label><input id="paymentAmount" name="amount" type="number" min="0" step="0.01" required /></div>
+              </div>
+              <div class="field-grid">
+                <div><label for="paymentDate">Data versamento</label><input id="paymentDate" name="date" type="date" /></div>
+                <div><label for="paymentMethod">Metodo</label><input id="paymentMethod" name="method" type="text" placeholder="Bonifico, contanti..." /></div>
+              </div>
+              <button class="btn btn-primary" type="submit">Salva versamento</button>
+            </form>
+          </div>
+          <div class="card"><div class="panel-head"><div><h2>Storico versamenti</h2><p class="subtle">Elenco dei pagamenti registrati.</p></div></div><div id="paymentsTable"></div></div>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="immobile">
+        <div class="forms">
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Gestione immobile</h2><p class="subtle">Aggiorna dati e note della casa attiva.</p></div></div>
+            <form id="houseForm" class="stack">
+              <div class="field-grid">
+                <div><label for="houseName">Nome casa</label><input id="houseName" name="name" type="text" required placeholder="Appartamento Milano" /></div>
+                <div><label for="houseLocation">Località</label><input id="houseLocation" name="location" type="text" placeholder="Milano" /></div>
+              </div>
+              <div><label for="houseNotes">Note</label><textarea id="houseNotes" name="notes" placeholder="Amministratore, millesimi, appunti..."></textarea></div>
+              <button class="btn btn-secondary" type="submit">Aggiorna casa</button>
+            </form>
+          </div>
+          <div class="card stack"><div class="panel-head"><div><h2>Riepilogo immobile</h2><p class="subtle">Visione sintetica della casa selezionata.</p></div></div><div class="kpi-inline" id="houseSummary"></div><button class="btn btn-danger" id="deleteHouseBtn">Elimina casa</button></div>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="archivio">
+        <div class="forms">
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Configurazione Supabase</h2><p class="subtle">Login e connessione database.</p></div></div>
+            <div class="auth-box">
+              <div><label for="supabaseUrl">Supabase URL</label><input id="supabaseUrl" type="text" placeholder="https://xxxx.supabase.co" /></div>
+              <div><label for="supabaseAnonKey">Supabase anon key</label><textarea id="supabaseAnonKey" placeholder="eyJ..." ></textarea></div>
+              <div><label for="userEmail">Email</label><input id="userEmail" type="email" placeholder="tuo@email.it" /></div>
+              <div><label for="userPassword">Password</label><input id="userPassword" type="password" placeholder="Password" /></div>
+              <button class="btn btn-primary" id="connectBtn">Connetti e accedi</button>
+              <button class="btn btn-secondary" id="logoutBtn">Logout</button>
+            </div>
+          </div>
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Utility</h2><p class="subtle">Import/export locale e dati demo.</p></div></div>
+            <label class="btn btn-secondary" for="importFile">Importa JSON locale</label>
+            <input class="file-input" id="importFile" type="file" accept="application/json" />
+            <button class="btn btn-secondary" id="exportBtn">Esporta JSON locale</button>
+            <button class="btn btn-secondary" id="demoBtn">Carica demo locale</button>
+            <div id="movements"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+    const DEFAULT_SUPABASE_URL = '';
+    const DEFAULT_SUPABASE_ANON_KEY = '';
+
+    const currency = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' });
+    const today = new Date().toISOString().slice(0, 10);
+    const viewMeta = {
+      dashboard: ['Dashboard', 'Riepilogo della casa selezionata'],
+      annualita: ['Annualità', 'Dovuto, saldi e stato per anno'],
+      versamenti: ['Versamenti', 'Inserimento e storico dei pagamenti'],
+      immobile: ['Immobile', 'Dati della casa e gestione multi-casa'],
+      archivio: ['Config', 'Supabase, import/export e demo']
+    };
+
+    const state = {
+      theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+      selectedHouseId: null,
+      currentView: 'dashboard',
+      data: { houses: [] },
+      supabaseUrl: DEFAULT_SUPABASE_URL,
+      supabaseAnonKey: DEFAULT_SUPABASE_ANON_KEY,
+      supabase: null,
+      user: null
+    };
+
+    const els = {
+      sidebar: document.getElementById('sidebar'), menuToggle: document.getElementById('menuToggle'), houseList: document.getElementById('houseList'),
+      metrics: document.getElementById('metrics'), annualTableWrap: document.getElementById('annualTableWrap'), annualCards: document.getElementById('annualCards'), annualPageCards: document.getElementById('annualPageCards'),
+      movements: document.getElementById('movements'), currentHouseTitle: document.getElementById('currentHouseTitle'), currentHouseMeta: document.getElementById('currentHouseMeta'), addHouseBtn: document.getElementById('addHouseBtn'),
+      deleteHouseBtn: document.getElementById('deleteHouseBtn'), yearFilter: document.getElementById('yearFilter'), dueForm: document.getElementById('dueForm'), paymentForm: document.getElementById('paymentForm'), houseForm: document.getElementById('houseForm'),
+      exportBtn: document.getElementById('exportBtn'), importFile: document.getElementById('importFile'), demoBtn: document.getElementById('demoBtn'), themeToggle: document.getElementById('themeToggle'), dueYear: document.getElementById('dueYear'), paymentYear: document.getElementById('paymentYear'), paymentDate: document.getElementById('paymentDate'),
+      paymentsTable: document.getElementById('paymentsTable'), houseSummary: document.getElementById('houseSummary'), navButtons: [...document.querySelectorAll('[data-view]')], viewPanels: [...document.querySelectorAll('[data-view-panel]')], viewTitle: document.getElementById('viewTitle'), viewSubtitle: document.getElementById('viewSubtitle'),
+      authStatus: document.getElementById('authStatus'), supabaseUrl: document.getElementById('supabaseUrl'), supabaseAnonKey: document.getElementById('supabaseAnonKey'), userEmail: document.getElementById('userEmail'), userPassword: document.getElementById('userPassword'), connectBtn: document.getElementById('connectBtn'), logoutBtn: document.getElementById('logoutBtn')
+    };
+
+    function uid(prefix='id') { return `${prefix}-${Math.random().toString(36).slice(2, 9)}`; }
+    function fmt(v) { return currency.format(Number(v || 0)); }
+    function activeHouse() { return state.data.houses.find(h => h.id === state.selectedHouseId) || null; }
+    function setTheme(theme) { state.theme = theme; document.documentElement.setAttribute('data-theme', theme); }
+    function setView(view) { state.currentView = view; els.navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === view)); els.viewPanels.forEach(panel => panel.classList.toggle('active', panel.dataset.viewPanel === view)); els.viewTitle.textContent = viewMeta[view][0]; els.viewSubtitle.textContent = viewMeta[view][1]; if (window.innerWidth <= 860) els.sidebar.classList.remove('open'); }
+    function setStatus(message) { els.authStatus.textContent = message; }
+
+    function createSupabaseClient() {
+      const url = els.supabaseUrl.value.trim() || state.supabaseUrl;
+      const key = els.supabaseAnonKey.value.trim() || state.supabaseAnonKey;
+      if (!url || !key) throw new Error('Inserisci Supabase URL e anon key');
+      state.supabaseUrl = url; state.supabaseAnonKey = key; state.supabase = createClient(url, key);
+    }
+
+    async function signIn() {
+      try {
+        createSupabaseClient();
+        const email = els.userEmail.value.trim();
+        const password = els.userPassword.value;
+        if (!email || !password) throw new Error('Inserisci email e password');
+        const { data, error } = await state.supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        state.user = data.user;
+        setStatus(`Connesso: ${state.user.email}`);
+        await loadFromSupabase();
+      } catch (err) {
+        alert(err.message || 'Errore di login');
+      }
+    }
+
+    async function logout() {
+      if (!state.supabase) return;
+      await state.supabase.auth.signOut();
+      state.user = null; state.data = { houses: [] }; state.selectedHouseId = null; render(); setStatus('Non connesso');
+    }
+
+    async function loadFromSupabase() {
+      if (!state.supabase || !state.user) return;
+      const { data: houses, error } = await state.supabase.from('houses').select('*').order('created_at', { ascending: true });
+      if (error) { alert(error.message); return; }
+      const mapped = [];
+      for (const house of houses) {
+        const { data: dues } = await state.supabase.from('dues').select('*').eq('house_id', house.id).order('year', { ascending: false });
+        const { data: payments } = await state.supabase.from('payments').select('*').eq('house_id', house.id).order('date', { ascending: false });
+        mapped.push({
+          id: String(house.id), name: house.name, location: house.location || '', notes: house.notes || '',
+          dues: (dues || []).map(d => ({ id: String(d.id), year: d.year, amount: Number(d.amount), description: d.description || '', date: d.created_at?.slice(0,10) || today })),
+          payments: (payments || []).map(p => ({ id: String(p.id), year: p.year, amount: Number(p.amount), date: p.date || '', method: p.method || '' }))
+        });
+      }
+      state.data = { houses: mapped }; state.selectedHouseId = mapped[0]?.id || null; render();
+    }
+
+    async function saveHouseToSupabase(house) {
+      if (!state.supabase || !state.user) return;
+      const payload = { name: house.name, location: house.location, notes: house.notes, user_id: state.user.id };
+      const numericId = Number(house.id);
+      if (Number.isFinite(numericId)) {
+        const { error } = await state.supabase.from('houses').update(payload).eq('id', numericId);
+        if (error) throw error;
+      } else {
+        const { data, error } = await state.supabase.from('houses').insert(payload).select().single();
+        if (error) throw error;
+        house.id = String(data.id);
+      }
+    }
+
+    async function saveDueToSupabase(houseId, due) {
+      if (!state.supabase || !state.user) return;
+      const { error } = await state.supabase.from('dues').insert({ house_id: Number(houseId), year: due.year, amount: due.amount, description: due.description });
+      if (error) throw error;
+    }
+
+    async function savePaymentToSupabase(houseId, payment) {
+      if (!state.supabase || !state.user) return;
+      const { error } = await state.supabase.from('payments').insert({ house_id: Number(houseId), year: payment.year, amount: payment.amount, date: payment.date, method: payment.method });
+      if (error) throw error;
+    }
+
+    async function deleteHouseRemote(houseId) {
+      if (!state.supabase || !state.user) return;
+      const { error } = await state.supabase.from('houses').delete().eq('id', Number(houseId));
+      if (error) throw error;
+    }
+
+    function yearlySummary(house) {
+      const map = new Map();
+      for (const item of house.dues) { const k = String(item.year); const c = map.get(k) || { year: k, due: 0, paid: 0 }; c.due += Number(item.amount || 0); map.set(k, c); }
+      for (const item of house.payments) { const k = String(item.year); const c = map.get(k) || { year: k, due: 0, paid: 0 }; c.paid += Number(item.amount || 0); map.set(k, c); }
+      return [...map.values()].sort((a,b) => Number(b.year) - Number(a.year)).map(item => ({ ...item, balance: item.paid - item.due }));
+    }
+    function totals(house) { const due = house.dues.reduce((s,d)=>s+Number(d.amount||0),0); const paid = house.payments.reduce((s,p)=>s+Number(p.amount||0),0); const balance = paid-due; const years = yearlySummary(house); return { due, paid, balance, debtYears: years.filter(y=>y.balance<0).length, creditYears: years.filter(y=>y.balance>0).length, years: years.length }; }
+    function renderHouseList() { els.houseList.innerHTML = ''; if (!state.data.houses.length) { els.houseList.innerHTML = '<div class="empty">Nessun immobile ancora presente.</div>'; return; } for (const house of state.data.houses) { const t = totals(house); const btn = document.createElement('button'); btn.className = `house-btn ${house.id === state.selectedHouseId ? 'active' : ''}`; btn.innerHTML = `<strong>${house.name}</strong><span class="muted">${house.location || 'Località non indicata'}</span><span class="muted">Saldo: ${fmt(t.balance)}</span>`; btn.addEventListener('click', ()=>{ state.selectedHouseId = house.id; render(); }); els.houseList.appendChild(btn); } }
+    function renderMetrics(house) { const t = totals(house); const metricData = [['Totale dovuto', fmt(t.due), `${house.dues.length} registrazioni`], ['Totale versato', fmt(t.paid), `${house.payments.length} versamenti`], ['Saldo complessivo', fmt(t.balance), t.balance >= 0 ? 'Sei in eccedenza' : 'Sei in debito', t.balance >= 0 ? 'positive' : 'negative'], ['Annualità aperte', String(t.debtYears), `${t.creditYears} in eccedenza · ${t.years} totali`, t.debtYears ? 'warning' : 'positive']]; els.metrics.innerHTML = metricData.map(([label, value, foot, status]) => `<article class="card"><div class="metric-label">${label}</div><div class="metric-value ${status || ''}">${value}</div><div class="metric-foot">${foot}</div></article>`).join(''); }
+    function renderYearFilter(summary) { const current = els.yearFilter.value || 'all'; const years = summary.map(s => s.year); els.yearFilter.innerHTML = '<option value="all">Tutte</option>' + years.map(y => `<option value="${y}">${y}</option>`).join(''); els.yearFilter.value = years.includes(current) || current === 'all' ? current : 'all'; }
+    function renderAnnualBlocks(house) { const summary = yearlySummary(house); renderYearFilter(summary); const filtered = els.yearFilter.value === 'all' ? summary : summary.filter(x => x.year === els.yearFilter.value); if (!filtered.length) { els.annualTableWrap.innerHTML = '<div class="empty">Nessuna annualità da mostrare.</div>'; } else { els.annualTableWrap.innerHTML = `<table><thead><tr><th>Annualità</th><th>Dovuto</th><th>Versato</th><th>Saldo</th><th>Stato</th></tr></thead><tbody>${filtered.map(item => { const status = item.balance > 0 ? ['In eccedenza','success'] : item.balance < 0 ? ['In debito','error'] : ['Pareggio','warn']; return `<tr><td>${item.year}</td><td class="amount">${fmt(item.due)}</td><td class="amount">${fmt(item.paid)}</td><td class="amount ${item.balance >= 0 ? 'positive' : 'negative'}">${fmt(item.balance)}</td><td><span class="badge ${status[1]}">${status[0]}</span></td></tr>`; }).join('')}</tbody></table>`; } if (!summary.length) { els.annualCards.innerHTML = '<div class="empty">Nessun saldo disponibile.</div>'; els.annualPageCards.innerHTML = '<div class="empty">Nessuna annualità registrata.</div>'; return; } const cards = `<div class="annual-list">${summary.map(item => { const cls = item.balance > 0 ? 'success' : item.balance < 0 ? 'error' : 'warn'; const label = item.balance > 0 ? 'Eccedenza' : item.balance < 0 ? 'Debito' : 'Pareggio'; return `<div class="annual-item"><div><strong>${item.year}</strong><div class="hint">Dovuto ${fmt(item.due)} · Versato ${fmt(item.paid)}</div></div><div><span class="badge ${cls}">${label}</span></div><strong class="${item.balance >= 0 ? 'positive' : 'negative'}">${fmt(item.balance)}</strong></div>`; }).join('')}</div>`; els.annualCards.innerHTML = cards; els.annualPageCards.innerHTML = cards; }
+    function renderPayments(house) { const payments = [...house.payments].sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')) || Number(b.year) - Number(a.year)); if (!payments.length) { els.paymentsTable.innerHTML = '<div class="empty">Nessun versamento registrato.</div>'; return; } els.paymentsTable.innerHTML = `<table><thead><tr><th>Annualità</th><th>Data</th><th>Metodo</th><th>Importo</th></tr></thead><tbody>${payments.map(item => `<tr><td>${item.year}</td><td>${item.date || '—'}</td><td>${item.method || '—'}</td><td class="amount positive">${fmt(item.amount)}</td></tr>`).join('')}</tbody></table>`; }
+    function renderMovements(house) { const items = [...house.dues.map(item => ({...item,type:'Dovuto'})), ...house.payments.map(item => ({...item,type:'Versamento'}))].sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')) || Number(b.year) - Number(a.year)); if (!items.length) { els.movements.innerHTML = '<div class="empty">Nessun movimento registrato per questa casa.</div>'; return; } els.movements.innerHTML = `<table><thead><tr><th>Tipo</th><th>Anno</th><th>Data</th><th>Dettaglio</th><th>Importo</th></tr></thead><tbody>${items.map(item => `<tr><td>${item.type}</td><td>${item.year}</td><td>${item.date || '—'}</td><td>${item.description || item.method || '—'}</td><td class="amount ${item.type === 'Versamento' ? 'positive' : ''}">${fmt(item.amount)}</td></tr>`).join('')}</tbody></table>`; }
+    function renderHouseForm(house) { els.houseForm.name.value = house.name || ''; els.houseForm.location.value = house.location || ''; els.houseForm.notes.value = house.notes || ''; els.currentHouseTitle.textContent = house.name; els.currentHouseMeta.textContent = [house.location || 'Località non indicata', house.notes || 'Nessuna nota'].join(' · '); const t = totals(house); els.houseSummary.innerHTML = [`Immobili gestiti|${state.data.houses.length}`, `Annualità|${t.years}`, `Saldo|${fmt(t.balance)}`].map(item => { const [l,v] = item.split('|'); return `<div class="mini-card"><div class="metric-label">${l}</div><div class="metric-value" style="font-size:1.35rem;">${v}</div></div>`; }).join(''); }
+    function renderEmptyState() { els.currentHouseTitle.textContent = 'Nessuna casa selezionata'; els.currentHouseMeta.textContent = 'Accedi con Supabase e crea il primo immobile.'; els.metrics.innerHTML = '<div class="empty" style="grid-column:1 / -1;">Crea la prima casa per vedere il riepilogo.</div>'; els.annualTableWrap.innerHTML = '<div class="empty">Nessuna annualità disponibile.</div>'; els.annualCards.innerHTML = '<div class="empty">Nessun saldo disponibile.</div>'; els.annualPageCards.innerHTML = '<div class="empty">Nessuna annualità registrata.</div>'; els.paymentsTable.innerHTML = '<div class="empty">Nessun versamento registrato.</div>'; els.movements.innerHTML = '<div class="empty">Nessun movimento da mostrare.</div>'; els.houseSummary.innerHTML = '<div class="empty" style="grid-column:1/-1;">Nessun riepilogo immobile disponibile.</div>'; els.houseForm.reset(); }
+    function render() { if (!state.selectedHouseId && state.data.houses[0]) state.selectedHouseId = state.data.houses[0].id; renderHouseList(); const house = activeHouse(); if (!house) { renderEmptyState(); return; } renderMetrics(house); renderAnnualBlocks(house); renderPayments(house); renderMovements(house); renderHouseForm(house); const y = new Date().getFullYear(); els.dueYear.value ||= y; els.paymentYear.value ||= y; els.paymentDate.value ||= today; }
+
+    function createLocalHouse() { return { id: uid('house'), name: `Casa ${state.data.houses.length + 1}`, location: '', notes: '', dues: [], payments: [] }; }
+
+    async function addHouse() {
+      const house = createLocalHouse();
+      state.data.houses.push(house); state.selectedHouseId = house.id; render(); setView('immobile');
+      if (state.supabase && state.user) {
+        try { await saveHouseToSupabase(house); await loadFromSupabase(); } catch (err) { alert(err.message); }
+      }
+    }
+
+    function ensureHouse() { const house = activeHouse(); if (!house) { alert('Crea prima una casa.'); return null; } return house; }
+    function exportJson() { const blob = new Blob([JSON.stringify(state.data, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'spese-condominiali.json'; a.click(); URL.revokeObjectURL(a.href); }
+    function importJson(file) { if (!file) return; const reader = new FileReader(); reader.onload = e => { try { const parsed = JSON.parse(String(e.target.result || '{}')); if (!parsed || !Array.isArray(parsed.houses)) throw new Error('Formato non valido'); state.data = parsed; state.selectedHouseId = parsed.houses[0]?.id || null; render(); } catch { alert('File JSON non valido.'); } }; reader.readAsText(file); }
+    function loadDemo() { state.data = { houses: [{ id: uid('house'), name: 'Appartamento Milano', location: 'Milano', notes: 'Scala B · interno 6', dues: [{ id: uid('due'), year: 2024, amount: 1250, description: 'Preventivo ordinario', date: '2024-01-10' }, { id: uid('due'), year: 2025, amount: 1380, description: 'Preventivo ordinario', date: '2025-01-12' }], payments: [{ id: uid('pay'), year: 2024, amount: 1300, date: '2024-06-15', method: 'Bonifico' }] }, { id: uid('house'), name: 'Casa Lago', location: 'Lecco', notes: 'Seconda casa', dues: [{ id: uid('due'), year: 2026, amount: 1100, description: 'Spese ordinarie', date: '2026-02-04' }], payments: [{ id: uid('pay'), year: 2026, amount: 300, date: '2026-03-10', method: 'Bonifico' }] }] }; state.selectedHouseId = state.data.houses[0].id; render(); }
+
+    els.addHouseBtn.addEventListener('click', addHouse);
+    els.exportBtn.addEventListener('click', exportJson);
+    els.importFile.addEventListener('change', e => importJson(e.target.files[0]));
+    els.demoBtn.addEventListener('click', loadDemo);
+    els.themeToggle.addEventListener('click', () => setTheme(state.theme === 'dark' ? 'light' : 'dark'));
+    els.menuToggle.addEventListener('click', () => els.sidebar.classList.toggle('open'));
+    els.yearFilter.addEventListener('change', () => { const house = activeHouse(); if (house) renderAnnualBlocks(house); });
+    els.navButtons.forEach(btn => btn.addEventListener('click', () => setView(btn.dataset.view)));
+    document.querySelectorAll('[data-nav-target]').forEach(btn => btn.addEventListener('click', () => setView(btn.dataset.navTarget)));
+    els.connectBtn.addEventListener('click', signIn);
+    els.logoutBtn.addEventListener('click', logout);
+
+    els.houseForm.addEventListener('submit', async e => {
+      e.preventDefault(); const house = ensureHouse(); if (!house) return;
+      house.name = els.houseForm.name.value.trim() || house.name; house.location = els.houseForm.location.value.trim(); house.notes = els.houseForm.notes.value.trim();
+      try { if (state.supabase && state.user) await saveHouseToSupabase(house); render(); } catch (err) { alert(err.message); }
+    });
+
+    els.deleteHouseBtn.addEventListener('click', async () => {
+      const house = activeHouse(); if (!house) return; if (!confirm(`Eliminare ${house.name}?`)) return;
+      try { if (state.supabase && state.user && Number.isFinite(Number(house.id))) await deleteHouseRemote(house.id); state.data.houses = state.data.houses.filter(h => h.id !== house.id); state.selectedHouseId = state.data.houses[0]?.id || null; render(); setView('dashboard'); } catch (err) { alert(err.message); }
+    });
+
+    els.dueForm.addEventListener('submit', async e => {
+      e.preventDefault(); const house = ensureHouse(); if (!house) return;
+      if (state.supabase && state.user && !Number.isFinite(Number(house.id))) { try { await saveHouseToSupabase(house); } catch (err) { alert(err.message); return; } }
+      const fd = new FormData(els.dueForm); const due = { id: uid('due'), year: Number(fd.get('year')), amount: Number(fd.get('amount')), description: String(fd.get('description') || '').trim(), date: today };
+      house.dues.push(due);
+      try { if (state.supabase && state.user) await saveDueToSupabase(house.id, due); els.dueForm.reset(); els.dueYear.value = new Date().getFullYear(); if (state.supabase && state.user) await loadFromSupabase(); else render(); setView('dashboard'); } catch (err) { alert(err.message); }
+    });
+
+    els.paymentForm.addEventListener('submit', async e => {
+      e.preventDefault(); const house = ensureHouse(); if (!house) return;
+      if (state.supabase && state.user && !Number.isFinite(Number(house.id))) { try { await saveHouseToSupabase(house); } catch (err) { alert(err.message); return; } }
+      const fd = new FormData(els.paymentForm); const payment = { id: uid('pay'), year: Number(fd.get('year')), amount: Number(fd.get('amount')), date: String(fd.get('date') || today), method: String(fd.get('method') || '').trim() };
+      house.payments.push(payment);
+      try { if (state.supabase && state.user) await savePaymentToSupabase(house.id, payment); els.paymentForm.reset(); els.paymentYear.value = new Date().getFullYear(); els.paymentDate.value = today; if (state.supabase && state.user) await loadFromSupabase(); else render(); setView('dashboard'); } catch (err) { alert(err.message); }
+    });
+
+    setTheme(state.theme); setView('dashboard'); render();
+  </script>
+</body>
+</html>

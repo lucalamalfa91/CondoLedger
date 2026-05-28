@@ -30,28 +30,38 @@ alter table houses enable row level security;
 alter table dues enable row level security;
 alter table payments enable row level security;
 
-create policy if not exists "houses_select_own" on houses for select using (auth.uid() = user_id);
-create policy if not exists "houses_insert_own" on houses for insert with check (auth.uid() = user_id);
-create policy if not exists "houses_update_own" on houses for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy if not exists "houses_delete_own" on houses for delete using (auth.uid() = user_id);
+drop policy if exists "houses_select_own" on houses;
+drop policy if exists "houses_insert_own" on houses;
+drop policy if exists "houses_update_own" on houses;
+drop policy if exists "houses_delete_own" on houses;
+create policy "houses_select_own" on houses for select using (auth.uid() = user_id);
+create policy "houses_insert_own" on houses for insert with check (auth.uid() = user_id);
+create policy "houses_update_own" on houses for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "houses_delete_own" on houses for delete using (auth.uid() = user_id);
 
-create policy if not exists "dues_select_own" on dues for select using (
+drop policy if exists "dues_select_own" on dues;
+drop policy if exists "dues_insert_own" on dues;
+drop policy if exists "dues_delete_own" on dues;
+create policy "dues_select_own" on dues for select using (
   exists (select 1 from houses where houses.id = dues.house_id and houses.user_id = auth.uid())
 );
-create policy if not exists "dues_insert_own" on dues for insert with check (
+create policy "dues_insert_own" on dues for insert with check (
   exists (select 1 from houses where houses.id = dues.house_id and houses.user_id = auth.uid())
 );
-create policy if not exists "dues_delete_own" on dues for delete using (
+create policy "dues_delete_own" on dues for delete using (
   exists (select 1 from houses where houses.id = dues.house_id and houses.user_id = auth.uid())
 );
 
-create policy if not exists "payments_select_own" on payments for select using (
+drop policy if exists "payments_select_own" on payments;
+drop policy if exists "payments_insert_own" on payments;
+drop policy if exists "payments_delete_own" on payments;
+create policy "payments_select_own" on payments for select using (
   exists (select 1 from houses where houses.id = payments.house_id and houses.user_id = auth.uid())
 );
-create policy if not exists "payments_insert_own" on payments for insert with check (
+create policy "payments_insert_own" on payments for insert with check (
   exists (select 1 from houses where houses.id = payments.house_id and houses.user_id = auth.uid())
 );
-create policy if not exists "payments_delete_own" on payments for delete using (
+create policy "payments_delete_own" on payments for delete using (
   exists (select 1 from houses where houses.id = payments.house_id and houses.user_id = auth.uid())
 );
 

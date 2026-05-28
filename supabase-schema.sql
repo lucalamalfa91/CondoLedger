@@ -103,11 +103,17 @@ create policy "fiscal_periods_delete_own" on fiscal_periods for delete using (
 
 drop policy if exists "dues_select_own" on dues;
 drop policy if exists "dues_insert_own" on dues;
+drop policy if exists "dues_update_own" on dues;
 drop policy if exists "dues_delete_own" on dues;
 create policy "dues_select_own" on dues for select using (
   exists (select 1 from houses where houses.id = dues.house_id and houses.user_id = auth.uid())
 );
 create policy "dues_insert_own" on dues for insert with check (
+  exists (select 1 from houses where houses.id = dues.house_id and houses.user_id = auth.uid())
+);
+create policy "dues_update_own" on dues for update using (
+  exists (select 1 from houses where houses.id = dues.house_id and houses.user_id = auth.uid())
+) with check (
   exists (select 1 from houses where houses.id = dues.house_id and houses.user_id = auth.uid())
 );
 create policy "dues_delete_own" on dues for delete using (
@@ -116,11 +122,17 @@ create policy "dues_delete_own" on dues for delete using (
 
 drop policy if exists "payments_select_own" on payments;
 drop policy if exists "payments_insert_own" on payments;
+drop policy if exists "payments_update_own" on payments;
 drop policy if exists "payments_delete_own" on payments;
 create policy "payments_select_own" on payments for select using (
   exists (select 1 from houses where houses.id = payments.house_id and houses.user_id = auth.uid())
 );
 create policy "payments_insert_own" on payments for insert with check (
+  exists (select 1 from houses where houses.id = payments.house_id and houses.user_id = auth.uid())
+);
+create policy "payments_update_own" on payments for update using (
+  exists (select 1 from houses where houses.id = payments.house_id and houses.user_id = auth.uid())
+) with check (
   exists (select 1 from houses where houses.id = payments.house_id and houses.user_id = auth.uid())
 );
 create policy "payments_delete_own" on payments for delete using (

@@ -125,12 +125,31 @@ export async function saveDueToSupabase(house, due) {
     const period = await ensureFiscalPeriod(house, due.date || today);
     periodId = period.id;
   }
-  const { error } = await state.supabase.from('dues').insert({
+  const payload = {
     house_id: Number(house.id),
     fiscal_period_id: Number(periodId),
     amount: due.amount,
     description: due.description
-  });
+  };
+  if (Number.isFinite(Number(due.id))) {
+    const { error } = await state.supabase.from('dues').update({
+      fiscal_period_id: payload.fiscal_period_id,
+      amount: payload.amount,
+      description: payload.description
+    }).eq('id', Number(due.id)).eq('house_id', Number(house.id));
+    if (error) throw error;
+    return;
+  }
+  const { error } = await state.supabase.from('dues').insert(payload);
+  if (error) throw error;
+}
+
+export async function deleteDueFromSupabase(house, dueId) {
+  await ensureAuthenticated();
+  const { error } = await state.supabase.from('dues')
+    .delete()
+    .eq('id', Number(dueId))
+    .eq('house_id', Number(house.id));
   if (error) throw error;
 }
 
@@ -141,15 +160,43 @@ export async function savePaymentToSupabase(house, payment) {
     const period = await ensureFiscalPeriod(house, payment.date || today);
     periodId = period.id;
   }
-  const { error } = await state.supabase.from('payments').insert({
+  const payload = {
     house_id: Number(house.id),
     fiscal_period_id: Number(periodId),
     amount: payment.amount,
     date: payment.date,
     method: payment.method,
     bank_movement_id: payment.bankMovementId ? Number(payment.bankMovementId) : null
-  });
+  };
+  if (Number.isFinite(Number(payment.id))) {
+    const { error } = await state.supabase.from('payments').update({
+      fiscal_period_id: payload.fiscal_period_id,
+      amount: payload.amount,
+      date: payload.date,
+      method: payload.method
+    }).eq('id', Number(payment.id)).eq('house_id', Number(house.id));
+    if (error) throw error;
+    return;
+  }
+  const { error } = await state.supabase.from('payments').insert(payload);
   if (error) throw error;
+}
+
+export async function deletePaymentFromSupabase(house, payment) {
+  await ensureAuthenticated();
+  const bankMovementId = payment.bankMovementId;
+  const { error } = await state.supabase.from('payments')
+    .delete()
+    .eq('id', Number(payment.id))
+    .eq('house_id', Number(house.id));
+  if (error) throw error;
+  if (bankMovementId) {
+    await state.supabase.from('bank_movements').update({
+      status: 'unlinked',
+      linked_payment_id: null,
+      fiscal_period_id: null
+    }).eq('id', Number(bankMovementId));
+  }
 }
 
 export async function deleteHouseRemote(houseId) {

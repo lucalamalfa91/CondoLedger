@@ -3,6 +3,10 @@ import { periodLabel, periodSummary, totals, findPeriodByDate, defaultFiscalLabe
 import { activeHouse, state } from './state.js';
 import { fmt, today } from './utils.js';
 
+function rowActions(kind, id) {
+  return `<div class="row-actions"><button type="button" class="btn btn-secondary edit-${kind}" data-id="${id}">Modifica</button><button type="button" class="btn btn-secondary delete-${kind}" data-id="${id}">Elimina</button></div>`;
+}
+
 export function createRenderer(els) {
   function setView(view) {
     state.currentView = view;
@@ -109,28 +113,44 @@ export function createRenderer(els) {
     els.annualPageCards.innerHTML = cards;
   }
 
+  function renderDues(house) {
+    if (!els.duesTable) return;
+    const dues = [...house.dues].sort((a, b) => {
+      const la = periodLabel(house, a.fiscalPeriodId);
+      const lb = periodLabel(house, b.fiscalPeriodId);
+      return lb.localeCompare(la) || String(b.date || '').localeCompare(String(a.date || ''));
+    });
+    if (!dues.length) {
+      els.duesTable.innerHTML = '<div class="empty">Nessun dovuto registrato.</div>';
+      return;
+    }
+    els.duesTable.innerHTML = `<table><thead><tr><th>Esercizio</th><th>Descrizione</th><th>Importo</th><th></th></tr></thead><tbody>${dues.map(item =>
+      `<tr><td>${periodLabel(house, item.fiscalPeriodId)}</td><td>${item.description || '—'}</td><td class="amount">${fmt(item.amount)}</td><td>${rowActions('due', item.id)}</td></tr>`
+    ).join('')}</tbody></table>`;
+  }
+
   function renderPayments(house) {
     const payments = [...house.payments].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
     if (!payments.length) {
       els.paymentsTable.innerHTML = '<div class="empty">Nessun versamento registrato.</div>';
       return;
     }
-    els.paymentsTable.innerHTML = `<table><thead><tr><th>Esercizio</th><th>Data</th><th>Metodo</th><th>Importo</th></tr></thead><tbody>${payments.map(item =>
-      `<tr><td>${periodLabel(house, item.fiscalPeriodId)}</td><td>${item.date || '—'}</td><td>${item.method || '—'}</td><td class="amount positive">${fmt(item.amount)}</td></tr>`
+    els.paymentsTable.innerHTML = `<table><thead><tr><th>Esercizio</th><th>Data</th><th>Metodo</th><th>Importo</th><th></th></tr></thead><tbody>${payments.map(item =>
+      `<tr><td>${periodLabel(house, item.fiscalPeriodId)}</td><td>${item.date || '—'}</td><td>${item.method || '—'}</td><td class="amount positive">${fmt(item.amount)}</td><td>${rowActions('payment', item.id)}</td></tr>`
     ).join('')}</tbody></table>`;
   }
 
   function renderMovements(house) {
     const items = [
-      ...house.dues.map(item => ({ ...item, type: 'Dovuto', detail: item.description })),
-      ...house.payments.map(item => ({ ...item, type: 'Versamento', detail: item.method }))
+      ...house.dues.map(item => ({ ...item, type: 'Dovuto', detail: item.description, kind: 'due' })),
+      ...house.payments.map(item => ({ ...item, type: 'Versamento', detail: item.method, kind: 'payment' }))
     ].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
     if (!items.length) {
       els.movements.innerHTML = '<div class="empty">Nessun movimento registrato per questa casa.</div>';
       return;
     }
-    els.movements.innerHTML = `<table><thead><tr><th>Tipo</th><th>Esercizio</th><th>Data</th><th>Dettaglio</th><th>Importo</th></tr></thead><tbody>${items.map(item =>
-      `<tr><td>${item.type}</td><td>${periodLabel(house, item.fiscalPeriodId)}</td><td>${item.date || '—'}</td><td>${item.detail || '—'}</td><td class="amount ${item.type === 'Versamento' ? 'positive' : ''}">${fmt(item.amount)}</td></tr>`
+    els.movements.innerHTML = `<table><thead><tr><th>Tipo</th><th>Esercizio</th><th>Data</th><th>Dettaglio</th><th>Importo</th><th></th></tr></thead><tbody>${items.map(item =>
+      `<tr><td>${item.type}</td><td>${periodLabel(house, item.fiscalPeriodId)}</td><td>${item.date || '—'}</td><td>${item.detail || '—'}</td><td class="amount ${item.type === 'Versamento' ? 'positive' : ''}">${fmt(item.amount)}</td><td>${rowActions(item.kind, item.id)}</td></tr>`
     ).join('')}</tbody></table>`;
   }
 
@@ -211,6 +231,7 @@ export function createRenderer(els) {
     els.annualCards.innerHTML = '<div class="empty">Nessun saldo disponibile.</div>';
     els.annualPageCards.innerHTML = '<div class="empty">Nessuna annualità registrata.</div>';
     els.paymentsTable.innerHTML = '<div class="empty">Nessun versamento registrato.</div>';
+    if (els.duesTable) els.duesTable.innerHTML = '<div class="empty">Nessun dovuto registrato.</div>';
     els.movements.innerHTML = '<div class="empty">Nessun movimento da mostrare.</div>';
     els.houseSummary.innerHTML = '<div class="empty" style="grid-column:1/-1;">Nessun riepilogo immobile disponibile.</div>';
     els.houseForm.reset();
@@ -223,6 +244,7 @@ export function createRenderer(els) {
     if (!house) { renderEmptyState(); return; }
     renderMetrics(house);
     renderAnnualBlocks(house);
+    renderDues(house);
     renderPayments(house);
     renderMovements(house);
     renderHouseForm(house);
@@ -289,8 +311,15 @@ export function collectDom() {
     themeToggle: document.getElementById('themeToggle'),
     duePeriodLabel: document.getElementById('duePeriodLabel'),
     duePeriodHint: document.getElementById('duePeriodHint'),
+    dueEditId: document.getElementById('dueEditId'),
+    dueSubmitBtn: document.getElementById('dueSubmitBtn'),
+    dueFormCancel: document.getElementById('dueFormCancel'),
+    duesTable: document.getElementById('duesTable'),
     paymentPeriod: document.getElementById('paymentPeriod'),
     paymentDate: document.getElementById('paymentDate'),
+    paymentEditId: document.getElementById('paymentEditId'),
+    paymentSubmitBtn: document.getElementById('paymentSubmitBtn'),
+    paymentFormCancel: document.getElementById('paymentFormCancel'),
     paymentsTable: document.getElementById('paymentsTable'),
     houseSummary: document.getElementById('houseSummary'),
     navButtons: [...document.querySelectorAll('[data-view]')],

@@ -136,9 +136,14 @@
                 <div><label for="dueAmount">Importo dovuto</label><input id="dueAmount" name="amount" type="number" min="0" step="0.01" required /></div>
               </div>
               <div><label for="dueDescription">Descrizione</label><input id="dueDescription" name="description" type="text" placeholder="Preventivo, saldo, conguaglio..." /></div>
-              <button class="btn btn-primary" type="submit">Salva dovuto</button>
+              <input id="dueEditId" name="editId" type="hidden" />
+              <div class="form-actions">
+                <button class="btn btn-primary" id="dueSubmitBtn" type="submit">Salva dovuto</button>
+                <button class="btn btn-secondary hidden" id="dueFormCancel" type="button">Annulla modifica</button>
+              </div>
             </form>
           </div>
+          <div class="card"><div class="panel-head"><div><h2>Dovuti registrati</h2><p class="subtle">Modifica o elimina le quote per esercizio.</p></div></div><div id="duesTable"></div></div>
           <div class="card"><div class="panel-head"><div><h2>Situazione annualità</h2><p class="subtle">Tutti gli esercizi registrati.</p></div></div><div id="annualPageCards"></div></div>
         </div>
       </section>
@@ -156,7 +161,11 @@
                 <div><label for="paymentDate">Data versamento</label><input id="paymentDate" name="date" type="date" /></div>
                 <div><label for="paymentMethod">Metodo</label><input id="paymentMethod" name="method" type="text" placeholder="Bonifico, contanti..." /></div>
               </div>
-              <button class="btn btn-primary" type="submit">Salva versamento</button>
+              <input id="paymentEditId" name="editId" type="hidden" />
+              <div class="form-actions">
+                <button class="btn btn-primary" id="paymentSubmitBtn" type="submit">Salva versamento</button>
+                <button class="btn btn-secondary hidden" id="paymentFormCancel" type="button">Annulla modifica</button>
+              </div>
             </form>
           </div>
           <div class="card"><div class="panel-head"><div><h2>Storico versamenti</h2><p class="subtle">Elenco dei pagamenti registrati.</p></div></div><div id="paymentsTable"></div></div>

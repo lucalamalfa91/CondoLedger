@@ -3,7 +3,9 @@ import {
   createLocalDue,
   createLocalPayment,
   createSupabaseClient,
+  deleteDueFromSupabase,
   deleteHouseRemote,
+  deletePaymentFromSupabase,
   ensureFiscalPeriod,
   ensureFiscalPeriodByLabel,
   linkBankMovement,
@@ -17,6 +19,7 @@ import {
 } from './api.js';
 import { createAuthHandlers } from './auth.js';
 import { exportBackup, parseBackup } from './backup.js';
+import { periodLabel } from './fiscal.js';
 import { parseIntesaFile } from './intesa.js';
 import { enrichPreview } from './matching.js';
 import { collectDom, createRenderer } from './render.js';
@@ -30,7 +33,17 @@ function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
 }
 
-const { setView, render, syncPaymentPeriodSelect } = createRenderer(els);
+const { setView, render: baseRender, syncPaymentPeriodSelect } = createRenderer(els);
+let renderedHouseId = null;
+function render(...args) {
+  const house = activeHouse();
+  if (house?.id !== renderedHouseId) {
+    resetDueForm();
+    resetPaymentForm(house);
+    renderedHouseId = house?.id ?? null;
+  }
+  baseRender(...args);
+}
 const auth = createAuthHandlers(els, {
   setView: v => { setView(v); if (v === 'account') auth.renderAccountView(); },
   render,
@@ -46,6 +59,104 @@ function ensureHouse() {
 async function ensureHousePersisted(house) {
   if (state.supabase && state.user && !Number.isFinite(Number(house.id))) {
     await saveHouseToSupabase(house);
+  }
+}
+
+function resetDueForm() {
+  els.dueForm.reset();
+  if (els.dueEditId) els.dueEditId.value = '';
+  if (els.dueSubmitBtn) els.dueSubmitBtn.textContent = 'Salva dovuto';
+  els.dueFormCancel?.classList.add('hidden');
+}
+
+function resetPaymentForm(house) {
+  els.paymentForm.reset();
+  if (els.paymentEditId) els.paymentEditId.value = '';
+  if (els.paymentSubmitBtn) els.paymentSubmitBtn.textContent = 'Salva versamento';
+  els.paymentFormCancel?.classList.add('hidden');
+  if (house) syncPaymentPeriodSelect(house);
+}
+
+function startEditDue(house, due) {
+  els.duePeriodLabel.value = periodLabel(house, due.fiscalPeriodId);
+  els.dueForm.amount.value = String(due.amount);
+  els.dueForm.description.value = due.description || '';
+  if (els.dueEditId) els.dueEditId.value = due.id;
+  if (els.dueSubmitBtn) els.dueSubmitBtn.textContent = 'Aggiorna dovuto';
+  els.dueFormCancel?.classList.remove('hidden');
+  setView('annualita');
+}
+
+function startEditPayment(house, payment) {
+  els.paymentForm.amount.value = String(payment.amount);
+  els.paymentDate.value = payment.date || today;
+  els.paymentForm.method.value = payment.method || '';
+  if (els.paymentEditId) els.paymentEditId.value = payment.id;
+  if (els.paymentSubmitBtn) els.paymentSubmitBtn.textContent = 'Aggiorna versamento';
+  els.paymentFormCancel?.classList.remove('hidden');
+  syncPaymentPeriodSelect(house);
+  if (payment.fiscalPeriodId) els.paymentPeriod.value = payment.fiscalPeriodId;
+  setView('versamenti');
+}
+
+async function deleteDue(house, dueId) {
+  const due = house.dues.find(d => d.id === dueId);
+  if (!due || !confirm('Eliminare questo dovuto?')) return;
+  try {
+    if (state.supabase && state.user && Number.isFinite(Number(dueId))) {
+      await deleteDueFromSupabase(house, dueId);
+      await loadFromSupabase();
+    } else {
+      house.dues = house.dues.filter(d => d.id !== dueId);
+    }
+    if (els.dueEditId?.value === dueId) resetDueForm();
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function deletePayment(house, paymentId) {
+  const payment = house.payments.find(p => p.id === paymentId);
+  if (!payment || !confirm('Eliminare questo versamento?')) return;
+  try {
+    if (state.supabase && state.user && Number.isFinite(Number(paymentId))) {
+      await deletePaymentFromSupabase(house, payment);
+      await loadFromSupabase();
+    } else {
+      house.payments = house.payments.filter(p => p.id !== paymentId);
+    }
+    if (els.paymentEditId?.value === paymentId) resetPaymentForm(activeHouse());
+    render();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function handleRecordAction(e) {
+  const editDue = e.target.closest('.edit-due');
+  const deleteDueBtn = e.target.closest('.delete-due');
+  const editPayment = e.target.closest('.edit-payment');
+  const deletePaymentBtn = e.target.closest('.delete-payment');
+  const house = ensureHouse();
+  if (!house) return;
+
+  if (editDue) {
+    const due = house.dues.find(d => d.id === editDue.dataset.id);
+    if (due) startEditDue(house, due);
+    return;
+  }
+  if (deleteDueBtn) {
+    deleteDue(house, deleteDueBtn.dataset.id);
+    return;
+  }
+  if (editPayment) {
+    const payment = house.payments.find(p => p.id === editPayment.dataset.id);
+    if (payment) startEditPayment(house, payment);
+    return;
+  }
+  if (deletePaymentBtn) {
+    deletePayment(house, deletePaymentBtn.dataset.id);
   }
 }
 
@@ -197,12 +308,21 @@ els.dueForm.addEventListener('submit', async e => {
   try {
     await ensureHousePersisted(house);
     const fd = new FormData(els.dueForm);
+    const editId = String(fd.get('editId') || els.dueEditId?.value || '').trim();
     const due = createLocalDue(fd);
     due.fiscalPeriodLabel = String(fd.get('fiscalPeriodLabel') || els.duePeriodLabel?.value || '').trim();
+    if (editId) due.id = editId;
     if (state.supabase && state.user) {
       await saveDueToSupabase(house, due);
-      els.dueForm.reset();
+      resetDueForm();
       await loadFromSupabase();
+    } else if (editId) {
+      const existing = house.dues.find(d => d.id === editId);
+      if (existing) {
+        existing.amount = due.amount;
+        existing.description = due.description;
+        existing.fiscalPeriodId = due.fiscalPeriodLabel;
+      }
     } else {
       house.dues.push({ ...due, id: uid('due'), fiscalPeriodId: due.fiscalPeriodLabel });
     }
@@ -213,6 +333,11 @@ els.dueForm.addEventListener('submit', async e => {
   }
 });
 
+els.dueFormCancel?.addEventListener('click', () => {
+  resetDueForm();
+  render();
+});
+
 els.paymentForm.addEventListener('submit', async e => {
   e.preventDefault();
   const house = ensureHouse();
@@ -220,16 +345,25 @@ els.paymentForm.addEventListener('submit', async e => {
   try {
     await ensureHousePersisted(house);
     const fd = new FormData(els.paymentForm);
+    const editId = String(fd.get('editId') || els.paymentEditId?.value || '').trim();
     let periodId = els.paymentPeriod.value;
     if (!periodId) {
       const period = await ensureFiscalPeriod(house, els.paymentDate.value || today);
       periodId = period.id;
     }
     const payment = createLocalPayment(fd, periodId);
+    if (editId) {
+      payment.id = editId;
+      const existing = house.payments.find(p => p.id === editId);
+      if (existing?.bankMovementId) payment.bankMovementId = existing.bankMovementId;
+    }
     if (state.supabase && state.user) {
       await savePaymentToSupabase(house, payment);
-      els.paymentForm.reset();
+      resetPaymentForm(house);
       await loadFromSupabase();
+    } else if (editId) {
+      const existing = house.payments.find(p => p.id === editId);
+      if (existing) Object.assign(existing, payment);
     } else {
       house.payments.push({ ...payment, id: uid('pay') });
     }
@@ -240,10 +374,20 @@ els.paymentForm.addEventListener('submit', async e => {
   }
 });
 
+els.paymentFormCancel?.addEventListener('click', () => {
+  const house = activeHouse();
+  resetPaymentForm(house);
+  render();
+});
+
 els.paymentDate?.addEventListener('change', () => {
   const house = activeHouse();
-  if (house) syncPaymentPeriodSelect(house);
+  if (house && !els.paymentEditId?.value) syncPaymentPeriodSelect(house);
 });
+
+els.duesTable?.addEventListener('click', handleRecordAction);
+els.paymentsTable?.addEventListener('click', handleRecordAction);
+els.movements?.addEventListener('click', handleRecordAction);
 
 els.bankImportFile?.addEventListener('change', e => handleBankFile(e.target.files[0]));
 els.bankImportConfirm?.addEventListener('click', confirmBankImport);

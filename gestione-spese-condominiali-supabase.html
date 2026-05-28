@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestione Spese Condominiali Supabase</title>
+  <title>Gestione Spese Condominiali</title>
   <link rel="preconnect" href="https://api.fontshare.com" />
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet" />
   <style>
@@ -27,7 +27,9 @@
       --color-success: #6daa45; --color-success-highlight: #3a4435; --color-warning: #bb653b; --color-warning-highlight: #564942; --color-error: #d163a7; --color-error-highlight: #4c3d46;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; overflow: hidden; }
+    html, body { height: 100%; }
+    body { overflow: auto; }
+    body.authenticated { overflow: hidden; }
     body { min-height: 100dvh; font-family: var(--font-body); font-size: var(--text-base); line-height: 1.55; color: var(--color-text); background: var(--color-bg); }
     button, input, select, textarea { font: inherit; color: inherit; }
     button { cursor: pointer; border: none; background: none; }
@@ -76,7 +78,23 @@
     .view { display:none; } .view.active { display:grid; } .file-input { display:none; }
     .banner { margin-bottom: var(--space-6); padding: var(--space-4) var(--space-5); border-radius: var(--radius-lg); background: var(--color-surface-offset); border: 1px solid rgba(0,0,0,.08); display:flex; justify-content:space-between; gap:var(--space-4); align-items:center; }
     .auth-box { display:grid; gap: .75rem; }
-    .status { font-size: var(--text-sm); color: var(--color-text-muted); }
+    .status { font-size: var(--text-sm); color: var(--color-text-muted); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hidden { display: none !important; }
+    .login-screen { min-height: 100dvh; display: grid; place-items: center; padding: var(--space-6); background: radial-gradient(circle at top, color-mix(in srgb, var(--color-primary) 12%, var(--color-bg)), var(--color-bg)); }
+    .login-card { width: min(100%, 420px); background: var(--color-surface); border: 1px solid rgba(0,0,0,.08); border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); padding: var(--space-8); display: grid; gap: var(--space-5); }
+    .login-brand { display: flex; align-items: center; gap: .85rem; }
+    .login-title { font-size: var(--text-xl); line-height: 1.1; }
+    .login-subtitle { color: var(--color-text-muted); font-size: var(--text-sm); margin-top: .25rem; }
+    .login-form { display: grid; gap: .9rem; }
+    .login-form label { display: block; font-size: var(--text-sm); margin-bottom: .35rem; color: var(--color-text-muted); }
+    .login-error { padding: .75rem .9rem; border-radius: var(--radius-md); background: var(--color-error-highlight); color: var(--color-error); font-size: var(--text-sm); }
+    .login-success { padding: .75rem .9rem; border-radius: var(--radius-md); background: var(--color-success-highlight); color: var(--color-success); font-size: var(--text-sm); }
+    .login-link { color: var(--color-primary); font-size: var(--text-sm); text-decoration: underline; text-underline-offset: 2px; }
+    .login-link:hover { color: var(--color-primary-hover); }
+    .login-footer { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); }
+    .btn[disabled] { opacity: .65; cursor: not-allowed; transform: none; }
+    .user-chip { display: inline-flex; align-items: center; gap: .5rem; padding: .35rem .75rem; border-radius: var(--radius-full); background: var(--color-surface-offset); border: 1px solid rgba(0,0,0,.08); font-size: var(--text-sm); max-width: 240px; }
+    .user-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     @media (max-width: 1100px) { .cards, .forms, .grid-2, .kpi-inline { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 860px) {
       .dashboard { grid-template-columns: 1fr; grid-template-rows: 72px 1fr; }
@@ -88,11 +106,79 @@
   </style>
 </head>
 <body>
-  <div class="dashboard">
+  <div class="login-screen" id="loginScreen">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="logo"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V8.5L12 4l8 4.5V20"/><path d="M8 20v-6h8v6"/></svg></div>
+        <div>
+          <div class="login-title">Gestione Spese Condominiali</div>
+          <div class="login-subtitle">Accedi per gestire i tuoi immobili</div>
+        </div>
+      </div>
+      <form id="loginForm" class="login-form">
+        <div id="loginError" class="login-error hidden" role="alert"></div>
+        <div>
+          <label for="loginEmail">Email</label>
+          <input id="loginEmail" name="email" type="email" autocomplete="username" required placeholder="nome@email.it" />
+        </div>
+        <div>
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="La tua password" />
+        </div>
+        <button class="btn btn-primary" type="submit" id="loginSubmitBtn">Accedi</button>
+      </form>
+      <form id="forgotForm" class="login-form hidden">
+        <div id="forgotError" class="login-error hidden" role="alert"></div>
+        <div id="forgotSuccess" class="login-success hidden" role="status"></div>
+        <div>
+          <label for="forgotEmail">Email</label>
+          <input id="forgotEmail" name="email" type="email" autocomplete="username" required placeholder="nome@email.it" />
+        </div>
+        <p class="muted">Riceverai un link per reimpostare la password.</p>
+        <button class="btn btn-primary" type="submit" id="forgotSubmitBtn">Invia link di reset</button>
+        <button class="btn btn-secondary" type="button" id="cancelForgotBtn">Annulla</button>
+      </form>
+      <div class="login-footer">
+        <button class="login-link" type="button" id="forgotPasswordBtn">Password dimenticata?</button>
+        <button class="icon-btn" id="loginThemeToggle" aria-label="Cambia tema"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="login-screen hidden" id="recoveryScreen">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="logo"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 11v2M12 7h.01M8 9h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z"/></svg></div>
+        <div>
+          <div class="login-title">Nuova password</div>
+          <div class="login-subtitle" id="recoverySubtitle">Scegli una password sicura per il tuo account</div>
+        </div>
+      </div>
+      <form id="recoveryForm" class="login-form">
+        <div id="recoveryError" class="login-error hidden" role="alert"></div>
+        <div id="recoverySuccess" class="login-success hidden" role="status"></div>
+        <div>
+          <label for="recoveryPassword">Nuova password</label>
+          <input id="recoveryPassword" name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="Minimo 6 caratteri" />
+        </div>
+        <div>
+          <label for="recoveryPasswordConfirm">Conferma password</label>
+          <input id="recoveryPasswordConfirm" name="passwordConfirm" type="password" autocomplete="new-password" required minlength="6" placeholder="Ripeti la password" />
+        </div>
+        <button class="btn btn-primary" type="submit" id="recoverySubmitBtn">Salva nuova password</button>
+      </form>
+      <div class="login-footer">
+        <span class="muted">Il link di reset scade dopo un periodo limitato.</span>
+        <button class="icon-btn" id="recoveryThemeToggle" aria-label="Cambia tema"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="dashboard hidden" id="appShell">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="logo"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V8.5L12 4l8 4.5V20"/><path d="M8 20v-6h8v6"/></svg></div>
-        <div><div class="page-title" style="font-size:var(--text-lg)">Condominio</div><div class="muted">Supabase + Vercel</div></div>
+        <div><div class="page-title" style="font-size:var(--text-lg)">Condominio</div><div class="muted">Gestione spese</div></div>
       </div>
 
       <div class="section-title">Menu</div>
@@ -101,7 +187,7 @@
         <button class="nav-btn" data-view="annualita"><strong>Annualità</strong><span>Dovuto e saldi per anno</span></button>
         <button class="nav-btn" data-view="versamenti"><strong>Versamenti</strong><span>Pagamenti e storico</span></button>
         <button class="nav-btn" data-view="immobile"><strong>Immobile</strong><span>Dati casa e note</span></button>
-        <button class="nav-btn" data-view="archivio"><strong>Config</strong><span>Supabase, import/export, demo</span></button>
+        <button class="nav-btn" data-view="archivio"><strong>Archivio</strong><span>Import, export e backup</span></button>
       </nav>
 
       <div class="section-title">Immobili</div>
@@ -115,25 +201,18 @@
         <div><div class="page-title" id="viewTitle">Dashboard</div><div class="muted" id="viewSubtitle">Riepilogo della casa selezionata</div></div>
       </div>
       <div class="header-actions">
-        <span class="status" id="authStatus">Non connesso</span>
+        <div class="user-chip" id="userChip" title=""><span id="authStatus"></span></div>
+        <button class="btn btn-secondary" id="logoutBtn" type="button">Esci</button>
         <button class="icon-btn" id="themeToggle" aria-label="Cambia tema"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
       </div>
     </header>
 
     <main class="main">
-      <div class="banner">
-        <div>
-          <strong>Persistenza Supabase</strong>
-          <div class="muted">Inserisci URL e anon key nella sezione Config oppure sostituisci le costanti nel file prima del deploy.</div>
-        </div>
-        <button class="btn btn-secondary" data-nav-target="archivio">Apri Config</button>
-      </div>
-
       <section class="view active" data-view-panel="dashboard">
         <div class="hero">
           <div>
             <h2 class="page-title" id="currentHouseTitle">Nessuna casa selezionata</h2>
-            <p class="muted" id="currentHouseMeta">Accedi con Supabase, poi crea il primo immobile.</p>
+            <p class="muted" id="currentHouseMeta">Crea il primo immobile dalla barra laterale.</p>
           </div>
           <div class="toolbar">
             <button class="btn btn-primary" data-nav-target="annualita">+ Dovuto</button>
@@ -210,22 +289,11 @@
       <section class="view" data-view-panel="archivio">
         <div class="forms">
           <div class="card stack">
-            <div class="panel-head"><div><h2>Configurazione Supabase</h2><p class="subtle">Login e connessione database.</p></div></div>
-            <div class="auth-box">
-              <div><label for="supabaseUrl">Supabase URL</label><input id="supabaseUrl" type="text" placeholder="https://xxxx.supabase.co" /></div>
-              <div><label for="supabaseAnonKey">Supabase anon key</label><textarea id="supabaseAnonKey" placeholder="eyJ..." ></textarea></div>
-              <div><label for="userEmail">Email</label><input id="userEmail" type="email" placeholder="tuo@email.it" /></div>
-              <div><label for="userPassword">Password</label><input id="userPassword" type="password" placeholder="Password" /></div>
-              <button class="btn btn-primary" id="connectBtn">Connetti e accedi</button>
-              <button class="btn btn-secondary" id="logoutBtn">Logout</button>
-            </div>
-          </div>
-          <div class="card stack">
-            <div class="panel-head"><div><h2>Utility</h2><p class="subtle">Import/export locale e dati demo.</p></div></div>
-            <label class="btn btn-secondary" for="importFile">Importa JSON locale</label>
+            <div class="panel-head"><div><h2>Backup e dati</h2><p class="subtle">Esporta, importa o carica dati di esempio.</p></div></div>
+            <label class="btn btn-secondary" for="importFile">Importa JSON</label>
             <input class="file-input" id="importFile" type="file" accept="application/json" />
-            <button class="btn btn-secondary" id="exportBtn">Esporta JSON locale</button>
-            <button class="btn btn-secondary" id="demoBtn">Carica demo locale</button>
+            <button class="btn btn-secondary" id="exportBtn" type="button">Esporta JSON</button>
+            <button class="btn btn-secondary" id="demoBtn" type="button">Carica demo</button>
             <div id="movements"></div>
           </div>
         </div>
@@ -236,6 +304,7 @@
   <script type="module">
     import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+    const STORAGE_KEY = 'spese-condominiali-supabase-config';
     const DEFAULT_SUPABASE_URL = 'https://cwvwfrrknmjwdpcnqvhv.supabase.co';
     const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3dndmcnJrbm1qd2RwY25xdmh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5NzgxOTYsImV4cCI6MjA5NTU1NDE5Nn0.KrNu8Wb-rjTaG9p6IV8FL3fLpjbd_NrxVPGqVKjbxAA';
 
@@ -246,7 +315,7 @@
       annualita: ['Annualità', 'Dovuto, saldi e stato per anno'],
       versamenti: ['Versamenti', 'Inserimento e storico dei pagamenti'],
       immobile: ['Immobile', 'Dati della casa e gestione multi-casa'],
-      archivio: ['Config', 'Supabase, import/export e demo']
+      archivio: ['Archivio', 'Import, export e backup dati']
     };
 
     const state = {
@@ -257,17 +326,43 @@
       supabaseUrl: DEFAULT_SUPABASE_URL,
       supabaseAnonKey: DEFAULT_SUPABASE_ANON_KEY,
       supabase: null,
-      user: null
+      user: null,
+      recoveryMode: false
     };
 
     const els = {
+      loginScreen: document.getElementById('loginScreen'),
+      recoveryScreen: document.getElementById('recoveryScreen'),
+      appShell: document.getElementById('appShell'),
+      loginForm: document.getElementById('loginForm'),
+      forgotForm: document.getElementById('forgotForm'),
+      recoveryForm: document.getElementById('recoveryForm'),
+      loginEmail: document.getElementById('loginEmail'),
+      loginPassword: document.getElementById('loginPassword'),
+      forgotEmail: document.getElementById('forgotEmail'),
+      recoveryPassword: document.getElementById('recoveryPassword'),
+      recoveryPasswordConfirm: document.getElementById('recoveryPasswordConfirm'),
+      loginSubmitBtn: document.getElementById('loginSubmitBtn'),
+      forgotSubmitBtn: document.getElementById('forgotSubmitBtn'),
+      recoverySubmitBtn: document.getElementById('recoverySubmitBtn'),
+      forgotPasswordBtn: document.getElementById('forgotPasswordBtn'),
+      cancelForgotBtn: document.getElementById('cancelForgotBtn'),
+      loginError: document.getElementById('loginError'),
+      forgotError: document.getElementById('forgotError'),
+      forgotSuccess: document.getElementById('forgotSuccess'),
+      recoveryError: document.getElementById('recoveryError'),
+      recoverySuccess: document.getElementById('recoverySuccess'),
+      recoverySubtitle: document.getElementById('recoverySubtitle'),
+      loginThemeToggle: document.getElementById('loginThemeToggle'),
+      recoveryThemeToggle: document.getElementById('recoveryThemeToggle'),
+      userChip: document.getElementById('userChip'),
       sidebar: document.getElementById('sidebar'), menuToggle: document.getElementById('menuToggle'), houseList: document.getElementById('houseList'),
       metrics: document.getElementById('metrics'), annualTableWrap: document.getElementById('annualTableWrap'), annualCards: document.getElementById('annualCards'), annualPageCards: document.getElementById('annualPageCards'),
       movements: document.getElementById('movements'), currentHouseTitle: document.getElementById('currentHouseTitle'), currentHouseMeta: document.getElementById('currentHouseMeta'), addHouseBtn: document.getElementById('addHouseBtn'),
       deleteHouseBtn: document.getElementById('deleteHouseBtn'), yearFilter: document.getElementById('yearFilter'), dueForm: document.getElementById('dueForm'), paymentForm: document.getElementById('paymentForm'), houseForm: document.getElementById('houseForm'),
       exportBtn: document.getElementById('exportBtn'), importFile: document.getElementById('importFile'), demoBtn: document.getElementById('demoBtn'), themeToggle: document.getElementById('themeToggle'), dueYear: document.getElementById('dueYear'), paymentYear: document.getElementById('paymentYear'), paymentDate: document.getElementById('paymentDate'),
       paymentsTable: document.getElementById('paymentsTable'), houseSummary: document.getElementById('houseSummary'), navButtons: [...document.querySelectorAll('[data-view]')], viewPanels: [...document.querySelectorAll('[data-view-panel]')], viewTitle: document.getElementById('viewTitle'), viewSubtitle: document.getElementById('viewSubtitle'),
-      authStatus: document.getElementById('authStatus'), supabaseUrl: document.getElementById('supabaseUrl'), supabaseAnonKey: document.getElementById('supabaseAnonKey'), userEmail: document.getElementById('userEmail'), userPassword: document.getElementById('userPassword'), connectBtn: document.getElementById('connectBtn'), logoutBtn: document.getElementById('logoutBtn')
+      authStatus: document.getElementById('authStatus'), logoutBtn: document.getElementById('logoutBtn')
     };
 
     function uid(prefix='id') { return `${prefix}-${Math.random().toString(36).slice(2, 9)}`; }
@@ -275,35 +370,258 @@
     function activeHouse() { return state.data.houses.find(h => h.id === state.selectedHouseId) || null; }
     function setTheme(theme) { state.theme = theme; document.documentElement.setAttribute('data-theme', theme); }
     function setView(view) { state.currentView = view; els.navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === view)); els.viewPanels.forEach(panel => panel.classList.toggle('active', panel.dataset.viewPanel === view)); els.viewTitle.textContent = viewMeta[view][0]; els.viewSubtitle.textContent = viewMeta[view][1]; if (window.innerWidth <= 860) els.sidebar.classList.remove('open'); }
-    function setStatus(message) { els.authStatus.textContent = message; }
-
-    function createSupabaseClient() {
-      const url = els.supabaseUrl.value.trim() || state.supabaseUrl;
-      const key = els.supabaseAnonKey.value.trim() || state.supabaseAnonKey;
-      if (!url || !key) throw new Error('Inserisci Supabase URL e anon key');
-      state.supabaseUrl = url; state.supabaseAnonKey = key; state.supabase = createClient(url, key);
+    function setStatus(message) {
+      els.authStatus.textContent = message;
+      els.userChip.title = message;
     }
 
-    async function signIn() {
+    function showAuthMessage(el, message) {
+      if (!message) {
+        el.textContent = '';
+        el.classList.add('hidden');
+        return;
+      }
+      el.textContent = message;
+      el.classList.remove('hidden');
+    }
+
+    function showLoginError(message) { showAuthMessage(els.loginError, message); }
+    function showForgotError(message) { showAuthMessage(els.forgotError, message); }
+    function showForgotSuccess(message) { showAuthMessage(els.forgotSuccess, message); }
+    function showRecoveryError(message) { showAuthMessage(els.recoveryError, message); }
+    function showRecoverySuccess(message) { showAuthMessage(els.recoverySuccess, message); }
+
+    function getRedirectUrl() {
+      return `${window.location.origin}${window.location.pathname}`;
+    }
+
+    function isRecoveryUrl() {
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const query = new URLSearchParams(window.location.search);
+      return hash.get('type') === 'recovery' || query.get('type') === 'recovery';
+    }
+
+    function clearAuthParamsFromUrl() {
+      if (!window.location.hash && !window.location.search) return;
+      history.replaceState(null, '', window.location.pathname);
+    }
+
+    function showForgotPasswordView(show) {
+      els.loginForm.classList.toggle('hidden', show);
+      els.forgotForm.classList.toggle('hidden', !show);
+      els.forgotPasswordBtn.classList.toggle('hidden', show);
+      if (show) {
+        showLoginError('');
+        showForgotError('');
+        showForgotSuccess('');
+        els.forgotEmail.value = els.loginEmail.value.trim();
+      }
+    }
+
+    function showRecoveryUI(show) {
+      state.recoveryMode = show;
+      els.recoveryScreen.classList.toggle('hidden', !show);
+      els.loginScreen.classList.toggle('hidden', show);
+      els.appShell.classList.add('hidden');
+      document.body.classList.toggle('authenticated', false);
+      if (show) {
+        showRecoveryError('');
+        showRecoverySuccess('');
+        els.recoveryForm.reset();
+        els.recoverySubtitle.textContent = state.user?.email
+          ? `Account: ${state.user.email}`
+          : 'Scegli una password sicura per il tuo account';
+      }
+    }
+
+    function setLoginLoading(isLoading) {
+      els.loginSubmitBtn.disabled = isLoading;
+      els.loginSubmitBtn.textContent = isLoading ? 'Accesso in corso...' : 'Accedi';
+      els.loginEmail.disabled = isLoading;
+      els.loginPassword.disabled = isLoading;
+    }
+
+    function setForgotLoading(isLoading) {
+      els.forgotSubmitBtn.disabled = isLoading;
+      els.forgotSubmitBtn.textContent = isLoading ? 'Invio in corso...' : 'Invia link di reset';
+      els.forgotEmail.disabled = isLoading;
+      els.cancelForgotBtn.disabled = isLoading;
+    }
+
+    function setRecoveryLoading(isLoading) {
+      els.recoverySubmitBtn.disabled = isLoading;
+      els.recoverySubmitBtn.textContent = isLoading ? 'Salvataggio...' : 'Salva nuova password';
+      els.recoveryPassword.disabled = isLoading;
+      els.recoveryPasswordConfirm.disabled = isLoading;
+    }
+
+    function setAuthUI(isAuthenticated) {
+      if (state.recoveryMode) return;
+      els.loginScreen.classList.toggle('hidden', isAuthenticated);
+      els.recoveryScreen.classList.add('hidden');
+      els.appShell.classList.toggle('hidden', !isAuthenticated);
+      document.body.classList.toggle('authenticated', isAuthenticated);
+    }
+
+    function loadStoredConfig() {
       try {
-        createSupabaseClient();
-        const email = els.userEmail.value.trim();
-        const password = els.userPassword.value;
+        const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        if (stored.email) els.loginEmail.value = stored.email;
+      } catch {
+        /* ignore malformed localStorage */
+      }
+    }
+
+    function saveStoredConfig() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        email: els.loginEmail.value.trim()
+      }));
+    }
+
+    function createSupabaseClient() {
+      if (!DEFAULT_SUPABASE_URL || !DEFAULT_SUPABASE_ANON_KEY) {
+        throw new Error('Configurazione backend mancante');
+      }
+      state.supabaseUrl = DEFAULT_SUPABASE_URL;
+      state.supabaseAnonKey = DEFAULT_SUPABASE_ANON_KEY;
+      state.supabase = createClient(DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY, {
+        auth: {
+          detectSessionInUrl: true,
+          flowType: 'pkce',
+          persistSession: true
+        }
+      });
+    }
+
+    async function handleAuthCallbackError() {
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const query = new URLSearchParams(window.location.search);
+      const errorMessage = hash.get('error_description') || query.get('error_description') || hash.get('error') || query.get('error');
+      if (!errorMessage) return false;
+      showLoginError(decodeURIComponent(errorMessage.replace(/\+/g, ' ')));
+      clearAuthParamsFromUrl();
+      setAuthUI(false);
+      return true;
+    }
+
+    async function restoreSession() {
+      if (!state.supabase) return false;
+      const { data, error } = await state.supabase.auth.getSession();
+      if (error) throw error;
+      if (data.session?.user) {
+        state.user = data.session.user;
+        if (isRecoveryUrl()) {
+          showRecoveryUI(true);
+          clearAuthParamsFromUrl();
+          return 'recovery';
+        }
+        setStatus(state.user.email);
+        setAuthUI(true);
+        await loadFromSupabase();
+        clearAuthParamsFromUrl();
+        return true;
+      }
+      state.user = null;
+      setAuthUI(false);
+      return false;
+    }
+
+    async function signIn(event) {
+      event.preventDefault();
+      showLoginError('');
+      setLoginLoading(true);
+      try {
+        if (!state.supabase) createSupabaseClient();
+        const email = els.loginEmail.value.trim();
+        const password = els.loginPassword.value;
         if (!email || !password) throw new Error('Inserisci email e password');
         const { data, error } = await state.supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         state.user = data.user;
-        setStatus(`Connesso: ${state.user.email}`);
+        saveStoredConfig();
+        els.loginPassword.value = '';
+        setStatus(state.user.email);
+        setAuthUI(true);
+        setView('dashboard');
         await loadFromSupabase();
       } catch (err) {
-        alert(err.message || 'Errore di login');
+        showLoginError(err.message || 'Credenziali non valide');
+      } finally {
+        setLoginLoading(false);
       }
     }
 
     async function logout() {
       if (!state.supabase) return;
       await state.supabase.auth.signOut();
-      state.user = null; state.data = { houses: [] }; state.selectedHouseId = null; render(); setStatus('Non connesso');
+      state.user = null;
+      state.recoveryMode = false;
+      state.data = { houses: [] };
+      state.selectedHouseId = null;
+      showForgotPasswordView(false);
+      setAuthUI(false);
+      showLoginError('');
+      render();
+    }
+
+    async function sendPasswordReset(event) {
+      event.preventDefault();
+      showForgotError('');
+      showForgotSuccess('');
+      setForgotLoading(true);
+      try {
+        if (!state.supabase) createSupabaseClient();
+        const email = els.forgotEmail.value.trim();
+        if (!email) throw new Error('Inserisci la tua email');
+        const { error } = await state.supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: getRedirectUrl()
+        });
+        if (error) throw error;
+        els.loginEmail.value = email;
+        saveStoredConfig();
+        showForgotSuccess('Link inviato. Controlla la casella email (anche spam).');
+      } catch (err) {
+        showForgotError(err.message || 'Impossibile inviare il link di reset');
+      } finally {
+        setForgotLoading(false);
+      }
+    }
+
+    async function updatePassword(event) {
+      event.preventDefault();
+      showRecoveryError('');
+      showRecoverySuccess('');
+      const password = els.recoveryPassword.value;
+      const confirm = els.recoveryPasswordConfirm.value;
+      if (password.length < 6) {
+        showRecoveryError('La password deve avere almeno 6 caratteri');
+        return;
+      }
+      if (password !== confirm) {
+        showRecoveryError('Le password non coincidono');
+        return;
+      }
+      setRecoveryLoading(true);
+      try {
+        if (!state.supabase) createSupabaseClient();
+        const { error } = await state.supabase.auth.updateUser({ password });
+        if (error) throw error;
+        state.recoveryMode = false;
+        clearAuthParamsFromUrl();
+        showRecoverySuccess('Password aggiornata. Accesso in corso...');
+        const { data: sessionData } = await state.supabase.auth.getSession();
+        state.user = sessionData.session?.user || state.user;
+        if (state.user) {
+          setStatus(state.user.email);
+          setAuthUI(true);
+          setView('dashboard');
+          await loadFromSupabase();
+        }
+      } catch (err) {
+        showRecoveryError(err.message || 'Impossibile aggiornare la password');
+      } finally {
+        setRecoveryLoading(false);
+      }
     }
 
     async function loadFromSupabase() {
@@ -369,7 +687,7 @@
     function renderPayments(house) { const payments = [...house.payments].sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')) || Number(b.year) - Number(a.year)); if (!payments.length) { els.paymentsTable.innerHTML = '<div class="empty">Nessun versamento registrato.</div>'; return; } els.paymentsTable.innerHTML = `<table><thead><tr><th>Annualità</th><th>Data</th><th>Metodo</th><th>Importo</th></tr></thead><tbody>${payments.map(item => `<tr><td>${item.year}</td><td>${item.date || '—'}</td><td>${item.method || '—'}</td><td class="amount positive">${fmt(item.amount)}</td></tr>`).join('')}</tbody></table>`; }
     function renderMovements(house) { const items = [...house.dues.map(item => ({...item,type:'Dovuto'})), ...house.payments.map(item => ({...item,type:'Versamento'}))].sort((a,b) => String(b.date || '').localeCompare(String(a.date || '')) || Number(b.year) - Number(a.year)); if (!items.length) { els.movements.innerHTML = '<div class="empty">Nessun movimento registrato per questa casa.</div>'; return; } els.movements.innerHTML = `<table><thead><tr><th>Tipo</th><th>Anno</th><th>Data</th><th>Dettaglio</th><th>Importo</th></tr></thead><tbody>${items.map(item => `<tr><td>${item.type}</td><td>${item.year}</td><td>${item.date || '—'}</td><td>${item.description || item.method || '—'}</td><td class="amount ${item.type === 'Versamento' ? 'positive' : ''}">${fmt(item.amount)}</td></tr>`).join('')}</tbody></table>`; }
     function renderHouseForm(house) { els.houseForm.name.value = house.name || ''; els.houseForm.location.value = house.location || ''; els.houseForm.notes.value = house.notes || ''; els.currentHouseTitle.textContent = house.name; els.currentHouseMeta.textContent = [house.location || 'Località non indicata', house.notes || 'Nessuna nota'].join(' · '); const t = totals(house); els.houseSummary.innerHTML = [`Immobili gestiti|${state.data.houses.length}`, `Annualità|${t.years}`, `Saldo|${fmt(t.balance)}`].map(item => { const [l,v] = item.split('|'); return `<div class="mini-card"><div class="metric-label">${l}</div><div class="metric-value" style="font-size:1.35rem;">${v}</div></div>`; }).join(''); }
-    function renderEmptyState() { els.currentHouseTitle.textContent = 'Nessuna casa selezionata'; els.currentHouseMeta.textContent = 'Accedi con Supabase e crea il primo immobile.'; els.metrics.innerHTML = '<div class="empty" style="grid-column:1 / -1;">Crea la prima casa per vedere il riepilogo.</div>'; els.annualTableWrap.innerHTML = '<div class="empty">Nessuna annualità disponibile.</div>'; els.annualCards.innerHTML = '<div class="empty">Nessun saldo disponibile.</div>'; els.annualPageCards.innerHTML = '<div class="empty">Nessuna annualità registrata.</div>'; els.paymentsTable.innerHTML = '<div class="empty">Nessun versamento registrato.</div>'; els.movements.innerHTML = '<div class="empty">Nessun movimento da mostrare.</div>'; els.houseSummary.innerHTML = '<div class="empty" style="grid-column:1/-1;">Nessun riepilogo immobile disponibile.</div>'; els.houseForm.reset(); }
+    function renderEmptyState() { els.currentHouseTitle.textContent = 'Nessuna casa selezionata'; els.currentHouseMeta.textContent = 'Crea il primo immobile dalla barra laterale.'; els.metrics.innerHTML = '<div class="empty" style="grid-column:1 / -1;">Crea la prima casa per vedere il riepilogo.</div>'; els.annualTableWrap.innerHTML = '<div class="empty">Nessuna annualità disponibile.</div>'; els.annualCards.innerHTML = '<div class="empty">Nessun saldo disponibile.</div>'; els.annualPageCards.innerHTML = '<div class="empty">Nessuna annualità registrata.</div>'; els.paymentsTable.innerHTML = '<div class="empty">Nessun versamento registrato.</div>'; els.movements.innerHTML = '<div class="empty">Nessun movimento da mostrare.</div>'; els.houseSummary.innerHTML = '<div class="empty" style="grid-column:1/-1;">Nessun riepilogo immobile disponibile.</div>'; els.houseForm.reset(); }
     function render() { if (!state.selectedHouseId && state.data.houses[0]) state.selectedHouseId = state.data.houses[0].id; renderHouseList(); const house = activeHouse(); if (!house) { renderEmptyState(); return; } renderMetrics(house); renderAnnualBlocks(house); renderPayments(house); renderMovements(house); renderHouseForm(house); const y = new Date().getFullYear(); els.dueYear.value ||= y; els.paymentYear.value ||= y; els.paymentDate.value ||= today; }
 
     function createLocalHouse() { return { id: uid('house'), name: `Casa ${state.data.houses.length + 1}`, location: '', notes: '', dues: [], payments: [] }; }
@@ -377,8 +695,11 @@
     async function addHouse() {
       const house = createLocalHouse();
       state.data.houses.push(house); state.selectedHouseId = house.id; render(); setView('immobile');
-      if (state.supabase && state.user) {
-        try { await saveHouseToSupabase(house); await loadFromSupabase(); } catch (err) { alert(err.message); }
+      try {
+        await saveHouseToSupabase(house);
+        await loadFromSupabase();
+      } catch (err) {
+        alert(err.message || 'Errore salvataggio casa');
       }
     }
 
@@ -387,16 +708,22 @@
     function importJson(file) { if (!file) return; const reader = new FileReader(); reader.onload = e => { try { const parsed = JSON.parse(String(e.target.result || '{}')); if (!parsed || !Array.isArray(parsed.houses)) throw new Error('Formato non valido'); state.data = parsed; state.selectedHouseId = parsed.houses[0]?.id || null; render(); } catch { alert('File JSON non valido.'); } }; reader.readAsText(file); }
     function loadDemo() { state.data = { houses: [{ id: uid('house'), name: 'Appartamento Milano', location: 'Milano', notes: 'Scala B · interno 6', dues: [{ id: uid('due'), year: 2024, amount: 1250, description: 'Preventivo ordinario', date: '2024-01-10' }, { id: uid('due'), year: 2025, amount: 1380, description: 'Preventivo ordinario', date: '2025-01-12' }], payments: [{ id: uid('pay'), year: 2024, amount: 1300, date: '2024-06-15', method: 'Bonifico' }] }, { id: uid('house'), name: 'Casa Lago', location: 'Lecco', notes: 'Seconda casa', dues: [{ id: uid('due'), year: 2026, amount: 1100, description: 'Spese ordinarie', date: '2026-02-04' }], payments: [{ id: uid('pay'), year: 2026, amount: 300, date: '2026-03-10', method: 'Bonifico' }] }] }; state.selectedHouseId = state.data.houses[0].id; render(); }
 
+    els.loginForm.addEventListener('submit', signIn);
+    els.forgotForm.addEventListener('submit', sendPasswordReset);
+    els.recoveryForm.addEventListener('submit', updatePassword);
+    els.forgotPasswordBtn.addEventListener('click', () => showForgotPasswordView(true));
+    els.cancelForgotBtn.addEventListener('click', () => showForgotPasswordView(false));
     els.addHouseBtn.addEventListener('click', addHouse);
     els.exportBtn.addEventListener('click', exportJson);
     els.importFile.addEventListener('change', e => importJson(e.target.files[0]));
     els.demoBtn.addEventListener('click', loadDemo);
     els.themeToggle.addEventListener('click', () => setTheme(state.theme === 'dark' ? 'light' : 'dark'));
+    els.loginThemeToggle.addEventListener('click', () => setTheme(state.theme === 'dark' ? 'light' : 'dark'));
+    els.recoveryThemeToggle.addEventListener('click', () => setTheme(state.theme === 'dark' ? 'light' : 'dark'));
     els.menuToggle.addEventListener('click', () => els.sidebar.classList.toggle('open'));
     els.yearFilter.addEventListener('change', () => { const house = activeHouse(); if (house) renderAnnualBlocks(house); });
     els.navButtons.forEach(btn => btn.addEventListener('click', () => setView(btn.dataset.view)));
     document.querySelectorAll('[data-nav-target]').forEach(btn => btn.addEventListener('click', () => setView(btn.dataset.navTarget)));
-    els.connectBtn.addEventListener('click', signIn);
     els.logoutBtn.addEventListener('click', logout);
 
     els.houseForm.addEventListener('submit', async e => {
@@ -426,7 +753,50 @@
       try { if (state.supabase && state.user) await savePaymentToSupabase(house.id, payment); els.paymentForm.reset(); els.paymentYear.value = new Date().getFullYear(); els.paymentDate.value = today; if (state.supabase && state.user) await loadFromSupabase(); else render(); setView('dashboard'); } catch (err) { alert(err.message); }
     });
 
-    setTheme(state.theme); setView('dashboard'); render();
+    async function initApp() {
+      loadStoredConfig();
+      setTheme(state.theme);
+      setAuthUI(false);
+      showRecoveryUI(false);
+      setLoginLoading(true);
+      try {
+        createSupabaseClient();
+        if (await handleAuthCallbackError()) return;
+
+        state.supabase.auth.onAuthStateChange(async (event, session) => {
+          if (event === 'PASSWORD_RECOVERY') {
+            state.user = session?.user || null;
+            showRecoveryUI(true);
+            clearAuthParamsFromUrl();
+            return;
+          }
+          if (state.recoveryMode) return;
+          state.user = session?.user || null;
+          if (state.user) {
+            setStatus(state.user.email);
+            setAuthUI(true);
+            await loadFromSupabase();
+          } else {
+            state.data = { houses: [] };
+            state.selectedHouseId = null;
+            setAuthUI(false);
+            render();
+          }
+        });
+
+        const sessionResult = await restoreSession();
+        if (sessionResult === true) {
+          setView('dashboard');
+          render();
+        }
+      } catch (err) {
+        showLoginError('Impossibile connettersi al servizio. Riprova più tardi.');
+      } finally {
+        setLoginLoading(false);
+      }
+    }
+
+    initApp();
   </script>
 </body>
 </html>

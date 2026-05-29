@@ -128,6 +128,17 @@ export function sumPaid(house, periodId) {
     .reduce((s, p) => s + Number(p.amount || 0), 0);
 }
 
+/** Importo di riferimento per match import: consuntivo se presente, altrimenti preventivo. */
+export function primaryDueAmountForPeriod(periodRow) {
+  if (!periodRow) return 0;
+  if (Number(periodRow.consuntivo) > 0) return periodRow.consuntivo;
+  return Number(periodRow.preventivo ?? periodRow.due ?? 0);
+}
+
+export function periodHasConsuntivo(house, periodId) {
+  return sumConsuntivoDue(house, periodId) > 0;
+}
+
 /** Saldo consuntivo = versato − consuntivo (eccedenza se positivo). Null se non c’è consuntivo. */
 export function consuntivoBalance(house, periodId) {
   const consuntivo = sumConsuntivoDue(house, periodId);

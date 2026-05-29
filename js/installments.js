@@ -44,6 +44,7 @@ function slotMonthOffsets(due) {
 }
 
 export function listInstallmentsForDue(house, due) {
+  if (!isPreventivoDue(due)) return [];
   const period = house.fiscalPeriods.find(p => p.id === due.fiscalPeriodId);
   if (!period?.startDate) return [];
 

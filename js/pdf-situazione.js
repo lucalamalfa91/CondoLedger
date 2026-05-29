@@ -4,7 +4,8 @@ import {
   resolveSituazionePdfKind,
   situazioneStatusLabel
 } from './situazione-report.js';
-import { fmt } from './utils.js';
+import { installmentShortLabel, inferInstallmentKey } from './installments.js';
+import { pdfFmt, pdfStr } from './utils.js';
 
 async function loadPdfLibs() {
   const [jspdfMod, autoTableMod] = await Promise.all([
@@ -17,30 +18,56 @@ async function loadPdfLibs() {
   return { jsPDF, autoTable };
 }
 
+const PDF_TABLE = {
+  styles: { fontSize: 8, font: 'helvetica', overflow: 'linebreak' },
+  headStyles: { font: 'helvetica', fontStyle: 'bold' },
+  bodyStyles: { font: 'helvetica' }
+};
+
+function cell(value) {
+  return pdfStr(value);
+}
+
 function addSectionTitle(doc, y, title) {
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.setFont(undefined, 'bold');
-  doc.text(title, 14, y);
-  doc.setFont(undefined, 'normal');
+  doc.text(cell(title), 14, y);
+  doc.setFont('helvetica', 'normal');
   return y + 6;
 }
 
 function renderPdfHeader(doc, house, period, reportTitle) {
   let y = 14;
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
-  doc.text(reportTitle, 14, y);
+  doc.text(cell(reportTitle), 14, y);
   y += 8;
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
-  doc.text(`Immobile: ${house.name}`, 14, y);
+  doc.text(cell(`Immobile: ${house.name}`), 14, y);
   y += 5;
-  doc.text(`Esercizio: ${period.label} (${period.startDate} → ${period.endDate})`, 14, y);
+  doc.text(cell(`Esercizio: ${period.label} (${period.startDate} - ${period.endDate})`), 14, y);
   y += 5;
-  doc.text(`Export: ${new Date().toLocaleString('it-IT')}`, 14, y);
+  doc.text(cell(`Export: ${new Date().toLocaleString('it-IT')}`), 14, y);
   return y + 8;
 }
 
+function paymentPdfRows(house, payments) {
+  return payments.map(p => {
+    const key = p.installmentKey || inferInstallmentKey(house, p);
+    const rata = key ? installmentShortLabel(house, key) : '—';
+    return [
+      cell(p.date || '—'),
+      cell(p.method || '—'),
+      cell(rata),
+      cell(pdfFmt(p.amount))
+    ];
+  });
+}
+
 function renderPreventivoPdf(doc, autoTable, report, totalsRow) {
-  let y = renderPdfHeader(doc, report.house, report.period, 'Situazione preventiva — spese condominiali');
+  const house = report.house;
+  let y = renderPdfHeader(doc, house, report.period, 'Situazione preventiva - spese condominiali');
   const prevStatus = situazioneStatusLabel(totalsRow?.balancePreventivo ?? 0);
   const slotsStatus = situazioneStatusLabel(report.slotsBalance ?? 0);
 
@@ -48,40 +75,53 @@ function renderPreventivoPdf(doc, autoTable, report, totalsRow) {
     startY: y,
     theme: 'plain',
     body: [
-      ['Preventivo (totale voci)', fmt(totalsRow?.preventivo ?? 0)],
-      ['Totale versato', fmt(totalsRow?.paid ?? 0)],
-      ['Saldo su rate preventivo', fmt(report.slotsBalance)],
-      ['Saldo su preventivo (versato − preventivo)', `${fmt(totalsRow?.balancePreventivo ?? 0)} — ${prevStatus.text}`],
-      ['Saldo rate (versato − dovuto rate)', `${fmt(report.slotsBalance)} — ${slotsStatus.text}`]
+      [cell('Preventivo (totale voci)'), cell(pdfFmt(totalsRow?.preventivo ?? 0))],
+      [cell('Totale versato'), cell(pdfFmt(totalsRow?.paid ?? 0))],
+      [cell('Saldo su rate preventivo'), cell(pdfFmt(report.slotsBalance))],
+      [cell('Saldo su preventivo (versato - preventivo)'), cell(`${pdfFmt(totalsRow?.balancePreventivo ?? 0)} - ${prevStatus.text}`)],
+      [cell('Saldo rate (versato - dovuto rate)'), cell(`${pdfFmt(report.slotsBalance)} - ${slotsStatus.text}`)]
     ],
-    styles: { fontSize: 9 },
+    styles: { ...PDF_TABLE.styles, fontSize: 9 },
+    headStyles: PDF_TABLE.headStyles,
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 95 }, 1: { cellWidth: 75 } }
   });
   y = doc.lastAutoTable.finalY + 10;
 
   const { slots } = report;
   if (slots.length) {
-    y = addSectionTitle(doc, y, 'Preventivo — dettaglio rate');
+    y = addSectionTitle(doc, y, 'Preventivo - dettaglio rate');
     const rateBody = [];
     for (const slot of slots) {
-      rateBody.push([slot.label, slot.dueDescription || '—', fmt(slot.amountDue), fmt(slot.paid), fmt(slot.balance)]);
+      rateBody.push([
+        cell(slot.label),
+        cell(slot.dueDescription || '-'),
+        cell(pdfFmt(slot.amountDue)),
+        cell(pdfFmt(slot.paid)),
+        cell(pdfFmt(slot.balance))
+      ]);
       for (const pay of slot.payments) {
         rateBody.push([
-          `  ↳ vers. ${pay.date || '—'}`,
-          pay.method || '—',
+          cell(`  > vers. ${pay.date || '-'}`),
+          cell(pay.method || '-'),
           '',
-          fmt(pay.amount),
-          pay.isCarryForward ? 'Riporto' : ''
+          cell(pdfFmt(pay.amount)),
+          cell(pay.isCarryForward ? 'Riporto' : '')
         ]);
       }
     }
-    rateBody.push(['Totale rate', '', fmt(report.slotsTotalDue), fmt(report.slotsTotalPaid), fmt(report.slotsBalance)]);
+    rateBody.push([
+      cell('Totale rate'),
+      '',
+      cell(pdfFmt(report.slotsTotalDue)),
+      cell(pdfFmt(report.slotsTotalPaid)),
+      cell(pdfFmt(report.slotsBalance))
+    ]);
     autoTable(doc, {
       startY: y,
-      head: [['Rata', 'Voce preventivo', 'Dovuto', 'Versato', 'Saldo']],
+      head: [['Rata', 'Voce preventivo', 'Dovuto', 'Versato', 'Saldo']].map(row => row.map(cell)),
       body: rateBody,
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [45, 85, 135] }
+      ...PDF_TABLE,
+      headStyles: { ...PDF_TABLE.headStyles, fillColor: [45, 85, 135] }
     });
     y = doc.lastAutoTable.finalY + 10;
   }
@@ -90,14 +130,14 @@ function renderPreventivoPdf(doc, autoTable, report, totalsRow) {
     y = addSectionTitle(doc, y, 'Riporti su preventivo');
     autoTable(doc, {
       startY: y,
-      head: [['Descrizione', 'Da esercizio', 'Importo']],
+      head: [['Descrizione', 'Da esercizio', 'Importo']].map(row => row.map(cell)),
       body: report.carryDues.map(d => [
-        d.description || 'Riporto',
-        carryFromLabel(report.house, d),
-        fmt(d.amount)
+        cell(d.description || 'Riporto'),
+        cell(carryFromLabel(house, d)),
+        cell(pdfFmt(d.amount))
       ]),
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [100, 70, 20] }
+      ...PDF_TABLE,
+      headStyles: { ...PDF_TABLE.headStyles, fillColor: [100, 70, 20] }
     });
     y = doc.lastAutoTable.finalY + 10;
   }
@@ -106,17 +146,21 @@ function renderPreventivoPdf(doc, autoTable, report, totalsRow) {
     y = addSectionTitle(doc, y, 'Versamenti senza rata assegnata');
     autoTable(doc, {
       startY: y,
-      head: [['Data', 'Metodo', 'Importo']],
-      body: report.unlinkedPayments.map(p => [p.date || '—', p.method || '—', fmt(p.amount)]),
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [120, 50, 50] }
+      head: [['Data', 'Metodo', 'Importo']].map(row => row.map(cell)),
+      body: report.unlinkedPayments.map(p => [
+        cell(p.date || '-'),
+        cell(p.method || '-'),
+        cell(pdfFmt(p.amount))
+      ]),
+      ...PDF_TABLE,
+      headStyles: { ...PDF_TABLE.headStyles, fillColor: [120, 50, 50] }
     });
     y = doc.lastAutoTable.finalY + 8;
   }
 
   doc.setFontSize(8);
   doc.text(
-    'Report preventivo: rate e saldi su preventivo. Saldo preventivo = versato − totale voci preventivo.',
+    cell('Report preventivo: rate e saldi su preventivo. Saldo preventivo = versato - totale voci preventivo.'),
     14,
     Math.min(y + 4, 285),
     { maxWidth: 180 }
@@ -124,57 +168,74 @@ function renderPreventivoPdf(doc, autoTable, report, totalsRow) {
 }
 
 function renderConsuntivoPdf(doc, autoTable, report, totalsRow) {
-  let y = renderPdfHeader(doc, report.house, report.period, 'Situazione consuntiva — spese condominiali');
+  const house = report.house;
+  let y = renderPdfHeader(doc, house, report.period, 'Situazione consuntiva - spese condominiali');
   const consStatus = situazioneStatusLabel(totalsRow?.balanceConsuntivo ?? 0);
 
   autoTable(doc, {
     startY: y,
     theme: 'plain',
     body: [
-      ['Consuntivo (totale voci)', fmt(totalsRow?.consuntivo ?? 0)],
-      ['Totale versato', fmt(totalsRow?.paid ?? 0)],
-      ['Saldo consuntivo (versato − consuntivo)', `${fmt(totalsRow?.balanceConsuntivo ?? 0)} — ${consStatus.text}`]
+      [cell('Consuntivo (totale voci)'), cell(pdfFmt(totalsRow?.consuntivo ?? 0))],
+      [cell('Totale versato'), cell(pdfFmt(totalsRow?.paid ?? 0))],
+      [cell('Saldo consuntivo (versato - consuntivo)'), cell(`${pdfFmt(totalsRow?.balanceConsuntivo ?? 0)} - ${consStatus.text}`)]
     ],
-    styles: { fontSize: 9 },
+    styles: { ...PDF_TABLE.styles, fontSize: 9 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 95 }, 1: { cellWidth: 75 } }
   });
   y = doc.lastAutoTable.finalY + 10;
 
   const { consuntivoDues } = report;
   if (consuntivoDues.length) {
-    y = addSectionTitle(doc, y, 'Consuntivo — voci');
+    y = addSectionTitle(doc, y, 'Consuntivo - voci');
     autoTable(doc, {
       startY: y,
-      head: [['Descrizione', 'Importo']],
-      body: consuntivoDues.map(d => [d.description || 'Consuntivo', fmt(d.amount)]),
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [80, 80, 80] }
+      head: [['Descrizione', 'Importo']].map(row => row.map(cell)),
+      body: consuntivoDues.map(d => [cell(d.description || 'Consuntivo'), cell(pdfFmt(d.amount))]),
+      ...PDF_TABLE,
+      headStyles: { ...PDF_TABLE.headStyles, fillColor: [80, 80, 80] }
     });
     y = doc.lastAutoTable.finalY + 4;
     doc.setFontSize(9);
     doc.text(
-      `Totale consuntivo: ${fmt(report.consuntivoTotal)} · Versato esercizio: ${fmt(report.paidTotal)} · Saldo: ${fmt(totalsRow?.balanceConsuntivo ?? 0)}`,
+      cell(`Totale consuntivo: ${pdfFmt(report.consuntivoTotal)} | Versato esercizio: ${pdfFmt(report.paidTotal)} | Saldo: ${pdfFmt(totalsRow?.balanceConsuntivo ?? 0)}`),
       14,
       y + 4
     );
     y += 14;
   }
 
+  if (report.periodPayments.length) {
+    y = addSectionTitle(doc, y, 'Versamenti esercizio (contano sul consuntivo)');
+    autoTable(doc, {
+      startY: y,
+      head: [['Data', 'Metodo', 'Rata preventivo', 'Importo']].map(row => row.map(cell)),
+      body: paymentPdfRows(house, report.periodPayments),
+      ...PDF_TABLE,
+      headStyles: { ...PDF_TABLE.headStyles, fillColor: [45, 85, 135] }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+  }
+
   if (report.unlinkedPayments.length) {
     y = addSectionTitle(doc, y, 'Versamenti senza rata assegnata');
     autoTable(doc, {
       startY: y,
-      head: [['Data', 'Metodo', 'Importo']],
-      body: report.unlinkedPayments.map(p => [p.date || '—', p.method || '—', fmt(p.amount)]),
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [120, 50, 50] }
+      head: [['Data', 'Metodo', 'Importo']].map(row => row.map(cell)),
+      body: report.unlinkedPayments.map(p => [
+        cell(p.date || '-'),
+        cell(p.method || '-'),
+        cell(pdfFmt(p.amount))
+      ]),
+      ...PDF_TABLE,
+      headStyles: { ...PDF_TABLE.headStyles, fillColor: [120, 50, 50] }
     });
     y = doc.lastAutoTable.finalY + 8;
   }
 
   doc.setFontSize(8);
   doc.text(
-    'Report consuntivo: saldo = versato − consuntivo. Le eccedenze possono essere riportate sul preventivo dell\'esercizio successivo.',
+    cell('Report consuntivo: saldo = versato - consuntivo. I versamenti restano sulle rate preventivo; contano anche sul consuntivo dell\'esercizio.'),
     14,
     Math.min(y + 4, 285),
     { maxWidth: 180 }

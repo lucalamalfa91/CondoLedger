@@ -1,5 +1,5 @@
 import { MATCH_THRESHOLD_MIN, MATCH_THRESHOLD_SUGGEST } from './config.js';
-import { findPeriodByDate, periodSummary } from './fiscal.js';
+import { findPeriodByDate, periodSummary, primaryDueAmountForPeriod } from './fiscal.js';
 
 const KEYWORDS = ['condom', 'amministr', 'spese', 'rata', 'assemblea'];
 
@@ -22,7 +22,7 @@ export function scoreMovement(house, movement) {
   const period = findPeriodByDate(house, movement.movementDate);
   const summaries = periodSummary(house);
   const periodSummaryRow = summaries.find(s => s.id === period.id || s.label === period.label);
-  const expectedDue = periodSummaryRow?.preventivo ?? periodSummaryRow?.due ?? 0;
+  const expectedDue = primaryDueAmountForPeriod(periodSummaryRow);
   const payAmount = movement.paymentAmount;
 
   let score = 0;

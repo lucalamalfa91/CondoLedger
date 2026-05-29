@@ -307,7 +307,9 @@ export async function linkBankMovement(house, movementId, fiscalPeriodId) {
   if (bmErr) throw bmErr;
 
   let installmentKey = null;
-  for (const d of house.dues.filter(d => String(d.fiscalPeriodId) === String(fiscalPeriodId))) {
+  for (const d of house.dues.filter(d =>
+    String(d.fiscalPeriodId) === String(fiscalPeriodId) && (d.dueKind || 'preventivo') === 'preventivo'
+  )) {
     const slot = findInstallmentForDate(house, d, bm.movement_date);
     if (slot) { installmentKey = slot.key; break; }
   }

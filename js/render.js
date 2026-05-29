@@ -412,6 +412,19 @@ export function createRenderer(els) {
     return `<div class="situazione-section"><h3 class="situazione-section-title">Consuntivo</h3><div class="data-table-wrap"><table><thead><tr><th>Descrizione</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>Totale consuntivo</th><td class="amount">${fmt(report.consuntivoTotal)}</td></tr><tr><th>Saldo (versato − consuntivo)</th><td class="amount ${balCls}">${fmt(b)}</td></tr></tfoot></table></div></div>`;
   }
 
+  function renderConsuntivoPaymentsSection(house, report) {
+    if (!report.consuntivoDues.length || !report.periodPayments.length) return '';
+    const rows = [...report.periodPayments]
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+      .map(p => {
+        const key = p.installmentKey || inferInstallmentKey(house, p);
+        const rata = installmentShortLabel(house, key);
+        const cls = Number(p.amount) >= 0 ? 'positive' : 'negative';
+        return `<tr><td>${p.date || '—'}</td><td>${p.method || '—'}</td><td>${rata}</td><td class="amount ${cls}">${fmt(p.amount)}</td></tr>`;
+      }).join('');
+    return `<div class="situazione-section"><h3 class="situazione-section-title">Versamenti esercizio</h3><p class="hint subtle">Contano sul consuntivo dell'esercizio; la rata preventivo resta invariata.</p><div class="data-table-wrap"><table><thead><tr><th>Data vers.</th><th>Metodo</th><th>Rata preventivo</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="3">Totale versato</th><td class="amount">${fmt(report.paidTotal)}</td></tr></tfoot></table></div></div>`;
+  }
+
   function renderCarrySection(house, carryDues) {
     if (!carryDues.length) return '';
     const rows = carryDues.map(d => {
@@ -476,6 +489,7 @@ export function createRenderer(els) {
     els.situazioneSections.innerHTML = [
       renderRateTable(report.slots),
       renderConsuntivoSection(report, totalsRow),
+      renderConsuntivoPaymentsSection(house, report),
       renderCarrySection(house, report.carryDues),
       renderUnlinkedSection(report.unlinkedPayments)
     ].filter(Boolean).join('');

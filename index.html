@@ -87,7 +87,13 @@
         <div class="house-bar">
           <label class="sr-only" for="houseSelect">Immobile attivo</label>
           <select id="houseSelect" class="house-select" aria-label="Seleziona immobile"></select>
-          <button class="btn-link" id="headerAddHouseBtn" type="button">+ casa</button>
+          <button class="icon-btn add-house-btn" id="headerAddHouseBtn" type="button" aria-label="Aggiungi immobile" title="Aggiungi immobile">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 20V8.5L12 4l8 4.5V20"/>
+              <path d="M8 20v-6h8v6"/>
+              <path d="M17 5v4M15 7h4"/>
+            </svg>
+          </button>
         </div>
         <div class="header-titles">
           <div class="page-title" id="viewTitle">Panoramica</div>
@@ -114,7 +120,7 @@
         <div class="hero">
           <div>
             <h2 class="page-title" id="currentHouseTitle">Nessuna casa selezionata</h2>
-            <p class="muted" id="currentHouseMeta">Aggiungi un immobile da Impostazioni o con + casa.</p>
+            <p class="muted" id="currentHouseMeta">Aggiungi un immobile dal pulsante accanto al menu o da Impostazioni.</p>
           </div>
           <div class="toolbar">
             <button class="btn btn-primary" type="button" data-nav-target="movimenti" data-nav-subview="dovuti">+ Dovuto</button>

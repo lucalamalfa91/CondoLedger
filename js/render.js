@@ -317,8 +317,8 @@ export function createRenderer(els) {
 
   function renderEmptyState() {
     els.currentHouseTitle.textContent = 'Nessuna casa selezionata';
-    els.currentHouseMeta.textContent = 'Aggiungi un immobile con + casa in alto o da Impostazioni → Immobili.';
-    els.metrics.innerHTML = '<div class="empty" style="grid-column:1 / -1;">Nessun immobile registrato.<br/><button type="button" class="btn btn-primary" id="emptyAddHouseBtn" style="margin-top:1rem;">+ casa</button></div>';
+    els.currentHouseMeta.textContent = 'Aggiungi un immobile con il pulsante accanto al menu o da Impostazioni → Immobili.';
+    els.metrics.innerHTML = '<div class="empty" style="grid-column:1 / -1;">Nessun immobile registrato.<br/><button type="button" class="btn btn-primary" id="emptyAddHouseBtn" style="margin-top:1rem;">Aggiungi immobile</button></div>';
     els.annualTableWrap.innerHTML = '<div class="empty">Nessuna annualità disponibile.</div>';
     els.annualCards.innerHTML = '<div class="empty">Nessun saldo disponibile.</div>';
     els.annualPageCards.innerHTML = '<div class="empty">Nessuna annualità registrata.</div>';

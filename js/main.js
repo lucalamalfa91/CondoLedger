@@ -192,6 +192,7 @@ function startNewHouseForm() {
 function selectHouse(houseId) {
   state.houseFormMode = 'edit';
   state.selectedHouseId = houseId;
+  if (houseId) sessionStorage.setItem('app:selectedHouseId', houseId);
   render();
 }
 
@@ -607,9 +608,12 @@ els.unlinkedMovements?.addEventListener('click', async e => {
   const select = row?.querySelector('.link-period');
   if (!select?.value) { alert('Seleziona un esercizio fiscale.'); return; }
   try {
-    await linkBankMovement(house, btn.dataset.id, select.value);
+    const periodId = select.value;
+    await linkBankMovement(house, btn.dataset.id, periodId);
+    state.pendingSituazionePeriodId = periodId;
     await loadFromSupabase();
     render();
+    alert('Versamento associato all\'esercizio selezionato. Controlla Versamenti o Situazione per l\'esercizio scelto.');
   } catch (err) {
     alert(err.message);
   }

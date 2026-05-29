@@ -14,6 +14,7 @@ import {
   carryFromLabel,
   defaultSituazionePdfKind,
   hasConsuntivoReport,
+  hasPaymentsOnlyReport,
   hasPreventivoReport,
   resolveSituazionePdfKind,
   situazioneStatusLabel
@@ -412,6 +413,19 @@ export function createRenderer(els) {
     return `<div class="situazione-section"><h3 class="situazione-section-title">Consuntivo</h3><div class="data-table-wrap"><table><thead><tr><th>Descrizione</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>Totale consuntivo</th><td class="amount">${fmt(report.consuntivoTotal)}</td></tr><tr><th>Saldo (versato − consuntivo)</th><td class="amount ${balCls}">${fmt(b)}</td></tr></tfoot></table></div></div>`;
   }
 
+  function renderPeriodPaymentsSection(house, report, title = 'Versamenti esercizio') {
+    if (!report.periodPayments.length) return '';
+    const rows = [...report.periodPayments]
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+      .map(p => {
+        const key = p.installmentKey || inferInstallmentKey(house, p);
+        const rata = installmentShortLabel(house, key);
+        const cls = Number(p.amount) >= 0 ? 'positive' : 'negative';
+        return `<tr><td>${p.date || '—'}</td><td>${p.method || '—'}</td><td>${rata}</td><td class="amount ${cls}">${fmt(p.amount)}</td></tr>`;
+      }).join('');
+    return `<div class="situazione-section"><h3 class="situazione-section-title">${title}</h3><div class="data-table-wrap"><table><thead><tr><th>Data vers.</th><th>Metodo</th><th>Rata preventivo</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="3">Totale versato</th><td class="amount">${fmt(report.paidTotal)}</td></tr></tfoot></table></div></div>`;
+  }
+
   function renderConsuntivoPaymentsSection(house, report) {
     if (!report.consuntivoDues.length || !report.periodPayments.length) return '';
     const rows = [...report.periodPayments]
@@ -467,17 +481,20 @@ export function createRenderer(els) {
       els.situazionePdfBtn?.setAttribute('disabled', '');
       return;
     }
-    const current = els.situazionePeriod.value;
+    const pending = state.pendingSituazionePeriodId;
+    const current = pending || els.situazionePeriod.value;
     els.situazionePeriod.innerHTML = summary.map(s =>
       `<option value="${s.id}" ${s.id === current ? 'selected' : ''}>${s.label}</option>`
     ).join('');
-    const periodId = els.situazionePeriod.value || summary[0].id;
-    if (!els.situazionePeriod.value) els.situazionePeriod.value = periodId;
+    const periodId = summary.some(s => s.id === current) ? current : summary[0].id;
+    els.situazionePeriod.value = periodId;
+    if (pending) state.pendingSituazionePeriodId = null;
 
     const report = buildSituazioneReport(house, periodId);
     const totalsRow = report.totalsRow;
     syncSituazionePdfKind(house, periodId);
-    if (!hasConsuntivoReport(report) && !hasPreventivoReport(report)) {
+    const paymentsOnly = hasPaymentsOnlyReport(report);
+    if (!hasConsuntivoReport(report) && !hasPreventivoReport(report) && !paymentsOnly) {
       if (els.situazioneSummary) els.situazioneSummary.innerHTML = '';
       els.situazioneSections.innerHTML = '<div class="empty">Nessun preventivo/consuntivo per questo esercizio.</div>';
       return;
@@ -490,6 +507,7 @@ export function createRenderer(els) {
       renderRateTable(report.slots),
       renderConsuntivoSection(report, totalsRow),
       renderConsuntivoPaymentsSection(house, report),
+      paymentsOnly ? renderPeriodPaymentsSection(house, report, 'Versamenti registrati') : '',
       renderCarrySection(house, report.carryDues),
       renderUnlinkedSection(report.unlinkedPayments)
     ].filter(Boolean).join('');

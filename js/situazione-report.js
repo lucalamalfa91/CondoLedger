@@ -53,6 +53,10 @@ export function hasPreventivoReport(report) {
   return Boolean(report?.slots?.length || report?.preventivoDues?.length);
 }
 
+export function hasPaymentsOnlyReport(report) {
+  return Boolean(report?.periodPayments?.length) && !hasConsuntivoReport(report) && !hasPreventivoReport(report);
+}
+
 /** Default PDF: consuntivo se presente, altrimenti preventivo. */
 export function defaultSituazionePdfKind(report) {
   if (hasConsuntivoReport(report)) return 'consuntivo';

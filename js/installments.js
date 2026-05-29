@@ -129,7 +129,13 @@ export function filterPaymentsByInstallmentPeriod(payments, house, yearFilter, m
     const key = p.installmentKey || inferInstallmentKey(house, p);
     if (!key) {
       if (!yearFilter && !monthFilter) return true;
-      return false;
+      const iso = String(p.date || '').slice(0, 10);
+      if (!iso) return false;
+      const y = Number(iso.slice(0, 4));
+      const m = Number(iso.slice(5, 7));
+      if (yearFilter && y !== Number(yearFilter)) return false;
+      if (monthFilter && m !== Number(monthFilter)) return false;
+      return true;
     }
     const slot = findInstallment(house, key);
     if (!slot) return !yearFilter && !monthFilter;

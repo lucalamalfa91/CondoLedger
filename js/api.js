@@ -44,8 +44,15 @@ export async function loadFromSupabase() {
     mapped.push(mapHouseFromDb(house, dues, payments, periods, movements));
   }
 
+  const previousId = state.selectedHouseId || sessionStorage.getItem('app:selectedHouseId');
   state.data = { houses: mapped };
-  state.selectedHouseId = mapped[0]?.id || null;
+  const stillSelected = previousId && mapped.some(h => h.id === previousId);
+  state.selectedHouseId = stillSelected ? previousId : (mapped[0]?.id || null);
+  if (state.selectedHouseId) {
+    sessionStorage.setItem('app:selectedHouseId', state.selectedHouseId);
+  } else {
+    sessionStorage.removeItem('app:selectedHouseId');
+  }
 }
 
 export async function saveHouseToSupabase(house) {

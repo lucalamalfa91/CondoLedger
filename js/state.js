@@ -12,7 +12,8 @@ export const state = {
   user: null,
   recoveryMode: false,
   bankImportPreview: [],
-  houseFormMode: 'edit'
+  houseFormMode: 'edit',
+  pendingSituazionePeriodId: null
 };
 
 export function activeHouse() {

@@ -564,6 +564,60 @@ export function createRenderer(els) {
     });
   }
 
+  function listBankImportBatches(house) {
+    const byBatch = new Map();
+    for (const m of house.bankMovements) {
+      if (!m.importBatchId) continue;
+      let batch = byBatch.get(m.importBatchId);
+      if (!batch) {
+        batch = {
+          id: m.importBatchId,
+          movements: [],
+          linked: 0,
+          unlinked: 0,
+          importedAt: m.createdAt
+        };
+        byBatch.set(m.importBatchId, batch);
+      }
+      batch.movements.push(m);
+      if (m.status === 'linked') batch.linked += 1;
+      else if (m.status === 'unlinked') batch.unlinked += 1;
+      if (m.createdAt && (!batch.importedAt || m.createdAt < batch.importedAt)) {
+        batch.importedAt = m.createdAt;
+      }
+    }
+    return [...byBatch.values()]
+      .map(b => {
+        const dates = b.movements.map(m => m.movementDate).filter(Boolean).sort();
+        return {
+          ...b,
+          count: b.movements.length,
+          periodFrom: dates[0] || '—',
+          periodTo: dates[dates.length - 1] || '—'
+        };
+      })
+      .sort((a, b) => String(b.importedAt || '').localeCompare(String(a.importedAt || '')));
+  }
+
+  function renderBankImportBatches(house) {
+    if (!els.bankImportBatches) return;
+    const batches = listBankImportBatches(house);
+    if (!batches.length) {
+      els.bankImportBatches.innerHTML = '<div class="empty">Nessun import banca salvato per questo immobile.</div>';
+      if (els.bankImportDeleteAll) els.bankImportDeleteAll.disabled = true;
+      return;
+    }
+    if (els.bankImportDeleteAll) els.bankImportDeleteAll.disabled = false;
+    const importedLabel = iso => {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
+    };
+    els.bankImportBatches.innerHTML = `<table><thead><tr><th>Importato il</th><th>Periodo movimenti</th><th>Movimenti</th><th>Collegati</th><th></th></tr></thead><tbody>${batches.map(b =>
+      `<tr><td>${importedLabel(b.importedAt)}</td><td>${b.periodFrom === b.periodTo ? b.periodFrom : `${b.periodFrom} – ${b.periodTo}`}</td><td>${b.count}</td><td>${b.linked}</td><td><button type="button" class="btn btn-danger delete-batch-btn" data-batch="${b.id}">Elimina import</button></td></tr>`
+    ).join('')}</tbody></table>`;
+  }
+
   function renderUnlinkedMovements(house) {
     if (!els.unlinkedMovements) return;
     const rows = house.bankMovements.filter(m => m.status === 'unlinked');
@@ -622,6 +676,7 @@ export function createRenderer(els) {
     renderHouseForm(house);
     renderPeriodSelects(house);
     renderBankImportPreview(house);
+    renderBankImportBatches(house);
     renderUnlinkedMovements(house);
     if (state.currentView === 'impostazioni' && state.currentSubview === 'account') authRenderAccount?.();
   }
@@ -697,6 +752,8 @@ export function collectDom() {
     bankImportFile: document.getElementById('bankImportFile'),
     bankImportConfirm: document.getElementById('bankImportConfirm'),
     bankImportPreview: document.getElementById('bankImportPreview'),
+    bankImportBatches: document.getElementById('bankImportBatches'),
+    bankImportDeleteAll: document.getElementById('bankImportDeleteAll'),
     unlinkedMovements: document.getElementById('unlinkedMovements'),
     demoBtn: document.getElementById('demoBtn'),
     duePeriodLabel: document.getElementById('duePeriodLabel'),

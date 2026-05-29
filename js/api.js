@@ -301,6 +301,68 @@ export async function saveUnlinkedBankMovements(house, batchId, previewRows) {
   }
 }
 
+async function deletePaymentsForBankMovements(house, movements) {
+  if (!movements?.length) return 0;
+  const movementIds = movements.map(m => Number(m.id));
+  const linkedPayIds = [...new Set(
+    movements.map(m => m.linked_payment_id).filter(id => Number.isFinite(Number(id)))
+  )];
+
+  const { error: pErr } = await state.supabase.from('payments')
+    .delete()
+    .eq('house_id', Number(house.id))
+    .in('bank_movement_id', movementIds);
+  if (pErr) throw pErr;
+
+  if (linkedPayIds.length) {
+    const { error: pErr2 } = await state.supabase.from('payments')
+      .delete()
+      .eq('house_id', Number(house.id))
+      .in('id', linkedPayIds);
+    if (pErr2) throw pErr2;
+  }
+
+  return movementIds.length;
+}
+
+export async function deleteBankImportBatch(house, batchId) {
+  await ensureAuthenticated();
+  const { data: movements, error: mErr } = await state.supabase.from('bank_movements')
+    .select('id, linked_payment_id')
+    .eq('house_id', Number(house.id))
+    .eq('import_batch_id', batchId);
+  if (mErr) throw mErr;
+  if (!movements?.length) return { deletedMovements: 0, deletedPayments: 0 };
+
+  await deletePaymentsForBankMovements(house, movements);
+
+  const { error: bmErr } = await state.supabase.from('bank_movements')
+    .delete()
+    .eq('house_id', Number(house.id))
+    .eq('import_batch_id', batchId);
+  if (bmErr) throw bmErr;
+
+  return { deletedMovements: movements.length };
+}
+
+export async function deleteAllBankImports(house) {
+  await ensureAuthenticated();
+  const { data: movements, error: mErr } = await state.supabase.from('bank_movements')
+    .select('id, linked_payment_id')
+    .eq('house_id', Number(house.id));
+  if (mErr) throw mErr;
+  if (!movements?.length) return { deletedMovements: 0 };
+
+  await deletePaymentsForBankMovements(house, movements);
+
+  const { error: bmErr } = await state.supabase.from('bank_movements')
+    .delete()
+    .eq('house_id', Number(house.id));
+  if (bmErr) throw bmErr;
+
+  return { deletedMovements: movements.length };
+}
+
 export async function linkBankMovement(house, movementId, fiscalPeriodId) {
   await ensureAuthenticated();
   const { data: bm, error: bmErr } = await state.supabase.from('bank_movements').select('*').eq('id', Number(movementId)).single();

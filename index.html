@@ -220,6 +220,9 @@
               <input class="file-input" id="bankImportFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
               <p class="muted">I movimenti con match incerto restano non associati fino a conferma manuale.</p>
               <button class="btn btn-primary" id="bankImportConfirm" type="button">Conferma import selezionati</button>
+              <div class="panel-head"><div><h3>Import salvati</h3><p class="subtle">Annulla un import errato: elimina movimenti banca e versamenti collegati.</p></div></div>
+              <div class="data-table-wrap" id="bankImportBatches"></div>
+              <button class="btn btn-danger" id="bankImportDeleteAll" type="button">Elimina tutti gli import banca</button>
             </aside>
             <div class="split-content-pane import-stack">
               <section class="card stack data-panel">

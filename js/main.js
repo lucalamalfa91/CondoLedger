@@ -3,6 +3,8 @@ import {
   createLocalDue,
   createLocalPayment,
   createSupabaseClient,
+  deleteAllBankImports,
+  deleteBankImportBatch,
   deleteDueFromSupabase,
   deleteHouseRemote,
   deletePaymentFromSupabase,
@@ -560,6 +562,41 @@ els.movements?.addEventListener('click', handleRecordAction);
 
 els.bankImportFile?.addEventListener('change', e => handleBankFile(e.target.files[0]));
 els.bankImportConfirm?.addEventListener('click', confirmBankImport);
+
+els.bankImportBatches?.addEventListener('click', async e => {
+  const btn = e.target.closest('.delete-batch-btn');
+  if (!btn) return;
+  const house = ensureHouse();
+  if (!house || !Number.isFinite(Number(house.id))) return;
+  const batchId = btn.dataset.batch;
+  if (!batchId) return;
+  const count = house.bankMovements.filter(m => m.importBatchId === batchId).length;
+  if (!confirm(`Eliminare questo import (${count} movimenti banca e i versamenti collegati)? L'operazione non è reversibile.`)) return;
+  try {
+    await deleteBankImportBatch(house, batchId);
+    await loadFromSupabase();
+    render();
+    alert('Import eliminato.');
+  } catch (err) {
+    alert(err.message || 'Errore eliminazione import');
+  }
+});
+
+els.bankImportDeleteAll?.addEventListener('click', async () => {
+  const house = ensureHouse();
+  if (!house || !Number.isFinite(Number(house.id))) return;
+  const count = house.bankMovements.length;
+  if (!count) return;
+  if (!confirm(`Eliminare TUTTI gli import banca (${count} movimenti) e i versamenti collegati? I dovuti e i versamenti inseriti manualmente non verranno toccati.`)) return;
+  try {
+    await deleteAllBankImports(house);
+    await loadFromSupabase();
+    render();
+    alert('Tutti gli import banca sono stati eliminati.');
+  } catch (err) {
+    alert(err.message || 'Errore eliminazione import');
+  }
+});
 
 els.unlinkedMovements?.addEventListener('click', async e => {
   const btn = e.target.closest('.link-btn');

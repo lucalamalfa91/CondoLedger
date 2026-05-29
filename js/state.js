@@ -74,6 +74,7 @@ export function mapHouseFromDb(house, dues, payments, periods, movements) {
     })),
     bankMovements: (movements || []).map(m => ({
       id: String(m.id),
+      importBatchId: m.import_batch_id || null,
       movementDate: m.movement_date,
       operation: m.operation || '',
       details: m.details || '',
@@ -83,7 +84,8 @@ export function mapHouseFromDb(house, dues, payments, periods, movements) {
       suggestedFiscalPeriodId: m.suggested_fiscal_period_id ? String(m.suggested_fiscal_period_id) : null,
       matchConfidence: m.match_confidence,
       matchReason: m.match_reason || '',
-      linkedPaymentId: m.linked_payment_id ? String(m.linked_payment_id) : null
+      linkedPaymentId: m.linked_payment_id ? String(m.linked_payment_id) : null,
+      createdAt: m.created_at || null
     }))
   };
 }

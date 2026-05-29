@@ -150,7 +150,7 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
       els.loginPassword.value = '';
       setStatus(state.user.email);
       setAuthUI(true);
-      setView('dashboard');
+      setView('panoramica');
       await loadFromSupabase();
       render();
     } catch (err) {
@@ -187,7 +187,7 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
       if (state.user) {
         setStatus(state.user.email);
         setAuthUI(true);
-        setView('account');
+        setView('impostazioni', 'account');
         renderAccountView();
         await loadFromSupabase();
         render();

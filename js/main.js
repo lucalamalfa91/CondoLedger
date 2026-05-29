@@ -19,6 +19,7 @@ import {
 } from './api.js';
 import { createAuthHandlers } from './auth.js';
 import { exportBackup, parseBackup } from './backup.js';
+import { resolveView } from './config.js';
 import { periodLabel } from './fiscal.js';
 import { parseIntesaFile } from './intesa.js';
 import { enrichPreview } from './matching.js';
@@ -33,7 +34,7 @@ function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
 }
 
-const { setView, render: baseRender, syncPaymentPeriodSelect } = createRenderer(els);
+const { setView, render: baseRender, syncPaymentPeriodSelect, openHouseDrawer, closeHouseDrawer } = createRenderer(els);
 let renderedHouseId = null;
 function render(...args) {
   const house = activeHouse();
@@ -44,8 +45,16 @@ function render(...args) {
   }
   baseRender(...args);
 }
+function navigate(view, subview = null) {
+  setView(view, subview);
+  const resolved = resolveView(view, subview);
+  if (resolved.view === 'impostazioni' && resolved.subview === 'account') {
+    auth.renderAccountView();
+  }
+}
+
 const auth = createAuthHandlers(els, {
-  setView: v => { setView(v); if (v === 'account') auth.renderAccountView(); },
+  setView: (v, s) => navigate(v, s),
   render,
   setTheme
 });
@@ -84,7 +93,8 @@ function startEditDue(house, due) {
   if (els.dueEditId) els.dueEditId.value = due.id;
   if (els.dueSubmitBtn) els.dueSubmitBtn.textContent = 'Aggiorna dovuto';
   els.dueFormCancel?.classList.remove('hidden');
-  setView('annualita');
+  navigate('movimenti', 'dovuti');
+  els.dueForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function startEditPayment(house, payment) {
@@ -96,7 +106,8 @@ function startEditPayment(house, payment) {
   els.paymentFormCancel?.classList.remove('hidden');
   syncPaymentPeriodSelect(house);
   if (payment.fiscalPeriodId) els.paymentPeriod.value = payment.fiscalPeriodId;
-  setView('versamenti');
+  navigate('movimenti', 'versamenti');
+  els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function deleteDue(house, dueId) {
@@ -165,7 +176,7 @@ async function addHouse() {
   state.data.houses.push(house);
   state.selectedHouseId = house.id;
   render();
-  setView('immobile');
+  navigate('impostazioni', 'casa');
   try {
     await saveHouseToSupabase(house);
     await loadFromSupabase();
@@ -189,7 +200,7 @@ async function handleBankFile(file) {
       manualPeriodId: row.suggestedFiscalPeriodId || null
     }));
     render();
-    setView('importbanca');
+    navigate('movimenti', 'import');
   } catch (err) {
     alert(err.message || 'Errore lettura file Excel');
   }
@@ -251,24 +262,79 @@ async function importJson(file) {
   reader.readAsText(file);
 }
 
+function openQuickAddSheet() {
+  els.quickAddSheet?.classList.remove('hidden');
+  els.quickAddBackdrop?.classList.remove('hidden');
+}
+
+function closeQuickAddSheet() {
+  els.quickAddSheet?.classList.add('hidden');
+  els.quickAddBackdrop?.classList.add('hidden');
+}
+
+function closeAllOverlays() {
+  closeQuickAddSheet();
+  closeHouseDrawer();
+  els.userMenu?.classList.add('hidden');
+  els.userMenuBtn?.setAttribute('aria-expanded', 'false');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  closeAllOverlays();
+});
+
+function wireNavigation() {
+  els.navButtons.forEach(btn => btn.addEventListener('click', () => navigate(btn.dataset.view)));
+  els.subviewTabs?.forEach(tab => tab.addEventListener('click', () => navigate(tab.dataset.view, tab.dataset.subview)));
+  document.querySelectorAll('[data-nav-target]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      navigate(btn.dataset.navTarget, btn.dataset.navSubview || null);
+      if (btn.dataset.closeSheet) closeQuickAddSheet();
+    });
+  });
+}
+
 els.loginForm.addEventListener('submit', auth.signIn);
 els.recoveryForm.addEventListener('submit', auth.updatePasswordFromRecovery);
 els.accountPasswordForm.addEventListener('submit', auth.updatePasswordFromAccount);
 els.addHouseBtn.addEventListener('click', addHouse);
 els.exportBtn.addEventListener('click', exportJson);
 els.importFile.addEventListener('change', e => importJson(e.target.files[0]));
-els.demoBtn.addEventListener('click', () => alert('Demo locale disabilitata con fiscalità Supabase.'));
-els.themeToggle.addEventListener('click', () => setTheme(state.theme === 'dark' ? 'light' : 'dark'));
+els.demoBtn?.addEventListener('click', () => alert('Demo locale disabilitata con fiscalità Supabase.'));
 els.loginThemeToggle.addEventListener('click', () => setTheme(state.theme === 'dark' ? 'light' : 'dark'));
 els.recoveryThemeToggle.addEventListener('click', () => setTheme(state.theme === 'dark' ? 'light' : 'dark'));
-els.menuToggle.addEventListener('click', () => els.sidebar.classList.toggle('open'));
+wireNavigation();
 els.periodFilter.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
-els.navButtons.forEach(btn => btn.addEventListener('click', () => {
-  setView(btn.dataset.view);
-  if (btn.dataset.view === 'account') auth.renderAccountView();
-}));
-document.querySelectorAll('[data-nav-target]').forEach(btn => btn.addEventListener('click', () => setView(btn.dataset.navTarget)));
 els.logoutBtn.addEventListener('click', auth.logout);
+
+els.houseSwitcherBtn?.addEventListener('click', openHouseDrawer);
+els.houseDrawerToggle?.addEventListener('click', openHouseDrawer);
+els.houseDrawerClose?.addEventListener('click', closeHouseDrawer);
+els.houseDrawerBackdrop?.addEventListener('click', closeHouseDrawer);
+els.quickAddFab?.addEventListener('click', openQuickAddSheet);
+els.quickAddClose?.addEventListener('click', closeQuickAddSheet);
+els.quickAddBackdrop?.addEventListener('click', closeQuickAddSheet);
+
+els.userMenuBtn?.addEventListener('click', e => {
+  e.stopPropagation();
+  const hidden = els.userMenu.classList.toggle('hidden');
+  els.userMenuBtn.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+});
+els.userMenu?.addEventListener('click', e => {
+  e.stopPropagation();
+  const action = e.target.closest('[data-action]')?.dataset.action;
+  if (action === 'account') navigate('impostazioni', 'account');
+  if (action === 'theme') setTheme(state.theme === 'dark' ? 'light' : 'dark');
+  if (action) {
+    els.userMenu.classList.add('hidden');
+    els.userMenuBtn.setAttribute('aria-expanded', 'false');
+  }
+});
+document.addEventListener('click', () => {
+  els.userMenu?.classList.add('hidden');
+  els.userMenuBtn?.setAttribute('aria-expanded', 'false');
+});
 
 els.houseForm.addEventListener('submit', async e => {
   e.preventDefault();
@@ -295,7 +361,7 @@ els.deleteHouseBtn.addEventListener('click', async () => {
     state.data.houses = state.data.houses.filter(h => h.id !== house.id);
     state.selectedHouseId = state.data.houses[0]?.id || null;
     render();
-    setView('dashboard');
+    navigate('panoramica');
   } catch (err) {
     alert(err.message);
   }
@@ -327,7 +393,7 @@ els.dueForm.addEventListener('submit', async e => {
       house.dues.push({ ...due, id: uid('due'), fiscalPeriodId: due.fiscalPeriodLabel });
     }
     render();
-    setView('dashboard');
+    navigate('panoramica');
   } catch (err) {
     alert(err.message);
   }
@@ -368,7 +434,7 @@ els.paymentForm.addEventListener('submit', async e => {
       house.payments.push({ ...payment, id: uid('pay') });
     }
     render();
-    setView('dashboard');
+    navigate('panoramica');
   } catch (err) {
     alert(err.message);
   }
@@ -421,7 +487,7 @@ async function initApp() {
     auth.bindAuthStateChange();
     const sessionResult = await auth.restoreSession();
     if (sessionResult === true) {
-      setView('dashboard');
+      navigate('panoramica');
       render();
     }
   } catch {

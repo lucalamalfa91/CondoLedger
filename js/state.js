@@ -3,7 +3,8 @@ import { today } from './utils.js';
 export const state = {
   theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
   selectedHouseId: null,
-  currentView: 'dashboard',
+  currentView: 'panoramica',
+  currentSubview: null,
   data: { houses: [] },
   supabaseUrl: '',
   supabaseAnonKey: '',

@@ -4,15 +4,72 @@ export const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e
 
 export const JSON_SCHEMA_VERSION = 2;
 
-export const viewMeta = {
-  dashboard: ['Dashboard', 'Riepilogo della casa selezionata'],
-  annualita: ['Annualità', 'Dovuto, saldi e esercizio fiscale'],
-  versamenti: ['Versamenti', 'Inserimento e storico dei pagamenti'],
-  immobile: ['Immobile', 'Dati casa e fiscalità'],
-  importbanca: ['Import banca', 'Movimenti Excel Banca Intesa'],
-  archivio: ['Archivio', 'Import, export e backup dati'],
-  account: ['Account', 'Password e profilo utente']
-};
-
 export const MATCH_THRESHOLD_SUGGEST = 0.85;
 export const MATCH_THRESHOLD_MIN = 0.50;
+
+/** Legacy view IDs → [view, defaultSubview] */
+export const VIEW_ALIASES = {
+  dashboard: ['panoramica', null],
+  annualita: ['movimenti', 'dovuti'],
+  versamenti: ['movimenti', 'versamenti'],
+  importbanca: ['movimenti', 'import'],
+  archivio: ['dati', 'backup'],
+  immobile: ['impostazioni', 'casa'],
+  account: ['impostazioni', 'account']
+};
+
+export const viewMeta = {
+  panoramica: {
+    title: 'Panoramica',
+    subtitle: 'Riepilogo della casa selezionata',
+    defaultSubview: null
+  },
+  movimenti: {
+    title: 'Movimenti',
+    subtitle: 'Dovuti, versamenti e import banca',
+    defaultSubview: 'dovuti',
+    subviews: {
+      dovuti: ['Dovuti', 'Quote e annualità'],
+      versamenti: ['Versamenti', 'Pagamenti registrati'],
+      import: ['Import banca', 'Excel Banca Intesa'],
+      situazione: ['Situazione', 'Saldi per esercizio']
+    }
+  },
+  dati: {
+    title: 'Dati',
+    subtitle: 'Backup e registro movimenti',
+    defaultSubview: 'backup',
+    subviews: {
+      backup: ['Backup', 'Export e import JSON'],
+      registro: ['Registro', 'Tutti i movimenti']
+    }
+  },
+  impostazioni: {
+    title: 'Impostazioni',
+    subtitle: 'Casa e account',
+    defaultSubview: 'casa',
+    subviews: {
+      casa: ['Immobile', 'Dati casa e fiscalità'],
+      account: ['Account', 'Profilo e password']
+    }
+  }
+};
+
+export function resolveView(rawView, rawSubview = null) {
+  if (VIEW_ALIASES[rawView]) {
+    const [view, sub] = VIEW_ALIASES[rawView];
+    return { view, subview: rawSubview ?? sub };
+  }
+  const meta = viewMeta[rawView];
+  if (!meta) return { view: 'panoramica', subview: null };
+  return { view: rawView, subview: rawSubview ?? meta.defaultSubview ?? null };
+}
+
+export function viewHeading(view, subview) {
+  const meta = viewMeta[view];
+  if (!meta) return ['Panoramica', ''];
+  if (subview && meta.subviews?.[subview]) {
+    return meta.subviews[subview];
+  }
+  return [meta.title, meta.subtitle];
+}

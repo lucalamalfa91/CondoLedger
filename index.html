@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="css/app.css" />
 </head>
 <body>
+  <a class="skip-link" href="#mainContent">Vai al contenuto</a>
+
   <div class="login-screen" id="loginScreen">
     <div class="login-card">
       <div class="login-brand">
@@ -67,57 +69,65 @@
   </div>
 
   <div class="dashboard hidden" id="appShell">
-    <aside class="sidebar" id="sidebar">
-      <div class="brand">
-        <div class="logo"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V8.5L12 4l8 4.5V20"/><path d="M8 20v-6h8v6"/></svg></div>
-        <div><div class="page-title" style="font-size:var(--text-lg)">Condominio</div><div class="muted">Gestione spese</div></div>
+    <aside class="nav-rail" id="navRail" aria-label="Navigazione principale">
+      <div class="brand compact">
+        <div class="logo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V8.5L12 4l8 4.5V20"/><path d="M8 20v-6h8v6"/></svg></div>
+        <div class="brand-text"><strong>Condominio</strong><span class="muted">Gestione spese</span></div>
       </div>
-
-      <div class="section-title">Menu</div>
-      <nav class="nav-list" id="navList">
-        <button class="nav-btn active" data-view="dashboard"><strong>Dashboard</strong><span>Riepilogo casa selezionata</span></button>
-        <button class="nav-btn" data-view="annualita"><strong>Annualità</strong><span>Esercizio fiscale e saldi</span></button>
-        <button class="nav-btn" data-view="versamenti"><strong>Versamenti</strong><span>Pagamenti e storico</span></button>
-        <button class="nav-btn" data-view="importbanca"><strong>Import banca</strong><span>Excel Banca Intesa</span></button>
-        <button class="nav-btn" data-view="immobile"><strong>Immobile</strong><span>Dati casa e fiscalità</span></button>
-        <button class="nav-btn" data-view="archivio"><strong>Archivio</strong><span>Import, export e backup</span></button>
-        <button class="nav-btn" data-view="account"><strong>Account</strong><span>Password e profilo</span></button>
+      <nav class="nav-list">
+        <button class="nav-btn active" data-view="panoramica" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="nav-label"><strong>Panoramica</strong><span>Riepilogo</span></span></button>
+        <button class="nav-btn" data-view="movimenti" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span class="nav-label"><strong>Movimenti</strong><span>Dovuti e versamenti</span></span></button>
+        <button class="nav-btn" data-view="dati" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg></span><span class="nav-label"><strong>Dati</strong><span>Backup e archivio</span></span></button>
+        <button class="nav-btn" data-view="impostazioni" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></span><span class="nav-label"><strong>Impostazioni</strong><span>Casa e account</span></span></button>
       </nav>
-
-      <div class="section-title">Immobili</div>
-      <div id="houseList" class="house-list"></div>
-      <button class="btn btn-primary" id="addHouseBtn">+ Nuova casa</button>
     </aside>
 
     <header class="header">
       <div class="topbar-left">
-        <button class="icon-btn menu-toggle" id="menuToggle" aria-label="Apri menu"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
-        <div><div class="page-title" id="viewTitle">Dashboard</div><div class="muted" id="viewSubtitle">Riepilogo della casa selezionata</div></div>
+        <button class="icon-btn house-drawer-toggle" id="houseDrawerToggle" type="button" aria-expanded="false" aria-controls="houseDrawer" aria-label="Seleziona immobile">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V8.5L12 4l8 4.5V20"/><path d="M8 20v-6h8v6"/></svg>
+        </button>
+        <button class="house-switcher" id="houseSwitcherBtn" type="button" aria-expanded="false" aria-controls="houseDrawer">
+          <span class="house-switcher-label" id="houseSwitcherLabel">Seleziona immobile</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="header-titles">
+          <div class="page-title" id="viewTitle">Panoramica</div>
+          <div class="muted" id="viewSubtitle">Riepilogo della casa selezionata</div>
+        </div>
       </div>
       <div class="header-actions">
-        <div class="user-chip" id="userChip" title=""><span id="authStatus"></span></div>
-        <button class="btn btn-secondary" id="logoutBtn" type="button">Esci</button>
-        <button class="icon-btn" id="themeToggle" aria-label="Cambia tema"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+        <div class="user-menu-wrap">
+          <button class="user-chip" id="userMenuBtn" type="button" aria-expanded="false" aria-controls="userMenu" aria-label="Menu utente">
+            <span id="authStatus"></span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="user-menu hidden" id="userMenu" role="menu">
+            <button type="button" class="user-menu-item" data-action="account" role="menuitem">Account</button>
+            <button type="button" class="user-menu-item" data-action="theme" role="menuitem">Cambia tema</button>
+            <button type="button" class="user-menu-item user-menu-danger" id="logoutBtn" role="menuitem">Esci</button>
+          </div>
+        </div>
       </div>
     </header>
 
-    <main class="main">
-      <section class="view active" data-view-panel="dashboard">
+    <main class="main" id="mainContent">
+      <section class="view active" data-view-panel="panoramica">
         <div class="hero">
           <div>
             <h2 class="page-title" id="currentHouseTitle">Nessuna casa selezionata</h2>
-            <p class="muted" id="currentHouseMeta">Crea il primo immobile dalla barra laterale.</p>
+            <p class="muted" id="currentHouseMeta">Crea il primo immobile dal selettore in alto.</p>
           </div>
           <div class="toolbar">
-            <button class="btn btn-primary" data-nav-target="annualita">+ Dovuto</button>
-            <button class="btn btn-secondary" data-nav-target="versamenti">+ Versamento</button>
+            <button class="btn btn-primary" type="button" data-nav-target="movimenti" data-nav-subview="dovuti">+ Dovuto</button>
+            <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="versamenti">+ Versamento</button>
           </div>
         </div>
         <section class="cards" id="metrics"></section>
         <section class="grid-2">
           <div class="panel">
             <div class="panel-head"><div><h2>Riepilogo annualità</h2><p class="subtle">Confronto per esercizio fiscale.</p></div><select id="periodFilter"><option value="all">Tutti</option></select></div>
-            <div id="annualTableWrap"></div>
+            <div class="table-scroll" id="annualTableWrap"></div>
           </div>
           <div class="panel">
             <div class="panel-head"><div><h2>Scadenzario sintetico</h2><p class="subtle">Saldi aperti o in eccedenza.</p></div></div>
@@ -126,136 +136,186 @@
         </section>
       </section>
 
-      <section class="view" data-view-panel="annualita">
-        <div class="forms">
-          <div class="card stack">
-            <div class="panel-head"><div><h2>Nuovo dovuto</h2><p class="subtle">Registra quote per esercizio fiscale.</p></div></div>
-            <form id="dueForm" class="stack">
-              <div class="field-grid">
-                <div><label for="duePeriodLabel">Esercizio fiscale</label><input id="duePeriodLabel" name="fiscalPeriodLabel" type="text" inputmode="numeric" placeholder="es. 2024/2025" required /><p class="hint" id="duePeriodHint"></p></div>
-                <div><label for="dueAmount">Importo dovuto</label><input id="dueAmount" name="amount" type="number" min="0" step="0.01" required /></div>
-              </div>
-              <div><label for="dueDescription">Descrizione</label><input id="dueDescription" name="description" type="text" placeholder="Preventivo, saldo, conguaglio..." /></div>
-              <input id="dueEditId" name="editId" type="hidden" />
-              <div class="form-actions">
-                <button class="btn btn-primary" id="dueSubmitBtn" type="submit">Salva dovuto</button>
-                <button class="btn btn-secondary hidden" id="dueFormCancel" type="button">Annulla modifica</button>
-              </div>
-            </form>
+      <section class="view" data-view-panel="movimenti">
+        <nav class="sub-nav" role="tablist" aria-label="Sezioni movimenti">
+          <button class="sub-nav-btn active" type="button" role="tab" data-view="movimenti" data-subview="dovuti" aria-selected="true">Dovuti</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="versamenti" aria-selected="false">Versamenti</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="import" aria-selected="false">Import banca</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="situazione" aria-selected="false">Situazione</button>
+        </nav>
+        <div class="subview active" data-subview-panel="dovuti" role="tabpanel">
+          <div class="forms">
+            <div class="card stack">
+              <div class="panel-head"><div><h2>Nuovo dovuto</h2><p class="subtle">Registra quote per esercizio fiscale.</p></div></div>
+              <form id="dueForm" class="stack">
+                <div class="field-grid">
+                  <div><label for="duePeriodLabel">Esercizio fiscale</label><input id="duePeriodLabel" name="fiscalPeriodLabel" type="text" inputmode="numeric" placeholder="es. 2024/2025" required /><p class="hint" id="duePeriodHint"></p></div>
+                  <div><label for="dueAmount">Importo dovuto</label><input id="dueAmount" name="amount" type="number" min="0" step="0.01" required /></div>
+                </div>
+                <div><label for="dueDescription">Descrizione</label><input id="dueDescription" name="description" type="text" placeholder="Preventivo, saldo, conguaglio..." /></div>
+                <input id="dueEditId" name="editId" type="hidden" />
+                <div class="form-actions">
+                  <button class="btn btn-primary" id="dueSubmitBtn" type="submit">Salva dovuto</button>
+                  <button class="btn btn-secondary hidden" id="dueFormCancel" type="button">Annulla modifica</button>
+                </div>
+              </form>
+            </div>
+            <div class="card"><div class="panel-head"><div><h2>Dovuti registrati</h2><p class="subtle">Modifica o elimina le quote per esercizio.</p></div></div><div class="table-scroll" id="duesTable"></div></div>
           </div>
-          <div class="card"><div class="panel-head"><div><h2>Dovuti registrati</h2><p class="subtle">Modifica o elimina le quote per esercizio.</p></div></div><div id="duesTable"></div></div>
+        </div>
+        <div class="subview" data-subview-panel="versamenti" role="tabpanel">
+          <div class="forms">
+            <div class="card stack">
+              <div class="panel-head"><div><h2>Nuovo versamento</h2><p class="subtle">Registra un pagamento effettuato.</p></div></div>
+              <form id="paymentForm" class="stack">
+                <div class="field-grid">
+                  <div><label for="paymentPeriod">Esercizio fiscale</label><select id="paymentPeriod" name="fiscalPeriodId" required></select></div>
+                  <div><label for="paymentAmount">Importo versato</label><input id="paymentAmount" name="amount" type="number" min="0" step="0.01" required /></div>
+                </div>
+                <div class="field-grid">
+                  <div><label for="paymentDate">Data versamento</label><input id="paymentDate" name="date" type="date" /></div>
+                  <div><label for="paymentMethod">Metodo</label><input id="paymentMethod" name="method" type="text" placeholder="Bonifico, contanti..." /></div>
+                </div>
+                <input id="paymentEditId" name="editId" type="hidden" />
+                <div class="form-actions">
+                  <button class="btn btn-primary" id="paymentSubmitBtn" type="submit">Salva versamento</button>
+                  <button class="btn btn-secondary hidden" id="paymentFormCancel" type="button">Annulla modifica</button>
+                </div>
+              </form>
+            </div>
+            <div class="card"><div class="panel-head"><div><h2>Storico versamenti</h2><p class="subtle">Elenco dei pagamenti registrati.</p></div></div><div class="table-scroll" id="paymentsTable"></div></div>
+          </div>
+        </div>
+        <div class="subview" data-subview-panel="import" role="tabpanel">
+          <div class="forms">
+            <div class="card stack">
+              <div class="panel-head"><div><h2>Import Excel Banca Intesa</h2><p class="subtle">Formato export &quot;Lista Operazioni&quot;.</p></div></div>
+              <label class="btn btn-secondary" for="bankImportFile">Carica file Excel</label>
+              <input class="file-input" id="bankImportFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
+              <p class="muted">I movimenti con match incerto restano non associati fino a conferma manuale.</p>
+              <button class="btn btn-primary" id="bankImportConfirm" type="button">Conferma import selezionati</button>
+              <div class="table-scroll" id="bankImportPreview"></div>
+            </div>
+            <div class="card stack">
+              <div class="panel-head"><div><h2>Da associare manualmente</h2><p class="subtle">Movimenti importati senza esercizio fiscale.</p></div></div>
+              <div class="table-scroll" id="unlinkedMovements"></div>
+            </div>
+          </div>
+        </div>
+        <div class="subview" data-subview-panel="situazione" role="tabpanel">
           <div class="card"><div class="panel-head"><div><h2>Situazione annualità</h2><p class="subtle">Tutti gli esercizi registrati.</p></div></div><div id="annualPageCards"></div></div>
         </div>
       </section>
 
-      <section class="view" data-view-panel="versamenti">
-        <div class="forms">
-          <div class="card stack">
-            <div class="panel-head"><div><h2>Nuovo versamento</h2><p class="subtle">Registra un pagamento effettuato.</p></div></div>
-            <form id="paymentForm" class="stack">
-              <div class="field-grid">
-                <div><label for="paymentPeriod">Esercizio fiscale</label><select id="paymentPeriod" name="fiscalPeriodId" required></select></div>
-                <div><label for="paymentAmount">Importo versato</label><input id="paymentAmount" name="amount" type="number" min="0" step="0.01" required /></div>
-              </div>
-              <div class="field-grid">
-                <div><label for="paymentDate">Data versamento</label><input id="paymentDate" name="date" type="date" /></div>
-                <div><label for="paymentMethod">Metodo</label><input id="paymentMethod" name="method" type="text" placeholder="Bonifico, contanti..." /></div>
-              </div>
-              <input id="paymentEditId" name="editId" type="hidden" />
-              <div class="form-actions">
-                <button class="btn btn-primary" id="paymentSubmitBtn" type="submit">Salva versamento</button>
-                <button class="btn btn-secondary hidden" id="paymentFormCancel" type="button">Annulla modifica</button>
-              </div>
-            </form>
-          </div>
-          <div class="card"><div class="panel-head"><div><h2>Storico versamenti</h2><p class="subtle">Elenco dei pagamenti registrati.</p></div></div><div id="paymentsTable"></div></div>
-        </div>
-      </section>
-
-      <section class="view" data-view-panel="importbanca">
-        <div class="forms">
-          <div class="card stack">
-            <div class="panel-head"><div><h2>Import Excel Banca Intesa</h2><p class="subtle">Formato export &quot;Lista Operazioni&quot; (colonne Data, Operazione, Dettagli, Importo).</p></div></div>
-            <label class="btn btn-secondary" for="bankImportFile">Carica file Excel</label>
-            <input class="file-input" id="bankImportFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
-            <p class="muted">I movimenti con match incerto restano non associati. Puoi selezionarli manualmente prima di confermare.</p>
-            <button class="btn btn-primary" id="bankImportConfirm" type="button">Conferma import selezionati</button>
-            <div id="bankImportPreview"></div>
-          </div>
-          <div class="card stack">
-            <div class="panel-head"><div><h2>Da associare manualmente</h2><p class="subtle">Movimenti importati senza esercizio fiscale.</p></div></div>
-            <div id="unlinkedMovements"></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="view" data-view-panel="immobile">
-        <div class="forms">
-          <div class="card stack">
-            <div class="panel-head"><div><h2>Gestione immobile</h2><p class="subtle">Dati casa e configurazione esercizio fiscale.</p></div></div>
-            <form id="houseForm" class="stack">
-              <div class="field-grid">
-                <div><label for="houseName">Nome casa</label><input id="houseName" name="name" type="text" required placeholder="Appartamento Milano" /></div>
-                <div><label for="houseLocation">Località</label><input id="houseLocation" name="location" type="text" placeholder="Milano" /></div>
-              </div>
-              <div class="field-grid">
-                <div><label for="fiscalStartMonth">Mese inizio esercizio</label>
-                  <select id="fiscalStartMonth" name="fiscalStartMonth">
-                    <option value="1">Gennaio (anno solare)</option>
-                    <option value="6" selected>Giugno (es. 2024/2025)</option>
-                    <option value="7">Luglio</option>
-                    <option value="9">Settembre</option>
-                  </select>
-                </div>
-              </div>
-              <div><label for="houseNotes">Note</label><textarea id="houseNotes" name="notes" placeholder="Amministratore, millesimi, appunti..."></textarea></div>
-              <button class="btn btn-secondary" type="submit">Aggiorna casa</button>
-            </form>
-          </div>
-          <div class="card stack"><div class="panel-head"><div><h2>Riepilogo immobile</h2><p class="subtle">Visione sintetica della casa selezionata.</p></div></div><div class="kpi-inline" id="houseSummary"></div><button class="btn btn-danger" id="deleteHouseBtn">Elimina casa</button></div>
-        </div>
-      </section>
-
-      <section class="view" data-view-panel="archivio">
-        <div class="forms">
+      <section class="view" data-view-panel="dati">
+        <nav class="sub-nav" role="tablist" aria-label="Sezioni dati">
+          <button class="sub-nav-btn active" type="button" role="tab" data-view="dati" data-subview="backup" aria-selected="true">Backup</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="dati" data-subview="registro" aria-selected="false">Registro</button>
+        </nav>
+        <div class="subview active" data-subview-panel="backup" role="tabpanel">
           <div class="card stack">
             <div class="panel-head"><div><h2>Backup e dati</h2><p class="subtle">Esporta o importa backup JSON.</p></div></div>
-            <label class="btn btn-secondary" for="importFile">Importa JSON</label>
-            <input class="file-input" id="importFile" type="file" accept="application/json" />
-            <button class="btn btn-secondary" id="exportBtn" type="button">Esporta JSON</button>
-            <button class="btn btn-secondary" id="demoBtn" type="button">Carica demo</button>
-            <p class="muted">Export v2 (schemaVersion 2). Import richiede login e sincronizza su Supabase. I backup v1 con campo year vengono convertiti automaticamente.</p>
-            <div id="movements"></div>
+            <div class="toolbar">
+              <label class="btn btn-secondary" for="importFile">Importa JSON</label>
+              <input class="file-input" id="importFile" type="file" accept="application/json" />
+              <button class="btn btn-secondary" id="exportBtn" type="button">Esporta JSON</button>
+            </div>
+            <button class="btn btn-secondary hidden" id="demoBtn" type="button">Carica demo</button>
+            <p class="muted">Export v2 (schemaVersion 2). Import richiede login e sincronizza su Supabase.</p>
           </div>
+        </div>
+        <div class="subview" data-subview-panel="registro" role="tabpanel">
+          <div class="card"><div class="panel-head"><div><h2>Registro movimenti</h2><p class="subtle">Dovuti e versamenti della casa selezionata.</p></div></div><div class="table-scroll" id="movements"></div></div>
         </div>
       </section>
 
-      <section class="view" data-view-panel="account">
-        <div class="forms">
-          <div class="card stack">
-            <div class="panel-head"><div><h2>Cambia password</h2><p class="subtle">Aggiorna la password del tuo account senza email.</p></div></div>
-            <form id="accountPasswordForm" class="stack">
-              <div id="accountPasswordError" class="login-error hidden" role="alert"></div>
-              <div id="accountPasswordSuccess" class="login-success hidden" role="status"></div>
-              <div>
-                <label for="accountPassword">Nuova password</label>
-                <input id="accountPassword" name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="Minimo 6 caratteri" />
-              </div>
-              <div>
-                <label for="accountPasswordConfirm">Conferma password</label>
-                <input id="accountPasswordConfirm" name="passwordConfirm" type="password" autocomplete="new-password" required minlength="6" placeholder="Ripeti la password" />
-              </div>
-              <button class="btn btn-primary" type="submit" id="accountPasswordSubmitBtn">Salva password</button>
-            </form>
+      <section class="view" data-view-panel="impostazioni">
+        <nav class="sub-nav" role="tablist" aria-label="Sezioni impostazioni">
+          <button class="sub-nav-btn active" type="button" role="tab" data-view="impostazioni" data-subview="casa" aria-selected="true">Immobile</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="impostazioni" data-subview="account" aria-selected="false">Account</button>
+        </nav>
+        <div class="subview active" data-subview-panel="casa" role="tabpanel">
+          <div class="forms">
+            <div class="card stack">
+              <div class="panel-head"><div><h2>Gestione immobile</h2><p class="subtle">Dati casa e configurazione esercizio fiscale.</p></div></div>
+              <form id="houseForm" class="stack">
+                <div class="field-grid">
+                  <div><label for="houseName">Nome casa</label><input id="houseName" name="name" type="text" required placeholder="Appartamento Milano" /></div>
+                  <div><label for="houseLocation">Località</label><input id="houseLocation" name="location" type="text" placeholder="Milano" /></div>
+                </div>
+                <div class="field-grid">
+                  <div><label for="fiscalStartMonth">Mese inizio esercizio</label>
+                    <select id="fiscalStartMonth" name="fiscalStartMonth">
+                      <option value="1">Gennaio (anno solare)</option>
+                      <option value="6" selected>Giugno (es. 2024/2025)</option>
+                      <option value="7">Luglio</option>
+                      <option value="9">Settembre</option>
+                    </select>
+                  </div>
+                </div>
+                <div><label for="houseNotes">Note</label><textarea id="houseNotes" name="notes" placeholder="Amministratore, millesimi, appunti..."></textarea></div>
+                <button class="btn btn-secondary" type="submit">Aggiorna casa</button>
+              </form>
+            </div>
+            <div class="card stack"><div class="panel-head"><div><h2>Riepilogo immobile</h2><p class="subtle">Visione sintetica della casa selezionata.</p></div></div><div class="kpi-inline" id="houseSummary"></div><button class="btn btn-danger" id="deleteHouseBtn">Elimina casa</button></div>
           </div>
-          <div class="card stack">
-            <div class="panel-head"><div><h2>Profilo</h2><p class="subtle">Account connesso.</p></div></div>
-            <div class="mini-card"><div class="metric-label">Email</div><div id="accountEmail" class="metric-value" style="font-size:1.1rem;">—</div></div>
-            <p class="muted">Se non ricordi la password e non riesci ad accedere, chiedi il reset dal pannello Supabase.</p>
+        </div>
+        <div class="subview" data-subview-panel="account" role="tabpanel">
+          <div class="forms">
+            <div class="card stack">
+              <div class="panel-head"><div><h2>Cambia password</h2><p class="subtle">Aggiorna la password del tuo account.</p></div></div>
+              <form id="accountPasswordForm" class="stack">
+                <div id="accountPasswordError" class="login-error hidden" role="alert"></div>
+                <div id="accountPasswordSuccess" class="login-success hidden" role="status"></div>
+                <div>
+                  <label for="accountPassword">Nuova password</label>
+                  <input id="accountPassword" name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="Minimo 6 caratteri" />
+                </div>
+                <div>
+                  <label for="accountPasswordConfirm">Conferma password</label>
+                  <input id="accountPasswordConfirm" name="passwordConfirm" type="password" autocomplete="new-password" required minlength="6" placeholder="Ripeti la password" />
+                </div>
+                <button class="btn btn-primary" type="submit" id="accountPasswordSubmitBtn">Salva password</button>
+              </form>
+            </div>
+            <div class="card stack">
+              <div class="panel-head"><div><h2>Profilo</h2><p class="subtle">Account connesso.</p></div></div>
+              <div class="mini-card"><div class="metric-label">Email</div><div id="accountEmail" class="metric-value" style="font-size:1.1rem;">—</div></div>
+            </div>
           </div>
         </div>
       </section>
     </main>
+
+    <nav class="bottom-nav" id="bottomNav" aria-label="Navigazione mobile">
+      <button class="bottom-nav-btn active" data-view="panoramica" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span>Panoramica</span></button>
+      <button class="bottom-nav-btn" data-view="movimenti" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span>Movimenti</span></button>
+      <button class="bottom-nav-btn" data-view="dati" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span><span>Dati</span></button>
+      <button class="bottom-nav-btn" data-view="impostazioni" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2"/></svg></span><span>Impostazioni</span></button>
+    </nav>
+
+    <button class="fab" id="quickAddFab" type="button" aria-label="Aggiungi movimento" aria-haspopup="dialog" aria-controls="quickAddSheet">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+
+    <div class="sheet-backdrop hidden" id="quickAddBackdrop"></div>
+    <div class="sheet hidden" id="quickAddSheet" role="dialog" aria-labelledby="quickAddTitle">
+      <div class="sheet-head"><h2 id="quickAddTitle">Aggiungi</h2><button class="icon-btn sheet-close" id="quickAddClose" type="button" aria-label="Chiudi">×</button></div>
+      <div class="sheet-body stack">
+        <button class="btn btn-primary" type="button" data-nav-target="movimenti" data-nav-subview="dovuti" data-close-sheet="true">Nuovo dovuto</button>
+        <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="versamenti" data-close-sheet="true">Nuovo versamento</button>
+      </div>
+    </div>
+
+    <div class="drawer-backdrop hidden" id="houseDrawerBackdrop"></div>
+    <aside class="house-drawer hidden" id="houseDrawer" aria-label="Immobili">
+      <div class="drawer-head">
+        <h2>Immobili</h2>
+        <button class="icon-btn drawer-close" id="houseDrawerClose" type="button" aria-label="Chiudi">×</button>
+      </div>
+      <div id="houseList" class="house-list"></div>
+      <button class="btn btn-primary" id="addHouseBtn" type="button">+ Nuova casa</button>
+    </aside>
   </div>
 
   <script type="module" src="js/main.js"></script>

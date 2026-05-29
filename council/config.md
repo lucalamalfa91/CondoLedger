@@ -1,7 +1,7 @@
 ---
 pattern: plan-execute-verify
 protocol: deliberative-voting
-topic: "Council di sviluppo: da input utente a requisiti, scomposizione in task, implementazione nel progetto Gestione Spese Condominiali, review finale e Devil's Advocate."
+topic: "Redesign UX/UI completo: menu rivisto, accorpamento intelligente delle funzionalità, layout fluido desktop e mobile, ispirato a best practice di grandi UX designer."
 max_rounds: 4
 output_style: standard
 devils_advocate: true
@@ -29,7 +29,7 @@ agents:
 
 ## Scenario
 
-Trasformare l'input dell'operatore (feature, bug, miglioramento) in requisiti e user story, scomporre in task tecnici ordinati, implementare nel repository **Gestione Spese Condominiali**, verificare l'esito rispetto al piano, e chiudere con review Devil's Advocate.
+Rivedere il layout completo dell'app Gestione Spese Condominiali per renderla più fruibile: rivendere menu (composizione e contenuti), accorpare in modo intelligente le funzionalità, migliorare grafica e invito all'uso su desktop e mobile, con riferimenti a pattern UX/UI di qualità.
 
 ## Pattern: Plan / Execute / Verify
 
@@ -51,7 +51,7 @@ Trasformare l'input dell'operatore (feature, bug, miglioramento) in requisiti e 
 
 ## Session slug convention
 
-Kebab-case, max ~48 caratteri, es. `dev-req-to-impl-condominiali` o derivato dal topic al launch.
+Kebab-case, max ~48 caratteri, es. `redesign-layout-ux-mobile-desktop`.
 
 ## HITL
 

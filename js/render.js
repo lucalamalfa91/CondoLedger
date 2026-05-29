@@ -1,4 +1,4 @@
-import { viewMeta } from './config.js';
+import { resolveView, viewHeading, viewMeta } from './config.js';
 import { periodLabel, periodSummary, totals, findPeriodByDate, defaultFiscalLabel } from './fiscal.js';
 import { activeHouse, state } from './state.js';
 import { fmt, today } from './utils.js';
@@ -8,13 +8,84 @@ function rowActions(kind, id) {
 }
 
 export function createRenderer(els) {
-  function setView(view) {
+  function defaultSubview(view) {
+    if (view === 'movimenti') {
+      return sessionStorage.getItem('movimenti-tab') || viewMeta.movimenti.defaultSubview;
+    }
+    return viewMeta[view]?.defaultSubview ?? null;
+  }
+
+  function syncNavActive(view) {
+    els.navButtons.forEach(btn => {
+      const active = btn.dataset.view === view;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-current', active ? 'page' : 'false');
+    });
+  }
+
+  function syncSubviewUI(view, subview) {
+    const meta = viewMeta[view];
+    if (!meta?.subviews || !subview) {
+      els.subviewTabs?.forEach(tab => tab.classList.remove('active'));
+      els.subviewPanels?.forEach(panel => panel.classList.remove('active'));
+      return;
+    }
+    els.subviewTabs?.forEach(tab => {
+      const active = tab.dataset.view === view && tab.dataset.subview === subview;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    const viewPanel = els.viewPanels.find(p => p.dataset.viewPanel === view);
+    viewPanel?.querySelectorAll('[data-subview-panel]').forEach(panel => {
+      panel.classList.toggle('active', panel.dataset.subviewPanel === subview);
+    });
+  }
+
+  function updateHeader(view, subview) {
+    const [title, subtitle] = viewHeading(view, subview);
+    els.viewTitle.textContent = title;
+    els.viewSubtitle.textContent = subtitle;
+  }
+
+  function closeOverlays() {
+    els.houseDrawer?.classList.add('hidden');
+    els.houseDrawerBackdrop?.classList.add('hidden');
+    els.houseSwitcherBtn?.setAttribute('aria-expanded', 'false');
+    els.houseDrawerToggle?.setAttribute('aria-expanded', 'false');
+    els.userMenu?.classList.add('hidden');
+    els.userMenuBtn?.setAttribute('aria-expanded', 'false');
+  }
+
+  function setView(rawView, rawSubview = null) {
+    const { view, subview: resolvedSub } = resolveView(rawView, rawSubview);
+    let subview = resolvedSub ?? defaultSubview(view);
+    if (viewMeta[view]?.subviews && subview && !viewMeta[view].subviews[subview]) {
+      subview = viewMeta[view].defaultSubview;
+    }
     state.currentView = view;
-    els.navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
+    state.currentSubview = subview;
+    if (view === 'movimenti' && subview) sessionStorage.setItem('movimenti-tab', subview);
+
+    syncNavActive(view);
     els.viewPanels.forEach(panel => panel.classList.toggle('active', panel.dataset.viewPanel === view));
-    els.viewTitle.textContent = viewMeta[view][0];
-    els.viewSubtitle.textContent = viewMeta[view][1];
-    if (window.innerWidth <= 860) els.sidebar.classList.remove('open');
+    syncSubviewUI(view, subview);
+    updateHeader(view, subview);
+    closeOverlays();
+    els.main?.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function openHouseDrawer() {
+    els.houseDrawer?.classList.remove('hidden');
+    els.houseDrawerBackdrop?.classList.remove('hidden');
+    els.houseSwitcherBtn?.setAttribute('aria-expanded', 'true');
+    els.houseDrawerToggle?.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeHouseDrawer() {
+    els.houseDrawer?.classList.add('hidden');
+    els.houseDrawerBackdrop?.classList.add('hidden');
+    els.houseSwitcherBtn?.setAttribute('aria-expanded', 'false');
+    els.houseDrawerToggle?.setAttribute('aria-expanded', 'false');
   }
 
   function periodOptions(house, selectedId) {
@@ -54,17 +125,26 @@ export function createRenderer(els) {
   }
 
   function renderHouseList() {
+    const house = activeHouse();
+    if (els.houseSwitcherLabel) {
+      els.houseSwitcherLabel.textContent = house?.name || 'Seleziona immobile';
+    }
     els.houseList.innerHTML = '';
     if (!state.data.houses.length) {
-      els.houseList.innerHTML = '<div class="empty">Nessun immobile ancora presente.</div>';
+      els.houseList.innerHTML = '<div class="empty">Nessun immobile ancora presente.<br/>Crea la prima casa per iniziare.</div>';
       return;
     }
-    for (const house of state.data.houses) {
-      const t = totals(house);
+    for (const h of state.data.houses) {
+      const t = totals(h);
       const btn = document.createElement('button');
-      btn.className = `house-btn ${house.id === state.selectedHouseId ? 'active' : ''}`;
-      btn.innerHTML = `<strong>${house.name}</strong><span class="muted">${house.location || 'Località non indicata'}</span><span class="muted">Saldo: ${fmt(t.balance)}</span>`;
-      btn.addEventListener('click', () => { state.selectedHouseId = house.id; render(); });
+      btn.type = 'button';
+      btn.className = `house-btn ${h.id === state.selectedHouseId ? 'active' : ''}`;
+      btn.innerHTML = `<strong>${h.name}</strong><span class="muted">${h.location || 'Località non indicata'}</span><span class="muted">Saldo: ${fmt(t.balance)}</span>`;
+      btn.addEventListener('click', () => {
+        state.selectedHouseId = h.id;
+        closeHouseDrawer();
+        render();
+      });
       els.houseList.appendChild(btn);
     }
   }
@@ -225,8 +305,8 @@ export function createRenderer(els) {
 
   function renderEmptyState() {
     els.currentHouseTitle.textContent = 'Nessuna casa selezionata';
-    els.currentHouseMeta.textContent = 'Crea il primo immobile dalla barra laterale.';
-    els.metrics.innerHTML = '<div class="empty" style="grid-column:1 / -1;">Crea la prima casa per vedere il riepilogo.</div>';
+    els.currentHouseMeta.textContent = 'Crea il primo immobile dal selettore in alto.';
+    els.metrics.innerHTML = '<div class="empty" style="grid-column:1 / -1;">Crea la prima casa per vedere il riepilogo.<br/><button type="button" class="btn btn-primary" id="emptyAddHouseBtn" style="margin-top:1rem;">+ Nuova casa</button></div>';
     els.annualTableWrap.innerHTML = '<div class="empty">Nessuna annualità disponibile.</div>';
     els.annualCards.innerHTML = '<div class="empty">Nessun saldo disponibile.</div>';
     els.annualPageCards.innerHTML = '<div class="empty">Nessuna annualità registrata.</div>';
@@ -235,6 +315,9 @@ export function createRenderer(els) {
     els.movements.innerHTML = '<div class="empty">Nessun movimento da mostrare.</div>';
     els.houseSummary.innerHTML = '<div class="empty" style="grid-column:1/-1;">Nessun riepilogo immobile disponibile.</div>';
     els.houseForm.reset();
+    els.metrics.querySelector('#emptyAddHouseBtn')?.addEventListener('click', () => {
+      openHouseDrawer();
+    });
   }
 
   function render(authRenderAccount) {
@@ -251,10 +334,10 @@ export function createRenderer(els) {
     renderPeriodSelects(house);
     renderBankImportPreview(house);
     renderUnlinkedMovements(house);
-    if (state.currentView === 'account') authRenderAccount?.();
+    if (state.currentView === 'impostazioni' && state.currentSubview === 'account') authRenderAccount?.();
   }
 
-  return { setView, render, renderBankImportPreview, renderUnlinkedMovements, syncPaymentPeriodSelect };
+  return { setView, render, renderBankImportPreview, renderUnlinkedMovements, syncPaymentPeriodSelect, openHouseDrawer, closeHouseDrawer };
 }
 
 export function collectDom() {
@@ -283,9 +366,20 @@ export function collectDom() {
     recoverySubtitle: document.getElementById('recoverySubtitle'),
     loginThemeToggle: document.getElementById('loginThemeToggle'),
     recoveryThemeToggle: document.getElementById('recoveryThemeToggle'),
-    userChip: document.getElementById('userChip'),
-    sidebar: document.getElementById('sidebar'),
-    menuToggle: document.getElementById('menuToggle'),
+    userChip: document.getElementById('userMenuBtn'),
+    userMenuBtn: document.getElementById('userMenuBtn'),
+    userMenu: document.getElementById('userMenu'),
+    houseSwitcherBtn: document.getElementById('houseSwitcherBtn'),
+    houseSwitcherLabel: document.getElementById('houseSwitcherLabel'),
+    houseDrawer: document.getElementById('houseDrawer'),
+    houseDrawerBackdrop: document.getElementById('houseDrawerBackdrop'),
+    houseDrawerToggle: document.getElementById('houseDrawerToggle'),
+    houseDrawerClose: document.getElementById('houseDrawerClose'),
+    quickAddFab: document.getElementById('quickAddFab'),
+    quickAddSheet: document.getElementById('quickAddSheet'),
+    quickAddBackdrop: document.getElementById('quickAddBackdrop'),
+    quickAddClose: document.getElementById('quickAddClose'),
+    main: document.getElementById('mainContent'),
     houseList: document.getElementById('houseList'),
     metrics: document.getElementById('metrics'),
     annualTableWrap: document.getElementById('annualTableWrap'),
@@ -308,7 +402,6 @@ export function collectDom() {
     bankImportPreview: document.getElementById('bankImportPreview'),
     unlinkedMovements: document.getElementById('unlinkedMovements'),
     demoBtn: document.getElementById('demoBtn'),
-    themeToggle: document.getElementById('themeToggle'),
     duePeriodLabel: document.getElementById('duePeriodLabel'),
     duePeriodHint: document.getElementById('duePeriodHint'),
     dueEditId: document.getElementById('dueEditId'),
@@ -322,7 +415,9 @@ export function collectDom() {
     paymentFormCancel: document.getElementById('paymentFormCancel'),
     paymentsTable: document.getElementById('paymentsTable'),
     houseSummary: document.getElementById('houseSummary'),
-    navButtons: [...document.querySelectorAll('[data-view]')],
+    navButtons: [...document.querySelectorAll('.nav-rail [data-view], .bottom-nav [data-view]')],
+    subviewTabs: [...document.querySelectorAll('[data-subview]')],
+    subviewPanels: [...document.querySelectorAll('[data-subview-panel]')],
     viewPanels: [...document.querySelectorAll('[data-view-panel]')],
     viewTitle: document.getElementById('viewTitle'),
     viewSubtitle: document.getElementById('viewSubtitle'),

@@ -12,10 +12,20 @@ export const VIEW_ALIASES = {
   dashboard: ['panoramica', null],
   annualita: ['movimenti', 'dovuti'],
   versamenti: ['movimenti', 'versamenti'],
-  importbanca: ['movimenti', 'import'],
-  archivio: ['dati', 'backup'],
+  importbanca: ['movimenti', 'import-banca'],
+  archivio: ['impostazioni', 'avanzate'],
   immobile: ['impostazioni', 'casa'],
   account: ['impostazioni', 'account']
+};
+
+/** Legacy subview IDs per view → nuova subview */
+const SUBVIEW_ALIASES = {
+  movimenti: {
+    import: 'import-doc',
+    importbanca: 'import-banca',
+    documento: 'import-doc',
+    banca: 'import-banca'
+  }
 };
 
 export const viewMeta = {
@@ -26,22 +36,14 @@ export const viewMeta = {
   },
   movimenti: {
     title: 'Movimenti',
-    subtitle: 'Dovuti, versamenti e import banca',
+    subtitle: 'Dovuti, versamenti e import',
     defaultSubview: 'dovuti',
     subviews: {
       dovuti: ['Dovuti', 'Quote e annualità'],
       versamenti: ['Versamenti', 'Pagamenti registrati'],
-      import: ['Import', 'Documento amministratore e banca'],
+      'import-doc': ['Import doc.', 'Documento amministratore'],
+      'import-banca': ['Import banca', 'Estratto conto Banca Intesa'],
       situazione: ['Situazione', 'Saldi per esercizio']
-    }
-  },
-  dati: {
-    title: 'Dati',
-    subtitle: 'Backup e registro movimenti',
-    defaultSubview: 'backup',
-    subviews: {
-      backup: ['Backup', 'Export e import JSON'],
-      registro: ['Registro', 'Tutti i movimenti']
     }
   },
   impostazioni: {
@@ -56,14 +58,19 @@ export const viewMeta = {
   }
 };
 
+function remapSubview(view, subview) {
+  if (!subview) return subview;
+  return SUBVIEW_ALIASES[view]?.[subview] ?? subview;
+}
+
 export function resolveView(rawView, rawSubview = null) {
   if (VIEW_ALIASES[rawView]) {
     const [view, sub] = VIEW_ALIASES[rawView];
-    return { view, subview: rawSubview ?? sub };
+    return { view, subview: remapSubview(view, rawSubview ?? sub) };
   }
   const meta = viewMeta[rawView];
   if (!meta) return { view: 'panoramica', subview: null };
-  return { view: rawView, subview: rawSubview ?? meta.defaultSubview ?? null };
+  return { view: rawView, subview: remapSubview(rawView, rawSubview ?? meta.defaultSubview ?? null) };
 }
 
 export function viewHeading(view, subview) {

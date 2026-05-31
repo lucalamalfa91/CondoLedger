@@ -71,17 +71,6 @@ function render(...args) {
   maybeShowOnboarding();
 }
 
-function setImportTab(tabId) {
-  document.querySelectorAll('.import-sub-nav [data-import-tab]').forEach(btn => {
-    const active = btn.dataset.importTab === tabId;
-    btn.classList.toggle('active', active);
-    btn.setAttribute('aria-selected', active ? 'true' : 'false');
-  });
-  document.querySelectorAll('[data-import-panel]').forEach(panel => {
-    panel.hidden = panel.dataset.importPanel !== tabId;
-  });
-}
-
 const onboardingDialog = document.getElementById('onboardingDialog');
 const onboardingTitle = document.getElementById('onboardingTitle');
 const onboardingBody = document.getElementById('onboardingBody');
@@ -167,9 +156,6 @@ function navigate(view, subview = null) {
   syncRouteHash(resolved.view, resolved.subview);
   if (resolved.view === 'impostazioni' && resolved.subview === 'account') {
     auth.renderAccountView();
-  }
-  if (resolved.view === 'movimenti' && resolved.subview === 'import') {
-    setImportTab('documento');
   }
 }
 
@@ -441,7 +427,7 @@ async function runDocumentExtraction(house, files) {
     fiscalStartMonth: house.fiscalStartMonth ?? 6,
     mimeTypes: files.map(f => f.type).join(',')
   });
-  navigate('movimenti', 'import');
+  navigate('movimenti', 'import-doc');
   return true;
 }
 
@@ -579,7 +565,7 @@ async function handleBankFile(file) {
       manualPeriodId: row.suggestedFiscalPeriodId || null
     }));
     render();
-    navigate('movimenti', 'import');
+    navigate('movimenti', 'import-banca');
   } catch (err) {
     toastError(err.message || 'Errore lettura file Excel');
   }
@@ -670,11 +656,7 @@ function wireNavigation() {
     navigate(btn.dataset.view, sub || null);
   }));
   els.subviewTabs?.forEach(tab => {
-    if (tab.closest('.import-sub-nav')) return;
     tab.addEventListener('click', () => navigate(tab.dataset.view, tab.dataset.subview));
-  });
-  document.querySelectorAll('.import-sub-nav [data-import-tab]').forEach(btn => {
-    btn.addEventListener('click', () => setImportTab(btn.dataset.importTab));
   });
   document.addEventListener('click', e => {
     const btn = e.target.closest('[data-nav-target]');
@@ -682,7 +664,6 @@ function wireNavigation() {
     if (btn.dataset.houseMode === 'new') startNewHouseForm();
     else {
       navigate(btn.dataset.navTarget, btn.dataset.navSubview || null);
-      if (btn.dataset.navSubview === 'import') setImportTab(btn.dataset.importTab || 'documento');
       if (btn.dataset.navSubview === 'dovuti' && window.matchMedia('(max-width: 860px)').matches) {
         openFormSheet('dueFormPane');
       }
@@ -794,8 +775,7 @@ onboardingNext?.addEventListener('click', async () => {
   }
   if (onboardingStep >= 2) {
     finishOnboarding();
-    navigate('movimenti', 'import');
-    setImportTab('documento');
+    navigate('movimenti', 'import-doc');
     return;
   }
   onboardingStep += 1;

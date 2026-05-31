@@ -24,7 +24,7 @@ export function computeComplianceStatus(house) {
       subline: 'Non hai ancora dati per questo immobile.',
       detail: 'Importa il preventivo dall’amministratore o registra il primo dovuto.',
       facts: [],
-      primaryCta: { label: 'Importa documento', view: 'movimenti', subview: 'import' },
+      primaryCta: { label: 'Importa documento', view: 'movimenti', subview: 'import-doc' },
       secondaryCta: { label: 'Aggiungi dovuto', view: 'movimenti', subview: 'dovuti' }
     };
   }
@@ -37,7 +37,7 @@ export function computeComplianceStatus(house) {
       subline: 'Registra un preventivo o consuntivo per l’esercizio corrente.',
       detail: '',
       facts: [],
-      primaryCta: { label: 'Importa documento', view: 'movimenti', subview: 'import' },
+      primaryCta: { label: 'Importa documento', view: 'movimenti', subview: 'import-doc' },
       secondaryCta: { label: 'Nuovo dovuto', view: 'movimenti', subview: 'dovuti' }
     };
   }
@@ -45,7 +45,7 @@ export function computeComplianceStatus(house) {
   const summary = periodSummary(house).find(p => p.id === period.id);
   const t = totals(house, period.id);
   const inst = installmentSummaryForPeriod(house, period.id);
-  const now = today();
+  const now = today;
 
   const overdue = [];
   const upcoming = [];
@@ -106,7 +106,7 @@ export function computeComplianceStatus(house) {
       subline: `Hai il preventivo per ${period.label}, ma non il consuntivo.`,
       detail: 'Importa il consuntivo quando l’amministratore lo pubblica.',
       facts,
-      primaryCta: { label: 'Importa consuntivo', view: 'movimenti', subview: 'import' },
+      primaryCta: { label: 'Importa consuntivo', view: 'movimenti', subview: 'import-doc' },
       secondaryCta: { label: 'Panoramica esercizi', view: 'movimenti', subview: 'situazione' }
     };
   }
@@ -135,7 +135,7 @@ export function computeComplianceStatus(house) {
       detail: `Consuntivo e rate dell’esercizio ${period.label} sono sotto controllo.`,
       facts,
       primaryCta: { label: 'Registra versamento', view: 'movimenti', subview: 'versamenti' },
-      secondaryCta: { label: 'Importa documento', view: 'movimenti', subview: 'import' }
+      secondaryCta: { label: 'Importa documento', view: 'movimenti', subview: 'import-doc' }
     };
   }
 
@@ -155,7 +155,7 @@ export function computeComplianceStatus(house) {
 }
 
 function resolveFocusPeriod(house) {
-  const byDate = findPeriodByDate(house, today());
+  const byDate = findPeriodByDate(house, today);
   if (byDate?.id) return house.fiscalPeriods.find(p => p.id === byDate.id) || byDate;
   const sorted = [...house.fiscalPeriods].sort((a, b) =>
     String(b.startDate).localeCompare(String(a.startDate))

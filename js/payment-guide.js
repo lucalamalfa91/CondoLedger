@@ -9,12 +9,12 @@ import { fmt, today } from './utils.js';
 export function computeNextPaymentGuide(house) {
   if (!house?.fiscalPeriods?.length) return null;
 
-  const period = findPeriodByDate(house, today());
+  const period = findPeriodByDate(house, today);
   const periodId = period.id || house.fiscalPeriods.find(p => p.label === period.label)?.id;
   if (!periodId) return null;
 
   const inst = installmentSummaryForPeriod(house, periodId);
-  const now = today();
+  const now = today;
   const open = inst.slots
     .map(slot => {
       const gap = Math.round((slot.amountDue - slot.paid) * 100) / 100;

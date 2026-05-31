@@ -338,8 +338,7 @@ export function createRenderer(els) {
 
   function complianceCtaBtn(cta, className = 'btn btn-primary') {
     if (!cta) return '';
-    const importTab = cta.subview === 'import' ? ' data-import-tab="documento"' : '';
-    return `<button class="${className}" type="button" data-nav-target="${cta.view}" data-nav-subview="${cta.subview}"${importTab}>${cta.label}</button>`;
+    return `<button class="${className}" type="button" data-nav-target="${cta.view}" data-nav-subview="${cta.subview}">${cta.label}</button>`;
   }
 
   function renderComplianceHero(house) {
@@ -1050,23 +1049,24 @@ export function createRenderer(els) {
     }
     const house = activeHouse();
     if (!house) { renderEmptyState(); return; }
-    renderComplianceHero(house);
-    renderMetrics(house);
-    renderAnnualBlocks(house);
-    renderHouseDrawerList();
-    renderPaymentGuide(house);
-    renderPostImportBanner();
-    renderDues(house);
-    renderPayments(house);
-    renderDashboardPayments(house);
-    renderSituazione(house);
-    renderMovements(house);
-    renderHouseForm(house);
-    renderPeriodSelects(house);
-    renderDocumentImportPreview(house);
-    renderBankImportPreview(house);
-    renderBankImportBatches(house);
-    renderUnlinkedMovements(house);
+    const safe = (label, fn) => { try { fn(); } catch (e) { console.error('[render]', label, e); } };
+    safe('complianceHero', () => renderComplianceHero(house));
+    safe('metrics', () => renderMetrics(house));
+    safe('annualBlocks', () => renderAnnualBlocks(house));
+    safe('houseDrawerList', () => renderHouseDrawerList());
+    safe('paymentGuide', () => renderPaymentGuide(house));
+    safe('postImportBanner', () => renderPostImportBanner());
+    safe('dues', () => renderDues(house));
+    safe('payments', () => renderPayments(house));
+    safe('dashboardPayments', () => renderDashboardPayments(house));
+    safe('situazione', () => renderSituazione(house));
+    safe('movements', () => renderMovements(house));
+    safe('houseForm', () => renderHouseForm(house));
+    safe('periodSelects', () => renderPeriodSelects(house));
+    safe('documentImportPreview', () => renderDocumentImportPreview(house));
+    safe('bankImportPreview', () => renderBankImportPreview(house));
+    safe('bankImportBatches', () => renderBankImportBatches(house));
+    safe('unlinkedMovements', () => renderUnlinkedMovements(house));
     if (state.currentView === 'impostazioni' && state.currentSubview === 'account') authRenderAccount?.();
   }
 

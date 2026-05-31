@@ -78,7 +78,6 @@
       <nav class="nav-list">
         <button class="nav-btn active" data-view="panoramica" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="nav-label"><strong>Panoramica</strong><span>Riepilogo</span></span></button>
         <button class="nav-btn" data-view="movimenti" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span class="nav-label"><strong>Movimenti</strong><span>Dovuti e versamenti</span></span></button>
-        <button class="nav-btn" data-view="dati" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg></span><span class="nav-label"><strong>Dati</strong><span>Backup e archivio</span></span></button>
         <button class="nav-btn" data-view="impostazioni" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></span><span class="nav-label"><strong>Impostazioni</strong><span>Casa e account</span></span></button>
       </nav>
     </aside>
@@ -128,7 +127,7 @@
             <p class="muted" id="currentHouseMeta">Aggiungi un immobile dal pulsante accanto al menu o da Impostazioni.</p>
           </div>
           <div class="toolbar hero-toolbar">
-            <button class="btn btn-primary" type="button" data-nav-target="movimenti" data-nav-subview="import" data-import-tab="documento">Importa documento</button>
+            <button class="btn btn-primary" type="button" data-nav-target="movimenti" data-nav-subview="import-doc">Importa documento</button>
             <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="dovuti">+ Dovuto</button>
             <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="versamenti">+ Versamento</button>
           </div>
@@ -154,7 +153,8 @@
         <nav class="sub-nav" role="tablist" aria-label="Sezioni movimenti">
           <button class="sub-nav-btn active" type="button" role="tab" data-view="movimenti" data-subview="dovuti" aria-selected="true">Dovuti</button>
           <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="versamenti" aria-selected="false">Versamenti</button>
-          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="import" aria-selected="false">Import</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="import-doc" aria-selected="false">Import doc.</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="import-banca" aria-selected="false">Import banca</button>
           <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="situazione" aria-selected="false">Situazione</button>
         </nav>
         <div class="subview active" data-subview-panel="dovuti" role="tabpanel">
@@ -247,71 +247,67 @@
             </section>
           </div>
         </div>
-        <div class="subview" data-subview-panel="import" role="tabpanel">
-          <nav class="sub-nav import-sub-nav" role="tablist" aria-label="Tipo import">
-            <button class="sub-nav-btn active" type="button" data-import-tab="documento" aria-selected="true">Documento amministratore</button>
-            <button class="sub-nav-btn" type="button" data-import-tab="banca" aria-selected="false">Banca Intesa</button>
-          </nav>
-          <div class="import-stack stack">
-            <section class="card stack data-panel document-import-panel" data-import-panel="documento">
-              <ol class="import-stepper" id="documentImportStepper" aria-label="Passaggi import">
-                <li class="import-step" data-step="upload"><span>1</span> Carica file</li>
-                <li class="import-step" data-step="review"><span>2</span> Scegli la tua riga</li>
-                <li class="import-step" data-step="confirm"><span>3</span> Conferma</li>
-              </ol>
-              <div class="panel-head">
-                <div>
-                  <h2>Importa documento amministratore</h2>
-                  <p class="subtle">Preventivo o consuntivo in PDF, DOCX o foto (anche più pagine). L&apos;AI estrae i dati: confermi in anteprima prima del salvataggio.</p>
-                </div>
+        <div class="subview" data-subview-panel="import-doc" role="tabpanel">
+          <section class="card stack data-panel document-import-panel">
+            <ol class="import-stepper" id="documentImportStepper" aria-label="Passaggi import">
+              <li class="import-step" data-step="upload"><span>1</span> Carica file</li>
+              <li class="import-step" data-step="review"><span>2</span> Scegli la tua riga</li>
+              <li class="import-step" data-step="confirm"><span>3</span> Conferma</li>
+            </ol>
+            <div class="panel-head">
+              <div>
+                <h2>Importa documento amministratore</h2>
+                <p class="subtle">Preventivo o consuntivo in PDF, DOCX o foto (anche più pagine). L&apos;AI estrae i dati: confermi in anteprima prima del salvataggio.</p>
               </div>
-              <div class="document-import-toolbar field-grid">
-                <div>
-                  <label class="btn btn-secondary" for="documentImportFile">Carica documento</label>
-                  <input class="file-input" id="documentImportFile" type="file" accept=".pdf,.docx,image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple />
-                  <p class="hint">PDF, DOCX o immagini JPEG/PNG. Per le scansioni seleziona tutte le pagine insieme.</p>
-                </div>
+            </div>
+            <div class="document-import-toolbar field-grid">
+              <div>
+                <label class="btn btn-secondary" for="documentImportFile">Carica documento</label>
+                <input class="file-input" id="documentImportFile" type="file" accept=".pdf,.docx,image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple />
+                <p class="hint">PDF, DOCX o immagini JPEG/PNG. Per le scansioni seleziona tutte le pagine insieme.</p>
+              </div>
+              <div class="form-actions">
+                <button class="btn btn-primary" id="documentImportConfirm" type="button" disabled>Conferma import</button>
+                <button class="btn btn-secondary" id="documentImportManual" type="button">Inserisci manualmente</button>
+                <button class="btn btn-secondary hidden" id="documentImportCancel" type="button">Annulla anteprima</button>
+                <button class="btn btn-secondary hidden" id="documentImportRetry" type="button">Riprova estrazione</button>
+              </div>
+            </div>
+            <dialog id="documentImportDupDialog" class="document-import-dup-dialog">
+              <form method="dialog" class="stack">
+                <h3>Documento già importato</h3>
+                <p id="documentImportDupMsg" class="subtle"></p>
                 <div class="form-actions">
-                  <button class="btn btn-primary" id="documentImportConfirm" type="button" disabled>Conferma import</button>
-                  <button class="btn btn-secondary" id="documentImportManual" type="button">Inserisci manualmente</button>
-                  <button class="btn btn-secondary hidden" id="documentImportCancel" type="button">Annulla anteprima</button>
-                  <button class="btn btn-secondary hidden" id="documentImportRetry" type="button">Riprova estrazione</button>
+                  <button class="btn btn-primary" id="documentImportDupAdd" type="button" value="add">Aggiungi nuovo dovuto</button>
+                  <button class="btn btn-secondary" id="documentImportDupReplace" type="button" value="replace">Sostituisci import precedente</button>
+                  <button class="btn btn-secondary" id="documentImportDupCancel" type="button" value="cancel">Annulla</button>
                 </div>
+              </form>
+            </dialog>
+            <div id="documentImportStatus" class="document-import-status muted" aria-live="polite"></div>
+            <div class="data-table-wrap" id="documentImportPreview"></div>
+          </section>
+        </div>
+        <div class="subview" data-subview-panel="import-banca" role="tabpanel">
+          <section class="card stack data-panel">
+            <div class="split-layout">
+              <div class="split-form-pane stack">
+                <div class="panel-head"><div><h2>Import Excel Banca Intesa</h2><p class="subtle">Formato export &quot;Lista Operazioni&quot;.</p></div></div>
+                <label class="btn btn-secondary" for="bankImportFile">Carica file Excel</label>
+                <input class="file-input" id="bankImportFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
+                <button class="btn btn-primary" id="bankImportConfirm" type="button">Conferma import selezionati</button>
+                <div class="panel-head"><div><h3>Import salvati</h3></div></div>
+                <div class="data-table-wrap" id="bankImportBatches"></div>
+                <button class="btn btn-danger" id="bankImportDeleteAll" type="button">Elimina tutti gli import banca</button>
               </div>
-              <dialog id="documentImportDupDialog" class="document-import-dup-dialog">
-                <form method="dialog" class="stack">
-                  <h3>Documento già importato</h3>
-                  <p id="documentImportDupMsg" class="subtle"></p>
-                  <div class="form-actions">
-                    <button class="btn btn-primary" id="documentImportDupAdd" type="button" value="add">Aggiungi nuovo dovuto</button>
-                    <button class="btn btn-secondary" id="documentImportDupReplace" type="button" value="replace">Sostituisci import precedente</button>
-                    <button class="btn btn-secondary" id="documentImportDupCancel" type="button" value="cancel">Annulla</button>
-                  </div>
-                </form>
-              </dialog>
-              <div id="documentImportStatus" class="document-import-status muted" aria-live="polite"></div>
-              <div class="data-table-wrap" id="documentImportPreview"></div>
-            </section>
-            <section class="card stack data-panel" data-import-panel="banca" hidden>
-              <div class="split-layout split-layout--list-first">
-                <aside class="split-form-pane stack">
-                  <div class="panel-head"><div><h2>Import Excel Banca Intesa</h2><p class="subtle">Formato export &quot;Lista Operazioni&quot;.</p></div></div>
-                  <label class="btn btn-secondary" for="bankImportFile">Carica file Excel</label>
-                  <input class="file-input" id="bankImportFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
-                  <button class="btn btn-primary" id="bankImportConfirm" type="button">Conferma import selezionati</button>
-                  <div class="panel-head"><div><h3>Import salvati</h3></div></div>
-                  <div class="data-table-wrap" id="bankImportBatches"></div>
-                  <button class="btn btn-danger" id="bankImportDeleteAll" type="button">Elimina tutti gli import banca</button>
-                </aside>
-                <div class="split-content-pane import-stack">
-                  <div class="panel-head"><div><h3>Anteprima movimenti banca</h3></div></div>
-                  <div class="data-table-wrap" id="bankImportPreview"></div>
-                  <div class="panel-head"><div><h3>Da associare manualmente</h3></div></div>
-                  <div class="data-table-wrap" id="unlinkedMovements"></div>
-                </div>
+              <div class="split-content-pane import-stack">
+                <div class="panel-head"><div><h3>Anteprima movimenti banca</h3></div></div>
+                <div class="data-table-wrap" id="bankImportPreview"></div>
+                <div class="panel-head"><div><h3>Da associare manualmente</h3></div></div>
+                <div class="data-table-wrap" id="unlinkedMovements"></div>
               </div>
-            </section>
-          </div>
+            </div>
+          </section>
         </div>
         <div class="subview" data-subview-panel="situazione" role="tabpanel">
           <div class="card stack">
@@ -328,27 +324,6 @@
             </div>
             <div id="situazioneSummary" class="situazione-summary" aria-live="polite"></div>
             <div id="situazioneSections" class="situazione-sections stack"></div>
-          </div>
-        </div>
-      </section>
-
-      <section class="view" data-view-panel="dati">
-        <nav class="sub-nav" role="tablist" aria-label="Sezioni dati">
-          <button class="sub-nav-btn active" type="button" role="tab" data-view="dati" data-subview="backup" aria-selected="true">Backup</button>
-          <button class="sub-nav-btn" type="button" role="tab" data-view="dati" data-subview="registro" aria-selected="false">Registro</button>
-        </nav>
-        <div class="subview active" data-subview-panel="backup" role="tabpanel">
-          <div class="card stack">
-            <div class="panel-head"><div><h2>Dati e backup</h2><p class="subtle">Funzioni tecniche spostate in Impostazioni.</p></div></div>
-            <p class="muted">Backup JSON e registro completo sono in <strong>Impostazioni → Avanzate</strong>.</p>
-            <button class="btn btn-primary" type="button" data-nav-target="impostazioni" data-nav-subview="avanzate">Apri Avanzate</button>
-            <button class="btn btn-secondary hidden" id="demoBtn" type="button">Carica demo</button>
-          </div>
-        </div>
-        <div class="subview" data-subview-panel="registro" role="tabpanel">
-          <div class="card data-panel">
-            <p class="muted">Il registro movimenti è disponibile in Impostazioni → Avanzate.</p>
-            <button class="btn btn-secondary" type="button" data-nav-target="impostazioni" data-nav-subview="avanzate">Apri registro</button>
           </div>
         </div>
       </section>
@@ -451,7 +426,7 @@
     <div class="sheet hidden" id="quickAddSheet" role="dialog" aria-labelledby="quickAddTitle">
       <div class="sheet-head"><h2 id="quickAddTitle">Aggiungi</h2><button class="icon-btn sheet-close" id="quickAddClose" type="button" aria-label="Chiudi">×</button></div>
       <div class="sheet-body stack">
-        <button class="btn btn-primary" type="button" data-nav-target="movimenti" data-nav-subview="import" data-import-tab="documento" data-close-sheet="true">Importa documento</button>
+        <button class="btn btn-primary" type="button" data-nav-target="movimenti" data-nav-subview="import-doc" data-close-sheet="true">Importa documento</button>
         <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="versamenti" data-close-sheet="true">Nuovo versamento</button>
         <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="dovuti" data-close-sheet="true">Nuovo dovuto</button>
       </div>

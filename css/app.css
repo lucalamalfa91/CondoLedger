@@ -93,9 +93,19 @@
       min-width: 0;
       overflow: auto;
       -webkit-overflow-scrolling: touch;
+      scroll-snap-type: none;
       border-radius: var(--radius-md);
       border: 1px solid color-mix(in srgb, var(--color-divider) 65%, transparent);
-      background: var(--color-surface-2);
+      background-color: var(--color-surface-2);
+      background-image:
+        linear-gradient(to right, var(--color-surface-2), transparent),
+        linear-gradient(to left, var(--color-surface-2), transparent),
+        radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.16), transparent),
+        radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.16), transparent);
+      background-position: 0 0, 100% 0, 0 0, 100% 0;
+      background-repeat: no-repeat;
+      background-size: 28px 100%, 28px 100%, 13px 100%, 13px 100%;
+      background-attachment: local, local, scroll, scroll;
     }
     .data-table-wrap table, .table-scroll table { min-width: 36rem; }
     .data-table-wrap thead th, .table-scroll thead th {
@@ -371,7 +381,6 @@
     .onboarding-dialog::backdrop { background: rgba(0,0,0,.45); }
     .onboarding-form { padding: var(--space-5); margin: 0; }
     .onboarding-step-label { font-size: var(--text-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .06em; margin: 0; }
-    .import-sub-nav { margin-bottom: var(--space-4); }
     .import-stepper { display:flex; gap:.35rem; list-style:none; padding:0; margin:0 0 var(--space-4); counter-reset: none; flex-wrap:wrap; }
     .import-step { flex:1; min-width:5.5rem; font-size:var(--text-xs); color:var(--color-text-muted); display:flex; align-items:center; gap:.35rem; padding:.45rem .5rem; border-radius:var(--radius-md); background:var(--color-surface-offset); }
     .import-step span { width:1.35rem; height:1.35rem; border-radius:var(--radius-full); display:grid; place-items:center; font-weight:700; font-size:.7rem; background:var(--color-surface); }

@@ -263,7 +263,7 @@ export function applyAutoFilterToPreview(preview, house) {
       matches,
       ownerIdx,
       tenantIdx,
-      extractedLabels: deduped.map(r => r.label).slice(0, 12),
+      extractedLabels: deduped.map(r => r.label),
       warning: matches.some(m => m.score < PARTY_MATCH_PRESELECT)
         ? 'Alcuni match da verificare'
         : null,
@@ -308,3 +308,38 @@ export function applyAutoFilterToPreview(preview, house) {
 }
 
 export { PARTY_MATCH_PRESELECT, PARTY_MATCH_WARN };
+
+/**
+ * Unisce estrazioni da più chiamate (es. una per pagina JPEG).
+ * @param {object} base
+ * @param {object} incoming
+ */
+export function mergeExtractions(base, incoming) {
+  const a = base && typeof base === 'object' ? base : emptyExtraction();
+  const b = incoming && typeof incoming === 'object' ? incoming : emptyExtraction();
+  const out = {
+    fiscalYearLabel: a.fiscalYearLabel || b.fiscalYearLabel || '',
+    fieldConfidence: { ...(a.fieldConfidence || {}), ...(b.fieldConfidence || {}) },
+    extractionNotes: [a.extractionNotes, b.extractionNotes].filter(Boolean).join(' ').trim(),
+    summary: a.summary || b.summary || null,
+    sections: (a.sections || []).map(s => ({ ...s, rows: [...(s.rows || [])] }))
+  };
+
+  for (const sec of b.sections || []) {
+    let target = out.sections.find(s => s.documentKind === sec.documentKind);
+    if (!target) {
+      out.sections.push({ ...sec, rows: [...(sec.rows || [])] });
+      continue;
+    }
+    target.rows = dedupeExtractedRows([...(target.rows || []), ...(sec.rows || [])]);
+    if (target.confidence == null || (sec.confidence ?? 0) > target.confidence) {
+      target.confidence = sec.confidence;
+    }
+    if (!target.totalAmount && sec.totalAmount) target.totalAmount = sec.totalAmount;
+  }
+  return out;
+}
+
+function emptyExtraction(note = '') {
+  return { fiscalYearLabel: '', fieldConfidence: {}, extractionNotes: note, summary: null, sections: [] };
+}

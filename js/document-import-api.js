@@ -69,13 +69,16 @@ export async function ensureDocumentImportReady() {
   if (dueErr && dueErr.code !== 'PGRST116') throw dueErr;
 }
 
-export async function extractFromDocument(houseId, files) {
+export async function extractFromDocument(houseId, files, importParties = null) {
   await ensureAuthenticated();
   await ensureDocumentImportReady();
   const prepared = await prepareFilesForImport([...files]);
   const sorted = validateFiles(prepared);
   const form = new FormData();
   form.append('house_id', String(houseId));
+  if (importParties?.length) {
+    form.append('import_parties', JSON.stringify(importParties));
+  }
   for (const f of sorted) form.append('files', f, f.name);
 
   const { data: sessionData, error: sessErr } = await state.supabase.auth.getSession();

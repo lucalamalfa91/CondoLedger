@@ -889,13 +889,17 @@ export function createRenderer(els) {
     let html = `<div class="document-import-review stack">`;
 
     if (preview.autoFilterFailed) {
-      const labels = Object.values(preview.matchMeta || {})
+      const allLabels = Object.values(preview.matchMeta || {})
         .flatMap(m => m.extractedLabels || [])
         .filter(Boolean);
-      const sample = labels.length
-        ? ` Righe estratte (prime ${labels.length}): ${labels.map(l => `«${l}»`).join(', ')}.`
-        : ' Nessuna riga condomino estratta dal documento.';
-      html += `<div class="banner warn">Nessuna riga corrisponde ai nominativi configurati (${(house.importParties || []).map(partyDisplayName).join(', ')}).${sample} Seleziona la riga manualmente, correggi i nominativi in Impostazioni → Casa, o verifica che l&apos;AI abbia letto la pagina con «TOTALE DA VERSARE» / rate.</div>`;
+      const totalRows = allLabels.length;
+      const sample = allLabels.slice(0, 8)
+        .map(l => `«${l}»`)
+        .join(', ');
+      const sampleText = totalRows
+        ? ` ${totalRows} righe estratte${totalRows > 8 ? ` (prime 8: ${sample}…)` : `: ${sample}`}.`
+        : ' Nessuna riga condomino estratta.';
+      html += `<div class="banner warn">Nessuna riga corrisponde ai nominativi configurati (${(house.importParties || []).map(partyDisplayName).join(', ')}).${sampleText} L&apos;app riproverà pagina per pagina se l&apos;estrazione batch non trova la riga 111 / La Malfa. Includi la foto con «TOTALE DA VERSARE» e rate, oppure seleziona manualmente.</div>`;
     }
 
     html += resocontoHtml(preview.resoconto, {

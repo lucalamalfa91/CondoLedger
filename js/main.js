@@ -27,10 +27,11 @@ import { periodLabel } from './fiscal.js';
 import { findInstallmentForDate } from './installments.js';
 import { exportSituazionePdf } from './pdf-situazione.js';
 import { getPreviousPeriod } from './fiscal.js';
-import { applyAutoFilterToPreview } from './document-import-match.js';
+import { applyAutoFilterToPreview, mergeExtractions } from './document-import-match.js';
 import { applyResocontoToPreview, buildResoconto, ensureResoconto } from './document-import-resoconto.js';
 import { buildDuesFromPreview, initPreviewFromExtraction } from './document-import-map.js';
-import { collectImportPartiesFromDom, validateParties } from './house-import-parties.js';
+import { collectImportPartiesFromDom, hasConfiguredParties, validateParties } from './house-import-parties.js';
+import { emptyExtraction } from './document-import-schema.js';
 import {
   deleteDuesByIds,
   extractFromDocument,
@@ -430,14 +431,47 @@ async function runDocumentExtraction(house, files) {
     state.documentImportDuplicateAction = null;
     state.documentImportReplaceDueIds = [];
   }
-  const extraction = await extractFromDocument(house.id, files);
-  let preview = initPreviewFromExtraction(extraction, {
+
+  const meta = {
     sourceLabel: sourceLabelFromFiles(files),
     fileHash,
     fiscalStartMonth: house.fiscalStartMonth ?? 6,
     mimeTypes: files.map(f => f.type).join(',')
-  });
+  };
+  const parties = house.importParties || [];
+
+  let extraction = await extractFromDocument(house.id, files, parties);
+  let preview = initPreviewFromExtraction(extraction, meta);
   preview = applyAutoFilterToPreview(preview, house);
+
+  if (preview.autoFilterFailed && hasConfiguredParties(house) && files.length > 0) {
+    let merged = emptyExtraction('Estrazione mirata per pagina');
+    for (let i = 0; i < files.length; i++) {
+      if (els.documentImportStatus) {
+        els.documentImportStatus.textContent =
+          `Estrazione mirata pagina ${i + 1}/${files.length}…`;
+      }
+      render();
+      try {
+        const part = await extractFromDocument(house.id, [files[i]], parties);
+        merged = mergeExtractions(merged, part);
+      } catch {
+        /* pagina non leggibile */
+      }
+    }
+    if (merged.sections?.some(s => s.rows?.length)) {
+      extraction = merged;
+      preview = initPreviewFromExtraction(extraction, meta);
+      preview = applyAutoFilterToPreview(preview, house);
+      if (preview.extraction) {
+        preview.extraction.extractionNotes = [
+          preview.extraction.extractionNotes,
+          'Estrazione per pagina (nominativi configurati).'
+        ].filter(Boolean).join(' ');
+      }
+    }
+  }
+
   ensureResoconto(preview, house);
   state.documentImportPreview = preview;
   navigate('movimenti', 'import-doc');

@@ -72,11 +72,15 @@ Deno.serve(async (req) => {
 
     const { data: house } = await supabase
       .from('houses')
-      .select('id')
+      .select('id, import_parties')
       .eq('id', houseId)
       .eq('user_id', user.id)
       .single();
     if (!house) return json({ error: 'Immobile non trovato' }, 403);
+
+    const formParties = parseImportParties(form.get('import_parties'));
+    const dbParties = parseImportParties(house.import_parties);
+    const importParties = formParties.length ? formParties : dbParties;
 
     const files: File[] = [];
     for (const entry of form.getAll('files')) {
@@ -100,7 +104,7 @@ Deno.serve(async (req) => {
       }, 503);
     }
 
-    const promptText = buildPrompt();
+    const promptText = buildPrompt(importParties);
     const filePayloads = await buildFilePayloads(files);
 
     let parsed: Record<string, unknown>;
@@ -143,9 +147,50 @@ function pickAiProvider(
   return null;
 }
 
-function buildPrompt(): string {
-  return `Sei un assistente contabile per spese condominiali italiane. Analizza il/i documento/i (preventivo, consuntivo, ripartizioni per anagrafica, bilancio).
+type ImportParty = { role?: string; firstName?: string; lastName?: string; first_name?: string; last_name?: string };
+
+function parseImportParties(raw: unknown): ImportParty[] {
+  if (!raw) return [];
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((p) => ({
+        role: p?.role === 'tenant' ? 'tenant' : 'owner',
+        firstName: String(p?.firstName ?? p?.first_name ?? '').trim(),
+        lastName: String(p?.lastName ?? p?.last_name ?? '').trim(),
+      }))
+      .filter((p) => p.firstName || p.lastName);
+  } catch {
+    return [];
+  }
+}
+
+function partyLabel(p: ImportParty): string {
+  const fn = (p.firstName || '').trim();
+  const ln = (p.lastName || '').trim();
+  return [fn, ln].filter(Boolean).join(' ');
+}
+
+function buildPrompt(importParties: ImportParty[] = []): string {
+  const names = importParties.map(partyLabel).filter(Boolean);
+  const targetedBlock = names.length
+    ? `
+NOMINATIVI CONFIGURATI PER QUESTO IMMOBILE (priorità assoluta — devi includerli nel JSON):
+${names.map((n) => `- ${n}`).join('\n')}
+
+Cerca varianti nel documento: cognome/nome invertiti ("La Malfa Luca" vs "Luca La Malfa"), slash tra comproprietari sulla stessa riga ("Luca / Andreazza"), prefisso interno numerico (es. "111 - (PR)"), troncamenti ("Andreazz" per Andreazza).
+
+IMPORTANTE: NON elencare tutti i condomini (61, 62, 63…). Includi SOLO le righe pertinenti ai nominativi sopra (di solito 1-2 righe).
+Scorri TUTTE le pagine/foto: la riga cercata può essere in fondo alla tabella (es. interno 111).
+Priorizza dati dalla pagina con colonne "TOTALE PREVENTIVO", "TOTALE DA VERSARE", "SALDO PREC." e rate (Rata n. 1, 2, …) con importi e date.
+`
+    : `
 Estrai TUTTE le righe condomino visibili con nome/unità, totale, rate con importi e date esatte se presenti.
+`;
+
+  return `Sei un assistente contabile per spese condominiali italiane. Analizza il/i documento/i (preventivo, consuntivo, ripartizioni per anagrafica, bilancio).
+${targetedBlock}
 Per tabelle "ripartizioni preventivo/consuntivo" su PIÙ pagine/foto JPEG che ripetono gli stessi condomini con colonne diverse (spese generali, ascensore, totale preventivo, rate):
 - consolidare in UNA sola riga per condomino;
 - usare come totale la colonna "TOTALE PREVENTIVO" o "TOTALE DA VERSARE" quando presente;

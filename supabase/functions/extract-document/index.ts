@@ -30,7 +30,10 @@ const EXTRACTION_SCHEMA = `{
       "label": "nome condomino o unità",
       "unit": "interno opzionale",
       "millesimi": number | null,
-      "total": number,
+      "total": "number — importo PREVENTIVO (colonna PREVENTIVO), NON TOTALE DA VERSARE",
+      "preventivoAmount": "number | null = colonna PREVENTIVO",
+      "saldoPrecedente": "number | null = colonna SALDO PREC.",
+      "totaleDaVersare": "number | null = colonna TOTALE DA VERSARE (solo informativo)",
       "confidence": 0.0-1.0,
       "installments": [{ "label": "Gen 2025", "periodStart": "YYYY-MM-DD", "periodEnd": "YYYY-MM-DD", "amount": number }]
     }],
@@ -81,6 +84,7 @@ Deno.serve(async (req) => {
     const formParties = parseImportParties(form.get('import_parties'));
     const dbParties = parseImportParties(house.import_parties);
     const importParties = formParties.length ? formParties : dbParties;
+    const hintsText = formatHintsFromJson(form.get('document_hints'));
 
     const files: File[] = [];
     for (const entry of form.getAll('files')) {
@@ -104,7 +108,7 @@ Deno.serve(async (req) => {
       }, 503);
     }
 
-    const promptText = buildPrompt(importParties);
+    const promptText = buildPrompt(importParties, hintsText);
     const filePayloads = await buildFilePayloads(files);
 
     let parsed: Record<string, unknown>;
@@ -172,7 +176,23 @@ function partyLabel(p: ImportParty): string {
   return [fn, ln].filter(Boolean).join(' ');
 }
 
-function buildPrompt(importParties: ImportParty[] = []): string {
+function formatHintsFromJson(raw: FormDataEntryValue | null): string {
+  if (!raw || typeof raw !== 'string') return '';
+  try {
+    const h = JSON.parse(raw) as {
+      suggestedKind?: string;
+      suggestedFiscalLabel?: string;
+    };
+    const lines = ['INDIZI DA NOME FILE/CARTELLA (usa se coerenti col contenuto):'];
+    if (h.suggestedFiscalLabel) lines.push(`- Esercizio probabile: ${h.suggestedFiscalLabel}`);
+    if (h.suggestedKind) lines.push(`- Tipo documento probabile: ${h.suggestedKind}`);
+    return lines.length > 1 ? lines.join('\n') : '';
+  } catch {
+    return '';
+  }
+}
+
+function buildPrompt(importParties: ImportParty[] = [], hintsText = ''): string {
   const names = importParties.map(partyLabel).filter(Boolean);
   const targetedBlock = names.length
     ? `
@@ -180,6 +200,7 @@ NOMINATIVI CONFIGURATI PER QUESTO IMMOBILE (priorità assoluta — devi includer
 ${names.map((n) => `- ${n}`).join('\n')}
 
 Cerca varianti nel documento: cognome/nome invertiti ("La Malfa Luca" vs "Luca La Malfa"), slash tra comproprietari sulla stessa riga ("Luca / Andreazza"), prefisso interno numerico (es. "111 - (PR)"), troncamenti ("Andreazz" per Andreazza).
+Su documenti tipo Il Parco, proprietario e inquilino possono essere righe separate (es. "LA MALFA" e "Valtolina Veronica") senza prefisso (IN): estrai entrambe se pertinenti ai nominativi configurati.
 
 IMPORTANTE: NON elencare tutti i condomini (61, 62, 63…). Includi SOLO le righe pertinenti ai nominativi sopra (di solito 1-2 righe).
 Scorri TUTTE le pagine/foto: la riga cercata può essere in fondo alla tabella (es. interno 111).
@@ -190,10 +211,17 @@ Estrai TUTTE le righe condomino visibili con nome/unità, totale, rate con impor
 `;
 
   return `Sei un assistente contabile per spese condominiali italiane. Analizza il/i documento/i (preventivo, consuntivo, ripartizioni per anagrafica, bilancio).
+${hintsText ? `\n${hintsText}\n` : ''}
+Classificazione documento:
+- "preventivo": titolo contiene Preventivo / ripartizioni per anagrafica; colonne rate future, TOTALE PREVENTIVO, acconti;
+- "consuntivo": titolo Rendiconto / Consuntivo / Bilancio; colonne TOTALE RENDICONTO, VERSATO, CONGUAGLIO, TOTALE DOVUTO;
+- fiscalYearLabel: leggi l'esercizio dal documento (es. "Esercizio ordinario 2025/2026", periodo 01/06/2025-31/05/2026 → "2025/2026").
 ${targetedBlock}
 Per tabelle "ripartizioni preventivo/consuntivo" su PIÙ pagine/foto JPEG che ripetono gli stessi condomini con colonne diverse (spese generali, ascensore, totale preventivo, rate):
 - consolidare in UNA sola riga per condomino;
-- usare come totale la colonna "TOTALE PREVENTIVO" o "TOTALE DA VERSARE" quando presente;
+- sezione **preventivo**: "total" e "preventivoAmount" = colonna **PREVENTIVO** o **TOTALE PREVENTIVO**, NON "TOTALE DA VERSARE";
+- sezione **consuntivo**: "total" = colonna **TOTALE RENDICONTO** (o totale consuntivo esercizio), NON "TOTALE DOVUTO";
+- "saldoPrecedente" = colonna **SALDO PREC.** (può essere negativo = credito); "totaleDaVersare" = **TOTALE DA VERSARE** o **TOTALE DOVUTO** se presente (solo informativo);
 - copiare nel campo label il nominativo completo della colonna anagrafica, es. "111 - (PR) La Malfa Luca / Andreazza" (inclusi prefisso interno e slash tra comproprietari);
 - estrarre le rate (Rata n. 1, 2, …) con importi e date se visibili.
 Se presenti nel documento, compila "summary" con saldi precedenti, etichetta esercizio precedente e relativi totali.

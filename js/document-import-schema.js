@@ -103,11 +103,18 @@ function normalizeRow(r) {
   const installments = Array.isArray(r.installments)
     ? r.installments.map(normalizeInstallment).filter(Boolean)
     : [];
+  const preventivoAmount = num(r.preventivoAmount ?? r.preventivo_amount, null);
+  const saldoPrecedente = num(r.saldoPrecedente ?? r.saldo_precedente ?? r.previousBalance, null);
+  const totaleDaVersare = num(r.totaleDaVersare ?? r.totale_da_versare, null);
+  const total = preventivoAmount ?? num(r.total ?? r.amount, 0);
   return {
     label: String(r.label || r.name || '—').trim(),
     unit: r.unit ? String(r.unit).trim() : '',
     millesimi: r.millesimi != null ? num(r.millesimi, null) : null,
-    total: num(r.total ?? r.amount, 0),
+    total,
+    preventivoAmount: preventivoAmount ?? total,
+    saldoPrecedente,
+    totaleDaVersare,
     installments,
     confidence: num(r.confidence, 0.5)
   };

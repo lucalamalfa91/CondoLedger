@@ -8,6 +8,7 @@ import {
   normalizeExtraction
 } from './document-import-schema.js';
 import { prepareFilesForImport } from './document-import-images.js';
+import { inferDocumentHintsFromFiles, applyDocumentHints } from './document-import-hints.js';
 import { hashBlob } from './utils.js';
 
 const MIGRATION_HINT =
@@ -80,6 +81,10 @@ export async function extractFromDocument(houseId, files, importParties = null) 
     form.append('import_parties', JSON.stringify(importParties));
   }
   for (const f of sorted) form.append('files', f, f.name);
+  const hints = inferDocumentHintsFromFiles(sorted);
+  if (hints.sources.length) {
+    form.append('document_hints', JSON.stringify(hints));
+  }
 
   const { data: sessionData, error: sessErr } = await state.supabase.auth.getSession();
   if (sessErr) throw sessErr;
@@ -126,7 +131,8 @@ export async function extractFromDocument(houseId, files, importParties = null) 
     }
     throw new Error(msg);
   }
-  return normalizeExtraction(body);
+  const hints = inferDocumentHintsFromFiles(sorted);
+  return applyDocumentHints(normalizeExtraction(body), hints);
 }
 
 export async function findDuplicateImport(houseId, fileHash) {

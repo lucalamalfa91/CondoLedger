@@ -1,3 +1,4 @@
+import { effectivePreventivoTotal } from './document-import-match.js';
 import { parseFiscalLabel } from './fiscal.js';
 
 /**
@@ -19,7 +20,7 @@ export function buildDuesFromPreview(preview, sourceLabel, house) {
     const descBase = kind === 'consuntivo' ? 'Consuntivo' : 'Preventivo';
     const due = {
       fiscalPeriodLabel: label,
-      amount: row.total,
+      amount: effectivePreventivoTotal(row),
       description: `${descBase} ${label} — ${row.label}${row.unit ? ` (${row.unit})` : ''} — ${stamp}${matchNote}`,
       dueKind: kind,
       splitMode: 'custom',

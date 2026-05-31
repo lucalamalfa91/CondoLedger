@@ -1,3 +1,4 @@
+import { effectivePreventivoTotal } from './document-import-match.js';
 import { getSelectedRow } from './document-import-map.js';
 import { parseFiscalLabel } from './fiscal.js';
 import { fmt } from './utils.js';
@@ -29,11 +30,13 @@ export function buildResoconto(preview, house) {
   const preventivoRow = getSelectedRow(preview, 'preventivo');
   const consuntivoRow = getSelectedRow(preview, 'consuntivo');
 
+  const rowSaldo = preventivoRow?.saldoPrecedente ?? consuntivoRow?.saldoPrecedente;
+
   const resoconto = {
-    previousBalance: summary.previousBalance,
+    previousBalance: rowSaldo ?? summary.previousBalance,
     previousExerciseLabel: summary.previousExerciseLabel,
     previousExerciseTotal: summary.previousExerciseTotal,
-    preventivoTotal: preventivoRow ? Number(preventivoRow.total) : null,
+    preventivoTotal: preventivoRow ? effectivePreventivoTotal(preventivoRow) : null,
     consuntivoTotal: consuntivoRow ? Number(consuntivoRow.total) : null,
     installments: preventivoRow?.installments
       ? preventivoRow.installments.map(i => ({

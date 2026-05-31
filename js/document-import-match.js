@@ -45,8 +45,17 @@ function fuzzyTokenMatch(a, b) {
   if (a === b) return true;
   const minLen = Math.min(a.length, b.length);
   if (minLen >= 4 && (a.startsWith(b) || b.startsWith(a))) return true;
-  if (a.length >= 5 && b.length >= 5 && levenshtein(a, b) <= 1) return true;
+  // Nomi simili ma distinti (es. Giulio ≠ Giulia)
+  if (a.length >= 5 && b.length >= 5 && Math.abs(a.length - b.length) <= 1) {
+    if (levenshtein(a, b) <= 1) return true;
+  }
   return false;
+}
+
+/** Cognome del nominativo configurato (ultimo token se ≥2 parole). */
+function partySurname(partyNorm) {
+  const t = partyNorm.split(' ').filter(Boolean);
+  return t.length >= 2 ? t[t.length - 1] : '';
 }
 
 function tokenSet(name) {
@@ -63,9 +72,12 @@ function partyNameVariants(party) {
   if (fn && ln) {
     variants.add(`${fn} ${ln}`);
     variants.add(`${ln} ${fn}`);
+    variants.add(ln);
+  } else if (ln) {
+    variants.add(ln);
+  } else if (fn) {
+    variants.add(fn);
   }
-  if (ln) variants.add(ln);
-  if (fn) variants.add(fn);
   return [...variants];
 }
 
@@ -77,6 +89,12 @@ function scoreNormalizedPair(labelNorm, partyNorm) {
   const lt = labelNorm.split(' ').filter(Boolean);
   const pt = partyNorm.split(' ').filter(Boolean);
   if (!lt.length || !pt.length) return 0;
+
+  const surname = pt.length >= 2 ? pt[pt.length - 1] : '';
+  if (surname) {
+    const surnameHit = lt.some(t => fuzzyTokenMatch(t, surname));
+    if (!surnameHit) return 0;
+  }
 
   let matched = 0;
   for (const p of pt) {
@@ -136,14 +154,31 @@ export function dedupeExtractedRows(rows) {
   return out;
 }
 
+function rowQualityScore(row) {
+  let score = 0;
+  const inst = row.installments?.length || 0;
+  score += inst * 100;
+  const total = effectivePreventivoTotal(row);
+  if (inst && row.installments) {
+    const sum = row.installments.reduce((s, i) => s + Number(i.amount || 0), 0);
+    if (Math.abs(sum - total) <= 1.5) score += 80;
+    else if (Math.abs(sum - total) <= 50) score += 20;
+  }
+  if (row.saldoPrecedente != null) score += 15;
+  if (row.totaleDaVersare != null) score += 10;
+  score += total / 10000;
+  return score;
+}
+
+/** Totale preventivo (escluso saldo precedente). */
+export function effectivePreventivoTotal(row) {
+  if (!row) return 0;
+  const v = row.preventivoAmount ?? row.preventivo_amount ?? row.total ?? row.amount ?? 0;
+  return Number(v) || 0;
+}
+
 function pickRicherRow(a, b) {
-  const aInst = a.installments?.length || 0;
-  const bInst = b.installments?.length || 0;
-  if (aInst !== bInst) return aInst > bInst ? a : b;
-  const aTotal = Number(a.total || 0);
-  const bTotal = Number(b.total || 0);
-  if (aTotal !== bTotal) return aTotal > bTotal ? a : b;
-  return (a.confidence ?? 0) >= (b.confidence ?? 0) ? a : b;
+  return rowQualityScore(a) >= rowQualityScore(b) ? a : b;
 }
 
 /**
@@ -211,27 +246,89 @@ function mergeInstallments(lists) {
 
 /** @param {object[]} rows @param {number[]} indices */
 export function aggregateMatchedRows(rows, indices, meta = {}) {
-  const picked = indices.map(i => rows[i]).filter(Boolean);
+  const uniqueIndices = [...new Set(indices)];
+  const picked = uniqueIndices.map(i => rows[i]).filter(Boolean);
   if (!picked.length) return null;
   if (picked.length === 1) {
-    return {
+    return normalizeAggregatedRow({
       ...picked[0],
       label: meta.label || picked[0].label,
       confidence: Math.max(...picked.map(r => r.confidence ?? 0.5))
-    };
+    });
   }
   const labels = picked.map(r => r.label).join(' + ');
-  const total = picked.reduce((s, r) => s + Number(r.total || 0), 0);
+  const total = picked.reduce((s, r) => s + effectivePreventivoTotal(r), 0);
   const installments = mergeInstallments(picked.map(r => r.installments));
-  return {
+  return normalizeAggregatedRow({
     label: meta.label || labels,
     unit: picked.map(r => r.unit).filter(Boolean).join(' / ') || '',
     millesimi: picked[0].millesimi,
     total,
+    preventivoAmount: total,
     installments,
     confidence: Math.min(...picked.map(r => r.confidence ?? 0.5)),
     _aggregatedFrom: picked.map(r => r.label)
+  });
+}
+
+function sumNullable(a, b) {
+  const na = a != null ? Number(a) : null;
+  const nb = b != null ? Number(b) : null;
+  if (na == null && nb == null) return null;
+  return (na ?? 0) + (nb ?? 0);
+}
+
+function buildOwnerTenantSynthetic(ownerAgg, tenantAgg) {
+  return normalizeAggregatedRow({
+    label: `${ownerAgg.label} + ${tenantAgg.label}`,
+    unit: [ownerAgg.unit, tenantAgg.unit].filter(Boolean).join(' / ') || '',
+    millesimi: ownerAgg.millesimi,
+    total: Number(ownerAgg.total) + Number(tenantAgg.total),
+    preventivoAmount:
+      Number(ownerAgg.preventivoAmount ?? ownerAgg.total) +
+      Number(tenantAgg.preventivoAmount ?? tenantAgg.total),
+    saldoPrecedente: sumNullable(ownerAgg.saldoPrecedente, tenantAgg.saldoPrecedente),
+    totaleDaVersare: sumNullable(ownerAgg.totaleDaVersare, tenantAgg.totaleDaVersare),
+    installments: mergeInstallments([ownerAgg.installments, tenantAgg.installments]),
+    confidence: Math.min(ownerAgg.confidence ?? 1, tenantAgg.confidence ?? 1),
+    _aggregatedFrom: [
+      ...(ownerAgg._aggregatedFrom || [ownerAgg.label]),
+      ...(tenantAgg._aggregatedFrom || [tenantAgg.label])
+    ]
+  });
+}
+
+function normalizeAggregatedRow(row) {
+  const total = effectivePreventivoTotal(row);
+  const out = {
+    ...row,
+    total,
+    preventivoAmount: row.preventivoAmount ?? total
   };
+  alignInstallmentsToPreventivo(out);
+  return out;
+}
+
+/** Se le rate sommano al totale da versare, la prima rata include spesso il saldo precedente. */
+function alignInstallmentsToPreventivo(row) {
+  const inst = row.installments;
+  if (!inst?.length) return;
+  const total = effectivePreventivoTotal(row);
+  const sum = inst.reduce((s, i) => s + Number(i.amount || 0), 0);
+  if (Math.abs(sum - total) <= 1.5) return;
+  const tdv = Number(row.totaleDaVersare ?? 0);
+  const saldo = Number(row.saldoPrecedente ?? 0);
+  if (!saldo || !tdv || Math.abs(sum - tdv) > 1.5 || tdv <= total) return;
+  const sorted = [...inst].sort((a, b) =>
+    String(a.periodStart || '').localeCompare(String(b.periodStart || ''))
+  );
+  const first = sorted[0];
+  if (!first) return;
+  const adjusted = Number(first.amount || 0) - saldo;
+  if (adjusted > 0 && adjusted < Number(first.amount || 0)) {
+    first.amount = Math.round(adjusted * 100) / 100;
+    row.installments = sorted;
+  }
 }
 
 /**
@@ -255,8 +352,14 @@ export function applyAutoFilterToPreview(preview, house) {
     section._allRows = deduped;
     const { matches, ownerMatches, tenantMatches, tenants } = matchRowsToParties(deduped, parties);
 
-    const ownerIdx = ownerMatches.map(m => m.rowIndex);
-    const tenantIdx = tenantMatches.map(m => m.rowIndex);
+    const ownerIdx = [...new Set(ownerMatches.map(m => m.rowIndex))];
+    const tenantIdx = [...new Set(tenantMatches.map(m => m.rowIndex))];
+    const ownerRowsDistinct = ownerIdx
+      .map(i => deduped[i])
+      .filter(Boolean);
+    const sameCondomino =
+      ownerRowsDistinct.length <= 1 ||
+      ownerRowsDistinct.every((r, _, arr) => rowsSameCondomino(r.label, arr[0].label));
     const useIndices = [...new Set([...ownerIdx, ...tenantIdx])];
 
     preview.matchMeta[section.documentKind] = {
@@ -281,22 +384,23 @@ export function applyAutoFilterToPreview(preview, house) {
     const tenantRows = tenantIdx.map(i => deduped[i]);
     let synthetic;
 
-    if (tenants.length && tenantRows.length && ownerRows.length) {
+    if (tenants.length && tenantRows.length && ownerRows.length && ownerIdx[0] !== tenantIdx[0]) {
       const ownerAgg = aggregateMatchedRows(deduped, ownerIdx);
       const tenantAgg = aggregateMatchedRows(deduped, tenantIdx);
-      synthetic = {
-        label: `${ownerAgg.label} + ${tenantAgg.label}`,
-        unit: [ownerAgg.unit, tenantAgg.unit].filter(Boolean).join(' / '),
-        millesimi: ownerAgg.millesimi,
-        total: Number(ownerAgg.total) + Number(tenantAgg.total),
-        installments: mergeInstallments([ownerAgg.installments, tenantAgg.installments]),
-        confidence: Math.min(ownerAgg.confidence ?? 1, tenantAgg.confidence ?? 1),
-        _aggregatedFrom: [...(ownerAgg._aggregatedFrom || [ownerAgg.label]), ...(tenantAgg._aggregatedFrom || [tenantAgg.label])]
-      };
-    } else if (ownerIdx.length > 1) {
+      synthetic = buildOwnerTenantSynthetic(ownerAgg, tenantAgg);
+    } else if (ownerIdx.length > 1 && sameCondomino) {
       synthetic = aggregateMatchedRows(deduped, ownerIdx);
+    } else if (ownerIdx.length > 1) {
+      const bestIdx = ownerIdx.reduce((best, idx) => {
+        const row = deduped[idx];
+        const score = ownerMatches
+          .filter(m => m.rowIndex === idx)
+          .reduce((s, m) => s + m.score, 0);
+        return score > best.score ? { idx, score } : best;
+      }, { idx: ownerIdx[0], score: -1 }).idx;
+      synthetic = normalizeAggregatedRow(aggregateMatchedRows(deduped, [bestIdx]));
     } else {
-      synthetic = aggregateMatchedRows(deduped, useIndices);
+      synthetic = normalizeAggregatedRow(aggregateMatchedRows(deduped, useIndices));
     }
 
     section.rows = [synthetic];

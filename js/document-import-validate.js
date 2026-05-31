@@ -1,4 +1,5 @@
 import { AMOUNT_TOLERANCE, CONFIDENCE_WARN } from './document-import-schema.js';
+import { effectivePreventivoTotal } from './document-import-match.js';
 
 export function sumAmounts(items, key = 'amount') {
   return items.reduce((s, x) => s + Number(x[key] || 0), 0);
@@ -24,12 +25,14 @@ export function validateSection(section, row) {
   const warnings = [];
   if (!row) warnings.push('Seleziona la riga del documento che ti riguarda.');
   if (row) {
-    const inst = validateInstallmentsVsTotal(row.installments, row.total);
+    const rowTotal = effectivePreventivoTotal(row);
+    const inst = validateInstallmentsVsTotal(row.installments, rowTotal);
     if (!inst.ok) warnings.push(...inst.warnings);
   }
   if (section?.costLines?.length && row) {
     const sumLines = sumAmounts(section.costLines, 'amount');
-    if (!amountsClose(sumLines, row.total, 0.05)) {
+    const rowTotal = effectivePreventivoTotal(row);
+    if (!amountsClose(sumLines, rowTotal, 0.05)) {
       warnings.push(`Somma voci di costo (${sumLines.toFixed(2)} €) non coincide con il totale riga.`);
     }
   }

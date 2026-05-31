@@ -75,7 +75,11 @@ function formatMatchSummary(preview) {
   for (const [kind, meta] of Object.entries(preview.matchMeta || {})) {
     if (meta.noMatch) parts.push(`${kind}: nessuna riga trovata`);
     else if (meta.warning) parts.push(`${kind}: ${meta.warning}`);
-    else parts.push(`${kind}: ${(meta.matches || []).length} riga/e abbinate`);
+    else {
+      const rows = meta.matchedRowCount ?? meta.ownerIdx?.length ?? 0;
+      const nom = meta.partyMatchCount ?? 0;
+      parts.push(`${kind}: ${rows} riga/e, ${nom} nominativi`);
+    }
   }
   return parts.join(' · ');
 }

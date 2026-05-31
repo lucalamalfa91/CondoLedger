@@ -15,6 +15,16 @@ export function sanitizeRowLabel(label) {
     .trim();
 }
 
+/** Interno/unità da prefisso numerico (es. "111 - (PR) ..."). */
+export function rowUnitKey(label) {
+  const m = String(label ?? '').match(/^(\d+)\s*[-–—]/);
+  return m ? m[1] : '';
+}
+
+function isSubEntryLabel(label) {
+  return /#\s/.test(String(label ?? ''));
+}
+
 /** Spezza righe combinate tipo "La Malfa Luca / Andreazza". */
 export function expandLabelVariants(label) {
   const cleaned = sanitizeRowLabel(label);
@@ -122,6 +132,10 @@ export function scoreRowToParty(rowLabel, party) {
 }
 
 function rowsSameCondomino(labelA, labelB) {
+  const unitA = rowUnitKey(labelA);
+  const unitB = rowUnitKey(labelB);
+  if (unitA && unitB && unitA !== unitB) return false;
+
   const variantsA = expandLabelVariants(labelA).map(normalizePartyName);
   const variantsB = expandLabelVariants(labelB).map(normalizePartyName);
   for (const va of variantsA) {
@@ -135,6 +149,35 @@ function rowsSameCondomino(labelA, labelB) {
     }
   }
   return false;
+}
+
+/** Stessa riga ripetuta su più pagine JPEG: unisci, non sommare. */
+function mergeDuplicateCondominoRows(picked) {
+  if (!picked.length) return null;
+  return picked.reduce((best, row) => pickRicherRow(best, row));
+}
+
+/** Esclude sotto-righe "# Altro nominativo" sullo stesso interno se c'è già una riga principale. */
+function filterOwnerMatches(ownerMatches, rows, tenantMatches) {
+  const tenantIdx = new Set(tenantMatches.map(m => m.rowIndex));
+  const byUnit = new Map();
+  for (const m of ownerMatches) {
+    const label = rows[m.rowIndex]?.label;
+    const unit = rowUnitKey(label);
+    if (!unit) continue;
+    if (!byUnit.has(unit)) byUnit.set(unit, []);
+    byUnit.get(unit).push(m);
+  }
+  const dropIdx = new Set();
+  for (const ms of byUnit.values()) {
+    const primary = ms.filter(m => !isSubEntryLabel(rows[m.rowIndex]?.label));
+    const sub = ms.filter(m => isSubEntryLabel(rows[m.rowIndex]?.label));
+    if (!primary.length || !sub.length) continue;
+    for (const m of sub) {
+      if (!tenantIdx.has(m.rowIndex)) dropIdx.add(m.rowIndex);
+    }
+  }
+  return ownerMatches.filter(m => !dropIdx.has(m.rowIndex));
 }
 
 /**
@@ -173,8 +216,15 @@ function rowQualityScore(row) {
 /** Totale preventivo (escluso saldo precedente). */
 export function effectivePreventivoTotal(row) {
   if (!row) return 0;
-  const v = row.preventivoAmount ?? row.preventivo_amount ?? row.total ?? row.amount ?? 0;
-  return Number(v) || 0;
+  const explicit = row.preventivoAmount ?? row.preventivo_amount;
+  if (explicit != null && Number(explicit) > 0) return Number(explicit);
+  const total = Number(row.total ?? row.amount ?? 0);
+  const tdv = row.totaleDaVersare != null ? Number(row.totaleDaVersare) : null;
+  const saldo = row.saldoPrecedente != null ? Number(row.saldoPrecedente) : null;
+  if (tdv != null && saldo != null && Math.abs(total - tdv) < 1.5) {
+    return Math.round((tdv - saldo) * 100) / 100;
+  }
+  return total || 0;
 }
 
 function pickRicherRow(a, b) {
@@ -256,6 +306,16 @@ export function aggregateMatchedRows(rows, indices, meta = {}) {
       confidence: Math.max(...picked.map(r => r.confidence ?? 0.5))
     });
   }
+  const allSamePerson = picked.every(r => rowsSameCondomino(r.label, picked[0].label));
+  if (allSamePerson) {
+    const best = mergeDuplicateCondominoRows(picked);
+    return normalizeAggregatedRow({
+      ...best,
+      label: meta.label || best.label,
+      confidence: Math.max(...picked.map(r => r.confidence ?? 0.5)),
+      _aggregatedFrom: picked.map(r => r.label)
+    });
+  }
   const labels = picked.map(r => r.label).join(' + ');
   const total = picked.reduce((s, r) => s + effectivePreventivoTotal(r), 0);
   const installments = mergeInstallments(picked.map(r => r.installments));
@@ -299,6 +359,7 @@ function buildOwnerTenantSynthetic(ownerAgg, tenantAgg) {
 }
 
 function normalizeAggregatedRow(row) {
+  fixSaldoPrecedenteMisread(row);
   const total = effectivePreventivoTotal(row);
   const out = {
     ...row,
@@ -307,6 +368,27 @@ function normalizeAggregatedRow(row) {
   };
   alignInstallmentsToPreventivo(out);
   return out;
+}
+
+/** L'AI confonde spesso SALDO PREC. con importo rata 1. */
+function fixSaldoPrecedenteMisread(row) {
+  const saldo = row.saldoPrecedente;
+  const tdv = row.totaleDaVersare != null ? Number(row.totaleDaVersare) : null;
+  const prevExplicit = row.preventivoAmount ?? row.preventivo_amount;
+  const inst = row.installments || [];
+  const firstAmt = inst.length ? Number(inst[0]?.amount || 0) : null;
+  if (prevExplicit != null && tdv != null) {
+    const expectedSaldo = Math.round((tdv - Number(prevExplicit)) * 100) / 100;
+    if (saldo == null || Math.abs(saldo - firstAmt) < 0.02 || Math.abs(saldo - expectedSaldo) > 5) {
+      row.saldoPrecedente = expectedSaldo;
+    }
+    return;
+  }
+  if (saldo == null || firstAmt == null) return;
+  if (Math.abs(saldo - firstAmt) < 0.02 && inst.length > 1) {
+    const guess = Math.round((firstAmt - Number(inst[1]?.amount || 0)) * 100) / 100;
+    if (guess > 0 && guess < firstAmt) row.saldoPrecedente = guess;
+  }
 }
 
 /** Se le rate sommano al totale da versare, la prima rata include spesso il saldo precedente. */
@@ -350,7 +432,9 @@ export function applyAutoFilterToPreview(preview, house) {
   for (const section of preview.extraction.sections || []) {
     const deduped = dedupeExtractedRows(section.rows || []);
     section._allRows = deduped;
-    const { matches, ownerMatches, tenantMatches, tenants } = matchRowsToParties(deduped, parties);
+    const { matches, ownerMatches: rawOwnerMatches, tenantMatches, tenants } =
+      matchRowsToParties(deduped, parties);
+    const ownerMatches = filterOwnerMatches(rawOwnerMatches, deduped, tenantMatches);
 
     const ownerIdx = [...new Set(ownerMatches.map(m => m.rowIndex))];
     const tenantIdx = [...new Set(tenantMatches.map(m => m.rowIndex))];
@@ -366,6 +450,11 @@ export function applyAutoFilterToPreview(preview, house) {
       matches,
       ownerIdx,
       tenantIdx,
+      matchedRowCount: useIndices.length,
+      partyMatchCount: new Set([
+        ...ownerMatches.map(m => m.partyIndex),
+        ...tenantMatches.map(m => m.partyIndex)
+      ]).size,
       extractedLabels: deduped.map(r => r.label),
       warning: matches.some(m => m.score < PARTY_MATCH_PRESELECT)
         ? 'Alcuni match da verificare'
@@ -389,7 +478,7 @@ export function applyAutoFilterToPreview(preview, house) {
       const tenantAgg = aggregateMatchedRows(deduped, tenantIdx);
       synthetic = buildOwnerTenantSynthetic(ownerAgg, tenantAgg);
     } else if (ownerIdx.length > 1 && sameCondomino) {
-      synthetic = aggregateMatchedRows(deduped, ownerIdx);
+      synthetic = normalizeAggregatedRow(aggregateMatchedRows(deduped, ownerIdx));
     } else if (ownerIdx.length > 1) {
       const bestIdx = ownerIdx.reduce((best, idx) => {
         const row = deduped[idx];

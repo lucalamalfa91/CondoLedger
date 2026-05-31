@@ -48,12 +48,10 @@ export function validateParties(parties) {
   for (const p of list) {
     const fn = p.firstName?.trim();
     const ln = p.lastName?.trim();
+    if (!fn && !ln) continue;
     if ((fn && !ln) || (!fn && ln)) {
-      warnings.push(`Completa nome e cognome per ${p.role === 'tenant' ? 'affittuario' : 'proprietario'}.`);
-    }
-    if (fn && ln) continue;
-    if (fn || ln) {
-      warnings.push(`Completa nome e cognome per ${p.role === 'tenant' ? 'affittuario' : 'proprietario'}.`);
+      // Consenti solo cognome o solo nome (es. secondo comproprietario "Andreazza")
+      continue;
     }
   }
   return warnings;
@@ -61,7 +59,7 @@ export function validateParties(parties) {
 
 export function hasConfiguredParties(house) {
   return (house?.importParties || []).some(
-    p => p.role === 'owner' && p.firstName?.trim() && p.lastName?.trim()
+    p => p.role === 'owner' && (p.firstName?.trim() || p.lastName?.trim())
   );
 }
 

@@ -248,7 +248,7 @@
           </div>
         </div>
         <div class="subview" data-subview-panel="import-doc" role="tabpanel">
-          <section class="card stack data-panel document-import-panel">
+          <section class="card stack data-panel document-import-panel" id="documentImportPanel">
             <ol class="import-stepper" id="documentImportStepper" aria-label="Passaggi import">
               <li class="import-step" data-step="upload"><span>1</span> Carica file</li>
               <li class="import-step" data-step="resoconto"><span>2</span> Resoconto</li>
@@ -286,6 +286,12 @@
               </form>
             </dialog>
             <div id="documentImportStatus" class="document-import-status muted" aria-live="polite"></div>
+            <div id="documentImportLoader" class="document-import-loader hidden" role="status" aria-live="polite" aria-busy="false">
+              <div class="loader-spinner" aria-hidden="true"></div>
+              <p class="loader-title">Elaborazione documento con AI…</p>
+              <p class="loader-hint">Estrazione da PDF o JPEG in corso. Può richiedere fino a un minuto.</p>
+              <p id="documentImportLoaderFile" class="loader-file hint"></p>
+            </div>
             <div class="data-table-wrap" id="documentImportPreview"></div>
           </section>
         </div>
@@ -345,7 +351,7 @@
               <div class="house-list-scroll"><div id="housesManageList" class="house-list compact"></div></div>
             </aside>
             <section class="split-content-pane card stack">
-              <div class="panel-head"><div><h2 id="houseFormTitle">Modifica immobile</h2><p class="subtle" id="houseFormSubtitle">Dati e configurazione esercizio fiscale.</p></div></div>
+              <div class="panel-head"><div><h2 id="houseFormTitle">Modifica immobile</h2><p class="subtle" id="houseFormSubtitle">Dati, esercizio fiscale e nominativi per l'import documenti.</p></div></div>
               <form id="houseForm" class="stack">
                 <div class="field-grid">
                   <div><label for="houseName">Nome casa</label><input id="houseName" name="name" type="text" required placeholder="Appartamento Milano" /></div>
@@ -362,9 +368,12 @@
                   </div>
                 </div>
                 <div><label for="houseNotes">Note</label><textarea id="houseNotes" name="notes" placeholder="Amministratore, millesimi, appunti..."></textarea></div>
-                <div id="houseImportParties" class="stack" aria-labelledby="houseImportPartiesTitle">
-                  <h3 id="houseImportPartiesTitle" class="h3-like">Nominativi per import documenti</h3>
-                  <p class="hint">Usati per filtrare le righe del preventivo/consuntivo e generare il resoconto. Opzionale: senza nominativi scegli la riga manualmente in import.</p>
+                <div id="houseImportParties" class="house-import-parties card stack">
+                  <div class="house-import-parties-head">
+                    <h3 id="houseImportPartiesTitle">Nominativi per import documenti</h3>
+                    <p class="hint">Usati per filtrare le righe del preventivo/consuntivo e generare il resoconto. Opzionale: senza nominativi scegli la riga manualmente in import.</p>
+                  </div>
+                  <div id="houseImportPartiesFields" class="stack"></div>
                 </div>
                 <div class="form-actions">
                   <button class="btn btn-primary" id="houseSubmitBtn" type="submit">Salva modifiche</button>

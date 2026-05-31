@@ -172,8 +172,8 @@ export function createRenderer(els) {
     if (els.houseFormTitle) els.houseFormTitle.textContent = isNew ? 'Nuova casa' : 'Modifica immobile';
     if (els.houseFormSubtitle) {
       els.houseFormSubtitle.textContent = isNew
-        ? 'Compila i dati e salva per aggiungere un immobile.'
-        : 'Dati e configurazione esercizio fiscale.';
+        ? 'Compila i dati e i nominativi per l\'import documenti.'
+        : 'Dati, esercizio fiscale e nominativi per l\'import documenti.';
     }
     if (els.houseSubmitBtn) els.houseSubmitBtn.textContent = isNew ? 'Crea casa' : 'Salva modifiche';
     els.deleteHouseBtn?.classList.toggle('hidden', isNew || !state.data.houses.length);
@@ -756,7 +756,8 @@ export function createRenderer(els) {
   }
 
   function renderHouseImportParties(house) {
-    if (!els.houseImportParties) return;
+    const fields = els.houseImportPartiesFields || els.houseImportParties;
+    if (!fields) return;
     const parties = house?.importParties?.length
       ? [...house.importParties]
       : [{ role: 'owner', firstName: '', lastName: '' }];
@@ -782,10 +783,10 @@ export function createRenderer(els) {
       <div><label>Nome affittuario</label><input type="text" data-party-first value="${esc(tenant.firstName)}" /></div>
       <div><label>Cognome affittuario</label><input type="text" data-party-last value="${esc(tenant.lastName)}" /></div>
     </div>`;
-    els.houseImportParties.innerHTML = html;
+    els.houseImportPartiesFields.innerHTML = html;
 
-    els.houseImportParties.querySelector('#houseAddOwnerBtn')?.addEventListener('click', () => {
-      const list = els.houseImportParties.querySelector('#houseOwnersList');
+    els.houseImportPartiesFields.querySelector('#houseAddOwnerBtn')?.addEventListener('click', () => {
+      const list = els.houseImportPartiesFields.querySelector('#houseOwnersList');
       const n = list.querySelectorAll('[data-party-row]').length + 1;
       const row = document.createElement('div');
       row.className = 'field-grid';
@@ -795,8 +796,8 @@ export function createRenderer(els) {
         <div><label>Cognome</label><input type="text" data-party-last placeholder="Cognome" /></div>`;
       list.appendChild(row);
     });
-    els.houseImportParties.querySelector('#houseTenantEnabled')?.addEventListener('change', e => {
-      els.houseImportParties.querySelector('#houseTenantFields')?.classList.toggle('hidden', !e.target.checked);
+    els.houseImportPartiesFields.querySelector('#houseTenantEnabled')?.addEventListener('change', e => {
+      els.houseImportPartiesFields.querySelector('#houseTenantFields')?.classList.toggle('hidden', !e.target.checked);
     });
   }
 
@@ -820,10 +821,34 @@ export function createRenderer(els) {
       .replace(/"/g, '&quot;');
   }
 
+  function renderDocumentImportLoader(busy) {
+    const panel = els.documentImportPanel;
+    const loader = els.documentImportLoader;
+    if (loader) {
+      loader.classList.toggle('hidden', !busy);
+      loader.setAttribute('aria-busy', busy ? 'true' : 'false');
+    }
+    panel?.classList.toggle('is-loading', busy);
+    if (els.documentImportFile) els.documentImportFile.disabled = busy;
+    const uploadLabel = panel?.querySelector('label[for="documentImportFile"]');
+    uploadLabel?.classList.toggle('is-disabled', busy);
+    if (els.documentImportManual) els.documentImportManual.disabled = busy;
+    if (els.documentImportRetry) els.documentImportRetry.disabled = busy;
+    if (els.documentImportLoaderFile && busy) {
+      const names = (state.documentImportLastFiles || []).map(f => f.name).filter(Boolean);
+      els.documentImportLoaderFile.textContent = names.length
+        ? `File: ${names.join(', ')}`
+        : '';
+    } else if (els.documentImportLoaderFile) {
+      els.documentImportLoaderFile.textContent = '';
+    }
+  }
+
   function renderDocumentImportPreview(house) {
     if (!els.documentImportPreview) return;
     const preview = state.documentImportPreview;
     const busy = state.documentImportBusy;
+    renderDocumentImportLoader(busy);
     const needsResoconto = preview?.filterMode === 'auto' && !preview.resocontoConfirmed;
     if (els.documentImportConfirm) {
       els.documentImportConfirm.disabled = !preview || busy || needsResoconto;
@@ -849,8 +874,12 @@ export function createRenderer(els) {
     else updateDocumentImportStepper('review');
 
     if (!preview) {
-      els.documentImportPreview.innerHTML =
-        '<div class="empty">Carica un preventivo o consuntivo (PDF, DOCX o foto). Dopo l\'estrazione scegli la tua riga nella tabella.</div>';
+      if (!busy) {
+        els.documentImportPreview.innerHTML =
+          '<div class="empty">Carica un preventivo o consuntivo (PDF, DOCX o foto). Dopo l\'estrazione scegli la tua riga nella tabella.</div>';
+      } else {
+        els.documentImportPreview.innerHTML = '';
+      }
       return;
     }
     const ext = preview.extraction;
@@ -860,7 +889,13 @@ export function createRenderer(els) {
     let html = `<div class="document-import-review stack">`;
 
     if (preview.autoFilterFailed) {
-      html += `<div class="banner warn">Nessuna riga corrisponde ai nominativi configurati (${(house.importParties || []).map(partyDisplayName).join(', ')}). Seleziona la riga manualmente o aggiorna i nominativi in Impostazioni → Casa.</div>`;
+      const labels = Object.values(preview.matchMeta || {})
+        .flatMap(m => m.extractedLabels || [])
+        .filter(Boolean);
+      const sample = labels.length
+        ? ` Righe estratte (prime ${labels.length}): ${labels.map(l => `«${l}»`).join(', ')}.`
+        : ' Nessuna riga condomino estratta dal documento.';
+      html += `<div class="banner warn">Nessuna riga corrisponde ai nominativi configurati (${(house.importParties || []).map(partyDisplayName).join(', ')}).${sample} Seleziona la riga manualmente, correggi i nominativi in Impostazioni → Casa, o verifica che l&apos;AI abbia letto la pagina con «TOTALE DA VERSARE» / rate.</div>`;
     }
 
     html += resocontoHtml(preview.resoconto, {
@@ -1169,6 +1204,7 @@ export function createRenderer(els) {
       els.houseForm?.reset();
       syncHouseFormChrome('edit');
       els.deleteHouseBtn?.classList.add('hidden');
+      renderHouseImportParties({ importParties: [] });
     }
     renderComplianceHero({ fiscalPeriods: [], dues: [], payments: [] });
     els.metrics.querySelector('#emptyAddHouseBtn')?.addEventListener('click', () => {
@@ -1278,6 +1314,7 @@ export function collectDom() {
     paymentForm: document.getElementById('paymentForm'),
     houseForm: document.getElementById('houseForm'),
     houseImportParties: document.getElementById('houseImportParties'),
+    houseImportPartiesFields: document.getElementById('houseImportPartiesFields'),
     fiscalStartMonth: document.getElementById('fiscalStartMonth'),
     exportBtn: document.getElementById('exportBtnAdv'),
     importFile: document.getElementById('importFileAdv'),
@@ -1292,6 +1329,9 @@ export function collectDom() {
     documentImportDupReplace: document.getElementById('documentImportDupReplace'),
     documentImportDupCancel: document.getElementById('documentImportDupCancel'),
     documentImportPreview: document.getElementById('documentImportPreview'),
+    documentImportPanel: document.getElementById('documentImportPanel'),
+    documentImportLoader: document.getElementById('documentImportLoader'),
+    documentImportLoaderFile: document.getElementById('documentImportLoaderFile'),
     documentImportStatus: document.getElementById('documentImportStatus'),
     bankImportFile: document.getElementById('bankImportFile'),
     bankImportConfirm: document.getElementById('bankImportConfirm'),

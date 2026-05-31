@@ -146,6 +146,11 @@ function pickAiProvider(
 function buildPrompt(): string {
   return `Sei un assistente contabile per spese condominiali italiane. Analizza il/i documento/i (preventivo, consuntivo, ripartizioni per anagrafica, bilancio).
 Estrai TUTTE le righe condomino visibili con nome/unità, totale, rate con importi e date esatte se presenti.
+Per tabelle "ripartizioni preventivo/consuntivo" su PIÙ pagine/foto JPEG che ripetono gli stessi condomini con colonne diverse (spese generali, ascensore, totale preventivo, rate):
+- consolidare in UNA sola riga per condomino;
+- usare come totale la colonna "TOTALE PREVENTIVO" o "TOTALE DA VERSARE" quando presente;
+- copiare nel campo label il nominativo completo della colonna anagrafica, es. "111 - (PR) La Malfa Luca / Andreazza" (inclusi prefisso interno e slash tra comproprietari);
+- estrarre le rate (Rata n. 1, 2, …) con importi e date se visibili.
 Se presenti nel documento, compila "summary" con saldi precedenti, etichetta esercizio precedente e relativi totali.
 Se ci sono sia preventivo che consuntivo, crea due sezioni in "sections".
 Rispondi SOLO con JSON valido conforme a questo schema:

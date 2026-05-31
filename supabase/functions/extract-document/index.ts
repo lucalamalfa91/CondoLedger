@@ -3,9 +3,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const MAX_BYTES = 15 * 1024 * 1024;
+const MAX_IMPORT_MB = 30;
+const MAX_BYTES = MAX_IMPORT_MB * 1024 * 1024;
 const MAX_FILES = 40;
 
 const EXTRACTION_SCHEMA = `{
@@ -75,7 +77,9 @@ Deno.serve(async (req) => {
 
     let totalSize = 0;
     for (const f of files) totalSize += f.size;
-    if (totalSize > MAX_BYTES) return json({ error: 'Dimensione totale oltre 15 MB' }, 400);
+    if (totalSize > MAX_BYTES) {
+      return json({ error: `Dimensione totale oltre ${MAX_IMPORT_MB} MB` }, 400);
+    }
 
     if (!openaiKey) {
       return json({

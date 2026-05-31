@@ -16,7 +16,7 @@ Nella stessa pagina resta disponibile l'import Excel Banca Intesa (sotto).
 | Word | `.docx` | Testo estratto lato server |
 | Immagine | `.jpg`, `.jpeg`, `.png`, `.webp` | Una o più pagine |
 
-- Dimensione massima: **15 MB totali** per singolo import (somma di tutti i file selezionati)
+- Dimensione massima: **30 MB totali** per singolo import (somma di tutti i file selezionati)
 - Più foto (es. scansione pagina per pagina): selezionarle **tutte insieme** nel file picker; vengono elaborate come un unico documento, ordinate per nome file
 
 ## Flusso utente

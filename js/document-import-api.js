@@ -4,6 +4,7 @@ import {
   ALLOWED_MIME,
   MAX_BATCH_FILES,
   MAX_IMPORT_BYTES,
+  MAX_IMPORT_MB,
   normalizeExtraction
 } from './document-import-schema.js';
 import { hashBlob } from './utils.js';
@@ -25,7 +26,9 @@ export function validateFiles(fileList) {
   }
   if (total > MAX_IMPORT_BYTES) {
     const mb = (total / (1024 * 1024)).toFixed(1);
-    throw new Error(`Dimensione totale ${mb} MB oltre il limite di 15 MB. Riduci i file o importa meno pagine.`);
+    throw new Error(
+      `Dimensione totale ${mb} MB oltre il limite di ${MAX_IMPORT_MB} MB. Riduci i file o importa meno pagine.`
+    );
   }
   return files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
@@ -78,12 +81,30 @@ export async function extractFromDocument(houseId, files) {
   const token = sessionData.session?.access_token;
   if (!token) throw new Error('Sessione scaduta. Accedi di nuovo.');
 
+  if (!state.supabaseAnonKey) {
+    throw new Error('Configurazione Supabase mancante (chiave anon).');
+  }
+
   const url = `${state.supabaseUrl}/functions/v1/extract-document`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: form
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: state.supabaseAnonKey
+      },
+      body: form
+    });
+  } catch (networkErr) {
+    const raw = String(networkErr?.message || networkErr || '');
+    if (/failed to fetch|networkerror|load failed/i.test(raw)) {
+      throw new Error(
+        'Connessione all\'estrazione non riuscita. Controlla la rete, poi verifica che la Edge Function extract-document sia deployata su Supabase (supabase functions deploy extract-document) e che il secret OPENAI_API_KEY sia impostato.'
+      );
+    }
+    throw networkErr;
+  }
 
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {

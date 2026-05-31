@@ -49,7 +49,8 @@ export const ALLOWED_MIME = new Set([
 ]);
 
 /** Limite dimensione totale per singolo import (tutti i file sommati). */
-export const MAX_IMPORT_BYTES = 15 * 1024 * 1024;
+export const MAX_IMPORT_MB = 30;
+export const MAX_IMPORT_BYTES = MAX_IMPORT_MB * 1024 * 1024;
 export const MAX_FILE_BYTES = MAX_IMPORT_BYTES;
 export const MAX_BATCH_FILES = 40;
 

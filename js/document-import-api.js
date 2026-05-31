@@ -7,6 +7,7 @@ import {
   MAX_IMPORT_MB,
   normalizeExtraction
 } from './document-import-schema.js';
+import { prepareFilesForImport } from './document-import-images.js';
 import { hashBlob } from './utils.js';
 
 const MIGRATION_HINT =
@@ -71,7 +72,8 @@ export async function ensureDocumentImportReady() {
 export async function extractFromDocument(houseId, files) {
   await ensureAuthenticated();
   await ensureDocumentImportReady();
-  const sorted = validateFiles(files);
+  const prepared = await prepareFilesForImport([...files]);
+  const sorted = validateFiles(prepared);
   const form = new FormData();
   form.append('house_id', String(houseId));
   for (const f of sorted) form.append('files', f, f.name);
@@ -98,9 +100,9 @@ export async function extractFromDocument(houseId, files) {
     });
   } catch (networkErr) {
     const raw = String(networkErr?.message || networkErr || '');
-    if (/failed to fetch|networkerror|load failed/i.test(raw)) {
+    if (/failed to fetch|networkerror|load failed|cors/i.test(raw)) {
       throw new Error(
-        'Connessione all\'estrazione non riuscita. Controlla la rete, poi verifica che la Edge Function extract-document sia deployata su Supabase (supabase functions deploy extract-document) e che il secret OPENAI_API_KEY sia impostato.'
+        'Impossibile raggiungere extract-document su Supabase. Di solito la function non è deployata: `npx supabase functions deploy extract-document --project-ref cwvwfrrknmjwdpcnqvhv` e secret OPENAI_API_KEY o ANTHROPIC_API_KEY.'
       );
     }
     throw networkErr;
@@ -108,10 +110,15 @@ export async function extractFromDocument(houseId, files) {
 
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = body.error || body.message || `Errore estrazione (${res.status})`;
+    const msg =
+      body.error ||
+      body.message ||
+      (res.status === 502
+        ? 'Errore servizio AI (502). Rideploy extract-document se il messaggio non è dettagliato.'
+        : `Errore estrazione (${res.status})`);
     if (res.status === 404) {
       throw new Error(
-        'Funzione extract-document non disponibile. Deploy: supabase functions deploy extract-document e secret OPENAI_API_KEY.'
+        'Funzione extract-document non disponibile. Deploy della function e secret OPENAI_API_KEY o ANTHROPIC_API_KEY su Supabase.'
       );
     }
     throw new Error(msg);

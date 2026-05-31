@@ -213,15 +213,29 @@ Documentazione completa: [`references/document-import.md`](references/document-i
 
 ### Setup Edge Function (una tantum)
 
-Richiede [Supabase CLI](https://supabase.com/docs/guides/cli) e una chiave API OpenAI.
+Richiede una chiave API nei **Secrets** Supabase (`ANTHROPIC_API_KEY` per Claude **oppure** `OPENAI_API_KEY` per OpenAI) e il **deploy** della function.
+
+**Importante:** se in console del browser vedi un errore **CORS** su `extract-document`, quasi sempre la function **non è deployata** (Supabase risponde 404 al preflight OPTIONS, senza header CORS). Configurare solo il secret non basta.
+
+Da PowerShell nella root del repo (senza installare la CLI globalmente):
+
+```powershell
+.\scripts\deploy-extract-document.ps1
+```
+
+Oppure manualmente:
 
 ```bash
-supabase login
-supabase link --project-ref <PROJECT_REF>   # es. da Project Settings → General
-supabase secrets set OPENAI_API_KEY=sk-...
-supabase functions deploy extract-document
+npx supabase@latest login
+npx supabase@latest link --project-ref cwvwfrrknmjwdpcnqvhv
+npx supabase@latest secrets set ANTHROPIC_API_KEY=sk-ant-...
+# opzionale, forza Claude anche se esiste OPENAI_API_KEY:
+# npx supabase@latest secrets set AI_PROVIDER=anthropic
+npx supabase@latest functions deploy extract-document --project-ref cwvwfrrknmjwdpcnqvhv
 ```
+
+Verifica: `curl -X OPTIONS https://cwvwfrrknmjwdpcnqvhv.supabase.co/functions/v1/extract-document` deve restituire **HTTP 204** (non 404).
 
 Assicurati di aver eseguito la migration `20260531120000_split_amounts_document_imports.sql`.
 
-Senza deploy, l'upload mostra un errore che indica di configurare la function; puoi comunque usare **Inserisci manualmente** o l'import Intesa.
+Senza deploy, l'upload fallisce; puoi comunque usare **Inserisci manualmente** o l'import Intesa.

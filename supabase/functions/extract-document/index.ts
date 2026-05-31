@@ -1,9 +1,12 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { encodeBase64 } from 'https://deno.land/std@0.224.0/encoding/base64.ts';
 
-const corsHeaders = {
+const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type, x-supabase-api-version',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Max-Age': '86400',
 };
 
 const MAX_IMPORT_MB = 30;
@@ -31,7 +34,7 @@ const EXTRACTION_SCHEMA = `{
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   try {
@@ -43,6 +46,8 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const openaiKey = Deno.env.get('OPENAI_API_KEY');
+    const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY');
+    const aiProvider = (Deno.env.get('AI_PROVIDER') || 'auto').toLowerCase();
 
     const supabase = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
@@ -81,83 +86,30 @@ Deno.serve(async (req) => {
       return json({ error: `Dimensione totale oltre ${MAX_IMPORT_MB} MB` }, 400);
     }
 
-    if (!openaiKey) {
+    const provider = pickAiProvider(openaiKey, anthropicKey, aiProvider);
+    if (!provider) {
       return json({
-        error: 'OPENAI_API_KEY non configurata sulla Edge Function. Impostala in Supabase → Edge Functions → Secrets.',
+        error:
+          'Nessuna chiave AI sulla Edge Function. Imposta ANTHROPIC_API_KEY (Claude, sk-ant-...) oppure OPENAI_API_KEY in Supabase → Edge Functions → Secrets.',
       }, 503);
     }
 
-    const contentParts: unknown[] = [
-      {
-        type: 'text',
-        text: `Sei un assistente contabile per spese condominiali italiane. Analizza il/i documento/i (preventivo, consuntivo, ripartizioni per anagrafica, bilancio).
-Estrai TUTTE le righe condomino visibili con nome/unità, totale, rate con importi e date esatte se presenti.
-Se ci sono sia preventivo che consuntivo, crea due sezioni in "sections".
-Rispondi SOLO con JSON valido conforme a questo schema:
-${EXTRACTION_SCHEMA}`,
-      },
-    ];
+    const promptText = buildPrompt();
+    const filePayloads = await buildFilePayloads(files);
 
-    for (const file of files) {
-      const buf = await file.arrayBuffer();
-      const mime = file.type || guessMime(file.name);
-
-      if (mime.includes('wordprocessingml') || file.name.endsWith('.docx')) {
-        const text = await extractDocxText(buf);
-        contentParts.push({
-          type: 'text',
-          text: `--- File: ${file.name} (testo estratto) ---\n${text.slice(0, 120000)}`,
-        });
-      } else if (mime.startsWith('image/') || mime === 'application/pdf') {
-        const b64 = arrayBufferToBase64(buf);
-        contentParts.push({
-          type: 'image_url',
-          image_url: { url: `data:${mime};base64,${b64}` },
-        });
-      } else {
-        contentParts.push({
-          type: 'text',
-          text: `File ${file.name}: formato non elaborabile automaticamente.`,
-        });
-      }
-    }
-
-    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openaiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        temperature: 0.1,
-        response_format: { type: 'json_object' },
-        messages: [
-          { role: 'system', content: 'Rispondi solo con JSON. Importi in euro come numeri.' },
-          { role: 'user', content: contentParts },
-        ],
-      }),
-    });
-
-    if (!aiRes.ok) {
-      const errText = await aiRes.text();
-      console.error('OpenAI error', errText);
-      return json({ error: 'Errore servizio AI' }, 502);
-    }
-
-    const aiJson = await aiRes.json();
-    const raw = aiJson.choices?.[0]?.message?.content || '{}';
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return json({ error: 'Risposta AI non valida', extractionNotes: raw.slice(0, 500) }, 502);
+    let parsed: Record<string, unknown>;
+    if (provider === 'anthropic') {
+      parsed = await extractWithAnthropic(anthropicKey!.trim(), promptText, filePayloads);
+    } else {
+      parsed = await extractWithOpenAi(openaiKey!.trim(), promptText, filePayloads);
     }
 
     return json(parsed, 200);
   } catch (e) {
     console.error(e);
-    return json({ error: String(e?.message || e) }, 500);
+    const msg = String(e?.message || e);
+    const status = /OpenAI:|Claude:|troppo pesant|non valida/i.test(msg) ? 502 : 500;
+    return json({ error: msg }, status);
   }
 });
 
@@ -168,15 +120,218 @@ function json(body: unknown, status = 200) {
   });
 }
 
-/** Base64 senza spread su buffer grandi (evita stack overflow su PDF ~5 MB). */
-function arrayBufferToBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  const chunk = 0x8000;
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+/** auto: usa Anthropic se ANTHROPIC_API_KEY è presente, altrimenti OpenAI. */
+function pickAiProvider(
+  openaiKey: string | undefined,
+  anthropicKey: string | undefined,
+  aiProvider: string,
+): 'anthropic' | 'openai' | null {
+  const openai = openaiKey?.trim() || '';
+  const anthropic = anthropicKey?.trim() || '';
+  const pref = aiProvider.toLowerCase();
+
+  if (pref === 'anthropic') return anthropic ? 'anthropic' : openai ? 'openai' : null;
+  if (pref === 'openai') return openai ? 'openai' : anthropic ? 'anthropic' : null;
+  if (anthropic) return 'anthropic';
+  if (openai) return 'openai';
+  return null;
+}
+
+function buildPrompt(): string {
+  return `Sei un assistente contabile per spese condominiali italiane. Analizza il/i documento/i (preventivo, consuntivo, ripartizioni per anagrafica, bilancio).
+Estrai TUTTE le righe condomino visibili con nome/unità, totale, rate con importi e date esatte se presenti.
+Se ci sono sia preventivo che consuntivo, crea due sezioni in "sections".
+Rispondi SOLO con JSON valido conforme a questo schema:
+${EXTRACTION_SCHEMA}`;
+}
+
+type FilePayload =
+  | { kind: 'text'; text: string }
+  | { kind: 'image'; mime: string; b64: string }
+  | { kind: 'pdf'; name: string; b64: string };
+
+async function buildFilePayloads(files: File[]): Promise<FilePayload[]> {
+  const out: FilePayload[] = [];
+  for (const file of files) {
+    const buf = await file.arrayBuffer();
+    const mime = file.type || guessMime(file.name);
+
+    if (mime.includes('wordprocessingml') || file.name.endsWith('.docx')) {
+      const text = await extractDocxText(buf);
+      out.push({
+        kind: 'text',
+        text: `--- File: ${file.name} (testo estratto) ---\n${text.slice(0, 120000)}`,
+      });
+    } else if (mime === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      out.push({ kind: 'pdf', name: file.name, b64: arrayBufferToBase64(buf) });
+    } else if (mime.startsWith('image/')) {
+      const imageMime = mime === 'image/jpg' ? 'image/jpeg' : mime;
+      out.push({ kind: 'image', mime: imageMime, b64: arrayBufferToBase64(buf) });
+    } else {
+      out.push({ kind: 'text', text: `File ${file.name}: formato non elaborabile automaticamente.` });
+    }
   }
-  return btoa(binary);
+  return out;
+}
+
+async function extractWithOpenAi(
+  openaiKey: string,
+  promptText: string,
+  payloads: FilePayload[],
+): Promise<Record<string, unknown>> {
+  const contentParts: Record<string, unknown>[] = [{ type: 'text', text: promptText }];
+  for (const p of payloads) {
+    if (p.kind === 'text') contentParts.push({ type: 'text', text: p.text });
+    if (p.kind === 'pdf') {
+      contentParts.push({
+        type: 'file',
+        file: {
+          filename: p.name,
+          file_data: `data:application/pdf;base64,${p.b64}`,
+        },
+      });
+    }
+    if (p.kind === 'image') {
+      contentParts.push({
+        type: 'image_url',
+        image_url: {
+          url: `data:${p.mime};base64,${p.b64}`,
+          detail: 'high',
+        },
+      });
+    }
+  }
+
+  const body = JSON.stringify({
+    model: 'gpt-4o',
+    temperature: 0.1,
+    max_completion_tokens: 16384,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: 'Rispondi solo con JSON. Importi in euro come numeri.' },
+      { role: 'user', content: contentParts },
+    ],
+  });
+
+  if (body.length > 18_000_000) {
+    throw new Error(
+      'Immagini troppo pesanti anche dopo la compressione. Carica meno foto per volta o scatta a risoluzione più bassa.',
+    );
+  }
+
+  const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${openaiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body,
+  });
+
+  if (!aiRes.ok) {
+    const errText = await aiRes.text();
+    console.error('OpenAI error', aiRes.status, errText);
+    throw new Error(openAiErrorMessage(errText));
+  }
+
+  const aiJson = await aiRes.json();
+  return parseJsonFromModel(aiJson.choices?.[0]?.message?.content || '{}');
+}
+
+async function extractWithAnthropic(
+  anthropicKey: string,
+  promptText: string,
+  payloads: FilePayload[],
+): Promise<Record<string, unknown>> {
+  const content: Record<string, unknown>[] = [{ type: 'text', text: promptText }];
+  for (const p of payloads) {
+    if (p.kind === 'text') content.push({ type: 'text', text: p.text });
+    if (p.kind === 'pdf') {
+      content.push({
+        type: 'document',
+        source: {
+          type: 'base64',
+          media_type: 'application/pdf',
+          data: p.b64,
+        },
+      });
+    }
+    if (p.kind === 'image') {
+      content.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: p.mime,
+          data: p.b64,
+        },
+      });
+    }
+  }
+
+  const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': anthropicKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 16384,
+      temperature: 0.1,
+      system: 'Rispondi solo con JSON valido. Importi in euro come numeri.',
+      messages: [{ role: 'user', content }],
+    }),
+  });
+
+  if (!aiRes.ok) {
+    const errText = await aiRes.text();
+    console.error('Anthropic error', aiRes.status, errText);
+    throw new Error(anthropicErrorMessage(errText));
+  }
+
+  const aiJson = await aiRes.json();
+  const block = aiJson.content?.find((b: { type: string }) => b.type === 'text');
+  return parseJsonFromModel(block?.text || '{}');
+}
+
+function parseJsonFromModel(raw: string): Record<string, unknown> {
+  const trimmed = raw.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
+  const jsonStr = fenced ? fenced[1].trim() : trimmed;
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    throw new Error(`Risposta AI non valida: ${jsonStr.slice(0, 200)}`);
+  }
+}
+
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  return encodeBase64(new Uint8Array(buf));
+}
+
+function openAiErrorMessage(errText: string): string {
+  try {
+    const j = JSON.parse(errText);
+    const msg = j?.error?.message;
+    if (typeof msg === 'string' && msg.length) return `OpenAI: ${msg}`;
+  } catch {
+    /* ignore */
+  }
+  const trimmed = errText.trim().slice(0, 280);
+  return trimmed ? `OpenAI: ${trimmed}` : 'Errore servizio AI (OpenAI). Verifica credito e chiave API.';
+}
+
+function anthropicErrorMessage(errText: string): string {
+  try {
+    const j = JSON.parse(errText);
+    const msg = j?.error?.message;
+    if (typeof msg === 'string' && msg.length) return `Claude: ${msg}`;
+  } catch {
+    /* ignore */
+  }
+  const trimmed = errText.trim().slice(0, 280);
+  return trimmed ? `Claude: ${trimmed}` : 'Errore servizio AI (Anthropic). Verifica credito e chiave API.';
 }
 
 function guessMime(name: string) {

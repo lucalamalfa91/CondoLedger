@@ -97,12 +97,12 @@ La tabella `document_imports` registra hash del file, etichetta sorgente e ID de
 
 ```
 Browser (file) → POST /functions/v1/extract-document (JWT utente)
-              → OpenAI gpt-4o (JSON strutturato)
+              → Claude (Anthropic) o OpenAI gpt-4o (JSON strutturato)
               → Anteprima HITL (nessuna scrittura DB)
               → Conferma → ensureFiscalPeriodByLabel + saveDueToSupabase
 ```
 
-La chiave OpenAI resta solo su Supabase (secret `OPENAI_API_KEY`), mai nel frontend.
+La chiave AI resta solo su Supabase: `OPENAI_API_KEY` (OpenAI) **oppure** `ANTHROPIC_API_KEY` (Claude). Non usare chiavi Cursor/Claude Code. Le foto JPEG vengono compresse nel browser prima dell'upload.
 
 ## Setup richiesto (una tantum)
 
@@ -112,7 +112,8 @@ La chiave OpenAI resta solo su Supabase (secret `OPENAI_API_KEY`), mai nel front
 ```bash
 supabase login
 supabase link --project-ref <PROJECT_REF>
-supabase secrets set OPENAI_API_KEY=sk-...
+supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+# oppure: supabase secrets set OPENAI_API_KEY=sk-...
 supabase functions deploy extract-document
 ```
 

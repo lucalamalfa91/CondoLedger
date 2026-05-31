@@ -11,6 +11,7 @@ import {
 import {
   SPLIT_MODES,
   filterPaymentsByInstallmentPeriod,
+  findInstallment,
   inferInstallmentKey,
   installmentShortLabel,
   listInstallmentsForPeriod,
@@ -27,8 +28,18 @@ import {
   resolveSituazionePdfKind,
   situazioneStatusLabel
 } from './situazione-report.js';
+import { computeComplianceStatus } from './compliance-status.js';
+import { dataListHtml, emptyListHtml } from './mobile-cards.js';
+import { computeNextPaymentGuide, formatPaymentGuideSummary } from './payment-guide.js';
 import { activeHouse, state } from './state.js';
 import { fmt, today } from './utils.js';
+
+const COMPLIANCE_ICONS = {
+  in_regola: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>',
+  attenzione: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>',
+  azione: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>',
+  vuoto: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V8.5L12 4l8 4.5V20"/><path d="M8 20v-6h8v6"/></svg>'
+};
 
 const MONTH_FILTER_LABELS = [
   ['', 'Tutti'], ['1', 'Gennaio'], ['2', 'Febbraio'], ['3', 'Marzo'], ['4', 'Aprile'],
@@ -48,9 +59,22 @@ export function createRenderer(els) {
     return viewMeta[view]?.defaultSubview ?? null;
   }
 
-  function syncNavActive(view) {
+  function syncNavActive(view, subview) {
     els.navButtons.forEach(btn => {
-      const active = btn.dataset.view === view;
+      const btnView = btn.dataset.view;
+      const mobileSub = btn.dataset.navMobileSubview;
+      let active;
+      if (btn.closest('.bottom-nav')) {
+        if (mobileSub) {
+          active = view === btnView && subview === mobileSub;
+        } else if (btnView === 'movimenti') {
+          active = view === 'movimenti' && subview !== 'situazione';
+        } else {
+          active = view === btnView;
+        }
+      } else {
+        active = btnView === view;
+      }
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-current', active ? 'page' : 'false');
     });
@@ -95,7 +119,7 @@ export function createRenderer(els) {
     state.currentSubview = subview;
     if (view === 'movimenti' && subview) sessionStorage.setItem('movimenti-tab', subview);
 
-    syncNavActive(view);
+    syncNavActive(view, subview);
     els.viewPanels.forEach(panel => panel.classList.toggle('active', panel.dataset.viewPanel === view));
     syncSubviewUI(view, subview);
     updateHeader(view, subview);
@@ -216,6 +240,19 @@ export function createRenderer(els) {
     els.paymentInstallment.innerHTML = slots.map(s =>
       `<option value="${s.key}" ${s.key === selected ? 'selected' : ''}>${s.label}${s.dueDescription ? ` · ${s.dueDescription}` : ''} (${fmt(s.amountDue)})</option>`
     ).join('');
+    applyPaymentSmartAmount(house);
+  }
+
+  function applyPaymentSmartAmount(house) {
+    if (!els.paymentAmount || !els.paymentInstallment || els.paymentEditId?.value) return;
+    const key = els.paymentInstallment.value;
+    if (!key) return;
+    const periodId = els.paymentPeriod?.value;
+    const rows = periodId ? installmentSummaryForPeriod(house, periodId).slots : [];
+    const row = rows.find(s => s.key === key);
+    if (!row) return;
+    const gap = Math.round((row.amountDue - row.paid) * 100) / 100;
+    if (gap > 0.01) els.paymentAmount.value = String(gap);
   }
 
   function renderPaymentFilterOptions(house) {
@@ -253,17 +290,35 @@ export function createRenderer(els) {
     return { covered: keys.size, total: allSlots.length };
   }
 
-  function renderDueFormDefaults(house) {
-    if (!els.duePeriodLabel) return;
+  function syncDuePeriodSelect(house, preferredId = null) {
+    if (!els.duePeriod) return;
     const suggested = defaultFiscalLabel(house);
-    if (!els.duePeriodLabel.value) els.duePeriodLabel.placeholder = `es. ${suggested}`;
+    const sel = preferredId || els.duePeriod.value;
+    let html = periodOptions(house, sel);
+    if (!house.fiscalPeriods.length) {
+      html = `<option value="__new__" selected>Nuovo esercizio…</option>`;
+      els.duePeriodNewWrap?.classList.remove('hidden');
+    } else {
+      html = `<option value="__new__">+ Nuovo esercizio…</option>` + html;
+      if (!sel || sel === '__new__') {
+        els.duePeriodNewWrap?.classList.toggle('hidden', els.duePeriod.value !== '__new__');
+      } else {
+        els.duePeriodNewWrap?.classList.add('hidden');
+      }
+    }
+    els.duePeriod.innerHTML = html;
+    if (sel && sel !== '__new__' && house.fiscalPeriods.some(p => p.id === sel)) {
+      els.duePeriod.value = sel;
+    }
     if (els.duePeriodHint) {
-      els.duePeriodHint.textContent = `Formato: ${suggested} (mese inizio ${house.fiscalStartMonth ?? 6})`;
+      els.duePeriodHint.textContent = house.fiscalPeriods.length
+        ? `Suggerito per nuovo: ${suggested}`
+        : `Inserisci es. ${suggested} (mese inizio ${house.fiscalStartMonth ?? 6})`;
     }
   }
 
   function renderPeriodSelects(house) {
-    renderDueFormDefaults(house);
+    syncDuePeriodSelect(house);
     if (els.dueSplitMode && !els.dueEditId?.value) els.dueSplitMode.value = 'monthly';
     if (els.dueKind && !els.dueEditId?.value) els.dueKind.value = 'preventivo';
     syncDueKindFields();
@@ -279,6 +334,42 @@ export function createRenderer(els) {
   function activePeriodFilterId() {
     const v = els.periodFilter?.value;
     return v && v !== 'all' ? v : null;
+  }
+
+  function complianceCtaBtn(cta, className = 'btn btn-primary') {
+    if (!cta) return '';
+    const importTab = cta.subview === 'import' ? ' data-import-tab="documento"' : '';
+    return `<button class="${className}" type="button" data-nav-target="${cta.view}" data-nav-subview="${cta.subview}"${importTab}>${cta.label}</button>`;
+  }
+
+  function renderComplianceHero(house) {
+    if (!els.complianceHero) return;
+    if (!house) {
+      els.complianceHero.innerHTML = '';
+      return;
+    }
+    const s = computeComplianceStatus(house);
+    const factsHtml = s.facts.length
+      ? `<div class="compliance-facts">${s.facts.map(f =>
+        `<div class="compliance-fact"><div class="compliance-fact-label">${f.label}</div><div class="compliance-fact-value ${f.tone || ''}">${f.value}</div></div>`
+      ).join('')}</div>`
+      : '';
+    els.complianceHero.innerHTML = `
+      <article class="compliance-card compliance-card--${s.level}" role="status" aria-label="${s.headline}">
+        <div class="compliance-head">
+          <div class="compliance-icon" aria-hidden="true">${COMPLIANCE_ICONS[s.level] || COMPLIANCE_ICONS.vuoto}</div>
+          <div>
+            <h2 class="compliance-headline">${s.headline}</h2>
+            <p class="compliance-subline">${s.subline}</p>
+            ${s.detail ? `<p class="compliance-detail">${s.detail}</p>` : ''}
+          </div>
+        </div>
+        ${factsHtml}
+        <div class="compliance-actions">
+          ${complianceCtaBtn(s.primaryCta)}
+          ${complianceCtaBtn(s.secondaryCta, 'btn btn-secondary')}
+        </div>
+      </article>`;
   }
 
   function renderMetrics(house) {
@@ -346,19 +437,25 @@ export function createRenderer(els) {
       return lb.localeCompare(la) || String(b.date || '').localeCompare(String(a.date || ''));
     });
     if (!dues.length) {
-      els.duesTable.innerHTML = '<div class="empty">Nessun dovuto registrato.</div>';
+      els.duesTable.innerHTML = emptyListHtml('Nessun dovuto registrato.');
       return;
     }
-    els.duesTable.innerHTML = `<table><thead><tr><th>Esercizio</th><th>Tipo</th><th>Descrizione</th><th>Ripartizione</th><th>Importo</th><th></th></tr></thead><tbody>${dues.map(item => {
+    const rows = dues.map(item => {
       const kind = DUE_KINDS[item.dueKind || 'preventivo']?.label || item.dueKind;
       const splitLabel = item.dueKind === 'consuntivo' ? '—' : (SPLIT_MODES[item.splitMode]?.label || (item.splitMode === 'custom' ? 'Custom' : 'Mensile'));
       const carry = item.carryFromPeriodId ? ' <span class="badge warn">Riporto</span>' : '';
       const amtCls = Number(item.amount) < 0 ? 'negative' : '';
-      return `<tr><td>${periodLabel(house, item.fiscalPeriodId)}</td><td>${kind}${carry}</td><td>${item.description || '—'}</td><td>${splitLabel}</td><td class="amount ${amtCls}">${fmt(item.amount)}</td><td>${rowActions('due', item.id)}</td></tr>`;
-    }).join('')}</tbody></table>`;
+      const ex = periodLabel(house, item.fiscalPeriodId);
+      const tableRow = `<tr><td>${ex}</td><td>${kind}${carry}</td><td>${item.description || '—'}</td><td>${splitLabel}</td><td class="amount ${amtCls}">${fmt(item.amount)}</td><td>${rowActions('due', item.id)}</td></tr>`;
+      const card = `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${ex} · ${kind}${carry}</div><div class="data-card-meta">${item.description || '—'} · ${splitLabel}</div></div><div class="data-card-amount amount ${amtCls}">${fmt(item.amount)}</div></div><div class="data-card-actions">${rowActions('due', item.id)}</div></article>`;
+      return { tableRow, card };
+    });
+    const tableHtml = `<table><thead><tr><th>Esercizio</th><th>Tipo</th><th>Descrizione</th><th>Ripartizione</th><th>Importo</th><th></th></tr></thead><tbody>${rows.map(r => r.tableRow).join('')}</tbody></table>`;
+    const cardsHtml = rows.map(r => r.card).join('');
+    els.duesTable.innerHTML = dataListHtml(tableHtml, cardsHtml);
   }
 
-  function paymentRowHtml(house, item) {
+  function paymentRowMeta(house, item) {
     const key = item.installmentKey || inferInstallmentKey(house, item);
     const rata = installmentShortLabel(house, key);
     const inferred = !item.installmentKey && key;
@@ -368,7 +465,17 @@ export function createRenderer(els) {
     const rataCell = inferred ? `${rata} <span class="hint">(stimata)</span>` : rata;
     const settle = item.carryFromPeriodId
       ? ` <span class="badge success">Saldo ${periodLabel(house, item.carryFromPeriodId)}</span>` : '';
-    return `<tr><td>${periodLabel(house, item.fiscalPeriodId)}</td><td>${rataCell}${carry}${settle}</td><td>${item.date || '—'}</td><td>${item.method || '—'}</td><td class="amount ${amtCls}">${fmt(amt)}</td><td>${rowActions('payment', item.id)}</td></tr>`;
+    return { ex: periodLabel(house, item.fiscalPeriodId), rataCell, carry, settle, date: item.date || '—', method: item.method || '—', amt, amtCls, id: item.id };
+  }
+
+  function paymentRowHtml(house, item) {
+    const m = paymentRowMeta(house, item);
+    return `<tr><td>${m.ex}</td><td>${m.rataCell}${m.carry}${m.settle}</td><td>${m.date}</td><td>${m.method}</td><td class="amount ${m.amtCls}">${fmt(m.amt)}</td><td>${rowActions('payment', m.id)}</td></tr>`;
+  }
+
+  function paymentCardHtml(house, item) {
+    const m = paymentRowMeta(house, item);
+    return `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${m.ex} · ${m.rataCell}${m.carry}</div><div class="data-card-meta">${m.date} · ${m.method}${m.settle}</div></div><div class="data-card-amount amount ${m.amtCls}">${fmt(m.amt)}</div></div><div class="data-card-actions">${rowActions('payment', m.id)}</div></article>`;
   }
 
   function renderPayments(house) {
@@ -382,14 +489,16 @@ export function createRenderer(els) {
       els.paymentsSummary.textContent = `${summary.count} versamenti · ${ratio} · Totale ${fmt(summary.total)}`;
     }
     if (!house.payments.length) {
-      els.paymentsTable.innerHTML = '<div class="empty">Nessun versamento registrato.</div>';
+      els.paymentsTable.innerHTML = emptyListHtml('Nessun versamento registrato.');
       return;
     }
     if (!payments.length) {
-      els.paymentsTable.innerHTML = '<div class="empty">Nessun versamento per il periodo rata selezionato.</div>';
+      els.paymentsTable.innerHTML = emptyListHtml('Nessun versamento per il periodo rata selezionato.');
       return;
     }
-    els.paymentsTable.innerHTML = `<table><thead><tr><th>Esercizio</th><th>Rata</th><th>Data vers.</th><th>Metodo</th><th>Importo</th><th></th></tr></thead><tbody>${payments.map(item => paymentRowHtml(house, item)).join('')}</tbody></table>`;
+    const tableHtml = `<table><thead><tr><th>Esercizio</th><th>Rata</th><th>Data vers.</th><th>Metodo</th><th>Importo</th><th></th></tr></thead><tbody>${payments.map(item => paymentRowHtml(house, item)).join('')}</tbody></table>`;
+    const cardsHtml = payments.map(item => paymentCardHtml(house, item)).join('');
+    els.paymentsTable.innerHTML = dataListHtml(tableHtml, cardsHtml);
   }
 
   function renderDashboardPayments(house) {
@@ -400,15 +509,23 @@ export function createRenderer(els) {
       payments = payments.filter(p => p.fiscalPeriodId === periodId);
     }
     if (!payments.length) {
-      els.dashboardPayments.innerHTML = '<div class="empty">Nessun versamento nel contesto selezionato.</div>';
+      els.dashboardPayments.innerHTML = emptyListHtml('Nessun versamento nel contesto selezionato.');
       return;
     }
-    els.dashboardPayments.innerHTML = `<table><thead><tr><th>Esercizio</th><th>Rata</th><th>Data vers.</th><th>Importo</th></tr></thead><tbody>${payments.map(item => {
+    const slice = payments.slice(0, 8);
+    const tableHtml = `<table><thead><tr><th>Esercizio</th><th>Rata</th><th>Data vers.</th><th>Importo</th></tr></thead><tbody>${slice.map(item => {
       const key = item.installmentKey || inferInstallmentKey(house, item);
       const amt = Number(item.amount || 0);
       const amtCls = amt >= 0 ? 'positive' : 'negative';
       return `<tr><td>${periodLabel(house, item.fiscalPeriodId)}</td><td>${installmentShortLabel(house, key)}</td><td>${item.date || '—'}</td><td class="amount ${amtCls}">${fmt(amt)}</td></tr>`;
     }).join('')}</tbody></table>`;
+    const cardsHtml = slice.map(item => {
+      const key = item.installmentKey || inferInstallmentKey(house, item);
+      const amt = Number(item.amount || 0);
+      const amtCls = amt >= 0 ? 'positive' : 'negative';
+      return `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${periodLabel(house, item.fiscalPeriodId)} · ${installmentShortLabel(house, key)}</div><div class="data-card-meta">${item.date || '—'}</div></div><div class="data-card-amount amount ${amtCls}">${fmt(amt)}</div></div></article>`;
+    }).join('');
+    els.dashboardPayments.innerHTML = dataListHtml(tableHtml, cardsHtml);
   }
 
   function renderSituazioneSummaryChips(house, totalsRow, report) {
@@ -561,6 +678,67 @@ export function createRenderer(els) {
     els.dueSplitCustomWrap?.classList.toggle('hidden', isCons || els.dueSplitMode?.value !== 'custom');
   }
 
+  function renderHouseDrawerList() {
+    if (!els.houseDrawerList) return;
+    if (!state.data.houses.length) {
+      els.houseDrawerList.innerHTML = '<div class="empty">Nessun immobile. Creane uno nuovo.</div>';
+      return;
+    }
+    els.houseDrawerList.innerHTML = state.data.houses.map(h => {
+      const t = totals(h);
+      const active = h.id === state.selectedHouseId ? 'active' : '';
+      return `<button type="button" class="house-btn ${active}" data-house-id="${h.id}"><strong>${h.name}</strong><span class="muted">${h.location || '—'}</span><span class="muted">Saldo cons. ${fmt(t.balanceConsuntivo)}</span></button>`;
+    }).join('');
+  }
+
+  function renderPaymentGuide(house) {
+    if (!els.paymentGuidePanel) return;
+    const g = computeNextPaymentGuide(house);
+    if (!g) {
+      els.paymentGuidePanel.innerHTML = '';
+      return;
+    }
+    els.paymentGuidePanel.innerHTML = `
+      <div class="guide-card stack">
+        <div><strong>Bonifico guidato</strong><p class="hint">${formatPaymentGuideSummary(g)}</p></div>
+        <div class="guide-amount amount">${fmt(g.gap)}</div>
+        <div class="guide-copy-row"><code id="paymentGuideCausale">${g.causale}</code>
+          <button type="button" class="btn btn-secondary btn-sm" id="paymentGuideCopyCausale">Copia causale</button></div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" id="paymentGuideApply">Precompila versamento</button>
+        </div>
+      </div>`;
+  }
+
+  function renderPostImportBanner() {
+    const el = document.getElementById('postImportBanner');
+    if (!el) return;
+    const hint = state.postImportPaymentHint;
+    if (!hint) {
+      el.classList.add('hidden');
+      el.innerHTML = '';
+      return;
+    }
+    el.classList.remove('hidden');
+    el.innerHTML = `
+      <div><strong>Import completato.</strong> <span class="muted">Registra il versamento sulla prima rata?</span></div>
+      <div class="form-actions" style="margin:0;">
+        <button type="button" class="btn btn-primary" id="postImportRegisterPay">Registra versamento</button>
+        <button type="button" class="btn btn-secondary" id="postImportDismiss">Chiudi</button>
+      </div>`;
+  }
+
+  function updateDocumentImportStepper(phase) {
+    const steps = document.querySelectorAll('#documentImportStepper .import-step');
+    const order = ['upload', 'review', 'confirm'];
+    const idx = order.indexOf(phase);
+    steps.forEach(li => {
+      const i = order.indexOf(li.dataset.step);
+      li.classList.toggle('active', li.dataset.step === phase);
+      li.classList.toggle('done', i >= 0 && i < idx);
+    });
+  }
+
   function renderMovements(house) {
     const items = [
       ...house.dues.map(item => ({ ...item, type: 'Dovuto', detail: item.description, kind: 'due' })),
@@ -610,6 +788,11 @@ export function createRenderer(els) {
           ? `Anteprima: ${preview.sourceLabel}. Seleziona la riga che ti riguarda e conferma.`
           : '';
     }
+    if (busy) updateDocumentImportStepper('upload');
+    else if (!preview) updateDocumentImportStepper('upload');
+    else if (preview && els.documentImportConfirm && !els.documentImportConfirm.disabled) updateDocumentImportStepper('confirm');
+    else updateDocumentImportStepper('review');
+
     if (!preview) {
       els.documentImportPreview.innerHTML =
         '<div class="empty">Carica un preventivo o consuntivo (PDF, DOCX o foto). Dopo l\'estrazione scegli la tua riga nella tabella.</div>';
@@ -851,6 +1034,7 @@ export function createRenderer(els) {
       syncHouseFormChrome('edit');
       els.deleteHouseBtn?.classList.add('hidden');
     }
+    renderComplianceHero({ fiscalPeriods: [], dues: [], payments: [] });
     els.metrics.querySelector('#emptyAddHouseBtn')?.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('app:start-new-house'));
     });
@@ -866,8 +1050,12 @@ export function createRenderer(els) {
     }
     const house = activeHouse();
     if (!house) { renderEmptyState(); return; }
+    renderComplianceHero(house);
     renderMetrics(house);
     renderAnnualBlocks(house);
+    renderHouseDrawerList();
+    renderPaymentGuide(house);
+    renderPostImportBanner();
     renderDues(house);
     renderPayments(house);
     renderDashboardPayments(house);
@@ -892,6 +1080,8 @@ export function createRenderer(els) {
     syncPaymentCarryFromSelect,
     syncPaymentInstallmentSelect,
     syncDueKindFields,
+    syncDuePeriodSelect,
+    applyPaymentSmartAmount,
     renderNewHouseForm
   };
 }
@@ -937,11 +1127,12 @@ export function collectDom() {
     quickAddBackdrop: document.getElementById('quickAddBackdrop'),
     quickAddClose: document.getElementById('quickAddClose'),
     main: document.getElementById('mainContent'),
+    complianceHero: document.getElementById('complianceHero'),
     metrics: document.getElementById('metrics'),
     annualTableWrap: document.getElementById('annualTableWrap'),
     annualCards: document.getElementById('annualCards'),
     annualPageCards: document.getElementById('annualPageCards'),
-    movements: document.getElementById('movements'),
+    movements: document.getElementById('movementsAdv'),
     currentHouseTitle: document.getElementById('currentHouseTitle'),
     currentHouseMeta: document.getElementById('currentHouseMeta'),
     deleteHouseBtn: document.getElementById('deleteHouseBtn'),
@@ -950,8 +1141,8 @@ export function collectDom() {
     paymentForm: document.getElementById('paymentForm'),
     houseForm: document.getElementById('houseForm'),
     fiscalStartMonth: document.getElementById('fiscalStartMonth'),
-    exportBtn: document.getElementById('exportBtn'),
-    importFile: document.getElementById('importFile'),
+    exportBtn: document.getElementById('exportBtnAdv'),
+    importFile: document.getElementById('importFileAdv'),
     documentImportFile: document.getElementById('documentImportFile'),
     documentImportConfirm: document.getElementById('documentImportConfirm'),
     documentImportManual: document.getElementById('documentImportManual'),
@@ -971,8 +1162,25 @@ export function collectDom() {
     bankImportDeleteAll: document.getElementById('bankImportDeleteAll'),
     unlinkedMovements: document.getElementById('unlinkedMovements'),
     demoBtn: document.getElementById('demoBtn'),
-    duePeriodLabel: document.getElementById('duePeriodLabel'),
+    duePeriod: document.getElementById('duePeriod'),
+    duePeriodNew: document.getElementById('duePeriodNew'),
+    duePeriodNewWrap: document.getElementById('duePeriodNewWrap'),
     duePeriodHint: document.getElementById('duePeriodHint'),
+    paymentGuidePanel: document.getElementById('paymentGuidePanel'),
+    houseDrawer: document.getElementById('houseDrawer'),
+    houseDrawerBackdrop: document.getElementById('houseDrawerBackdrop'),
+    houseDrawerList: document.getElementById('houseDrawerList'),
+    openHouseDrawerBtn: document.getElementById('openHouseDrawerBtn'),
+    openDueFormSheet: document.getElementById('openDueFormSheet'),
+    closeDueFormSheet: document.getElementById('closeDueFormSheet'),
+    dueFormPaneBackdrop: document.getElementById('dueFormPaneBackdrop'),
+    openPaymentFormSheet: document.getElementById('openPaymentFormSheet'),
+    closePaymentFormSheet: document.getElementById('closePaymentFormSheet'),
+    paymentFormPaneBackdrop: document.getElementById('paymentFormPaneBackdrop'),
+    houseDrawerClose: document.getElementById('houseDrawerClose'),
+    houseDrawerAdd: document.getElementById('houseDrawerAdd'),
+    paymentCarryWrap: document.getElementById('paymentCarryWrap'),
+    paymentCarryToggle: document.getElementById('paymentCarryToggle'),
     dueEditId: document.getElementById('dueEditId'),
     dueSubmitBtn: document.getElementById('dueSubmitBtn'),
     dueFormCancel: document.getElementById('dueFormCancel'),

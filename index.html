@@ -87,6 +87,9 @@
       <div class="topbar-left">
         <div class="house-bar">
           <label class="sr-only" for="houseSelect">Immobile attivo</label>
+          <button class="icon-btn house-drawer-btn" id="openHouseDrawerBtn" type="button" aria-label="Gestisci immobili" title="Gestisci immobili">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20V8.5L12 4l8 4.5V20"/><path d="M8 20v-6h8v6"/></svg>
+          </button>
           <select id="houseSelect" class="house-select" aria-label="Seleziona immobile"></select>
           <button class="icon-btn add-house-btn" id="headerAddHouseBtn" type="button" aria-label="Aggiungi immobile" title="Aggiungi immobile">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -118,17 +121,19 @@
 
     <main class="main" id="mainContent">
       <section class="view active" data-view-panel="panoramica">
+        <section class="compliance-hero" id="complianceHero" aria-live="polite"></section>
         <div class="hero">
           <div>
             <h2 class="page-title" id="currentHouseTitle">Nessuna casa selezionata</h2>
             <p class="muted" id="currentHouseMeta">Aggiungi un immobile dal pulsante accanto al menu o da Impostazioni.</p>
           </div>
-          <div class="toolbar">
-            <button class="btn btn-primary" type="button" data-nav-target="movimenti" data-nav-subview="dovuti">+ Dovuto</button>
+          <div class="toolbar hero-toolbar">
+            <button class="btn btn-primary" type="button" data-nav-target="movimenti" data-nav-subview="import" data-import-tab="documento">Importa documento</button>
+            <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="dovuti">+ Dovuto</button>
             <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="versamenti">+ Versamento</button>
           </div>
         </div>
-        <section class="cards" id="metrics"></section>
+        <section class="cards metrics-compact" id="metrics"></section>
         <section class="grid-2">
           <div class="panel data-panel">
             <div class="panel-head"><div><h2>Riepilogo annualità</h2><p class="subtle">Preventivo, consuntivo e saldi per esercizio.</p></div><select id="periodFilter" aria-label="Filtra esercizio"><option value="all">Tutti</option></select></div>
@@ -149,16 +154,28 @@
         <nav class="sub-nav" role="tablist" aria-label="Sezioni movimenti">
           <button class="sub-nav-btn active" type="button" role="tab" data-view="movimenti" data-subview="dovuti" aria-selected="true">Dovuti</button>
           <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="versamenti" aria-selected="false">Versamenti</button>
-          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="import" aria-selected="false">Import banca</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="import" aria-selected="false">Import</button>
           <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="situazione" aria-selected="false">Situazione</button>
         </nav>
         <div class="subview active" data-subview-panel="dovuti" role="tabpanel">
-          <div class="split-layout">
-            <aside class="split-form-pane card stack">
-              <div class="panel-head"><div><h2>Nuovo dovuto</h2><p class="subtle">Preventivo o consuntivo per esercizio.</p></div></div>
+          <div class="form-sheet-backdrop hidden" id="dueFormPaneBackdrop" aria-hidden="true"></div>
+          <div class="split-layout split-layout--list-first">
+            <aside class="split-form-pane card stack" id="dueFormPane">
+              <div class="panel-head form-sheet-head">
+                <div><h2>Nuovo dovuto</h2><p class="subtle">Preventivo o consuntivo per esercizio.</p></div>
+                <button class="icon-btn form-sheet-close hidden" type="button" id="closeDueFormSheet" aria-label="Chiudi modulo">×</button>
+              </div>
               <form id="dueForm" class="stack">
                 <div class="field-grid">
-                  <div><label for="duePeriodLabel">Esercizio fiscale</label><input id="duePeriodLabel" name="fiscalPeriodLabel" type="text" inputmode="numeric" placeholder="es. 2024/2025" required /><p class="hint" id="duePeriodHint"></p></div>
+                  <div class="due-period-field">
+                    <label for="duePeriod">Esercizio fiscale</label>
+                    <select id="duePeriod" name="fiscalPeriodId" required></select>
+                    <div id="duePeriodNewWrap" class="hidden stack" style="margin-top:.5rem;">
+                      <label for="duePeriodNew">Etichetta nuovo esercizio</label>
+                      <input id="duePeriodNew" name="fiscalPeriodLabel" type="text" inputmode="numeric" placeholder="es. 2024/2025" />
+                    </div>
+                    <p class="hint" id="duePeriodHint"></p>
+                  </div>
                   <div><label for="dueKind">Tipologia</label><select id="dueKind" name="dueKind"><option value="preventivo">Preventivo</option><option value="consuntivo">Consuntivo</option></select></div>
                   <div><label for="dueAmount">Importo</label><input id="dueAmount" name="amount" type="number" step="0.01" required /><p class="hint">Negativo sul preventivo = credito (es. riporto eccedenza).</p></div>
                 </div>
@@ -175,15 +192,24 @@
               </form>
             </aside>
             <section class="split-content-pane card stack data-panel">
-              <div class="panel-head"><div><h2>Dovuti registrati</h2><p class="subtle">Elenco per esercizio — scorri se necessario.</p></div></div>
+              <div class="panel-head">
+                <div><h2>Dovuti registrati</h2><p class="subtle">Elenco per esercizio — scorri se necessario.</p></div>
+                <button class="btn btn-primary form-sheet-open-btn" type="button" id="openDueFormSheet">+ Nuovo dovuto</button>
+              </div>
               <div class="data-table-wrap" id="duesTable"></div>
             </section>
           </div>
         </div>
         <div class="subview" data-subview-panel="versamenti" role="tabpanel">
-          <div class="split-layout versamenti-layout">
-            <aside class="split-form-pane versamenti-form-pane card stack">
-              <div class="panel-head"><div><h2>Nuovo versamento</h2><p class="subtle">Registra un pagamento o un riporto (importo negativo).</p></div></div>
+          <div id="postImportBanner" class="post-import-banner hidden" role="status"></div>
+          <div class="form-sheet-backdrop hidden" id="paymentFormPaneBackdrop" aria-hidden="true"></div>
+          <div class="split-layout versamenti-layout split-layout--list-first">
+            <aside class="split-form-pane versamenti-form-pane card stack" id="paymentFormPane">
+              <section id="paymentGuidePanel" class="payment-guide-panel" aria-live="polite"></section>
+              <div class="panel-head form-sheet-head">
+                <div><h2>Nuovo versamento</h2><p class="subtle">Registra un pagamento o un riporto (importo negativo).</p></div>
+                <button class="icon-btn form-sheet-close hidden" type="button" id="closePaymentFormSheet" aria-label="Chiudi modulo">×</button>
+              </div>
               <form id="paymentForm" class="stack">
                 <div class="field-grid">
                   <div><label for="paymentPeriod">Esercizio fiscale</label><select id="paymentPeriod" name="fiscalPeriodId" required></select></div>
@@ -194,7 +220,12 @@
                   <div><label for="paymentDate">Data versamento</label><input id="paymentDate" name="date" type="date" /></div>
                 </div>
                 <div><label for="paymentMethod">Metodo</label><input id="paymentMethod" name="method" type="text" placeholder="Bonifico, contanti..." /></div>
-                <div><label for="paymentCarryFrom">Saldare consuntivo di</label><select id="paymentCarryFrom" name="carryFromPeriodId"><option value="">— Nessuno (versamento ordinario) —</option></select><p class="hint">Se il pagamento chiude il debito consuntivo dell'esercizio precedente, selezionalo qui.</p></div>
+                <button class="btn btn-secondary btn-sm payment-carry-toggle" type="button" id="paymentCarryToggle">Mostra saldo consuntivo precedente</button>
+                <div class="payment-carry-wrap hidden" id="paymentCarryWrap">
+                  <label for="paymentCarryFrom">Saldare consuntivo di</label>
+                  <select id="paymentCarryFrom" name="carryFromPeriodId"><option value="">— Nessuno (versamento ordinario) —</option></select>
+                  <p class="hint">Usa solo se questo versamento chiude il consuntivo dell'esercizio precedente.</p>
+                </div>
                 <input id="paymentEditId" name="editId" type="hidden" />
                 <div class="form-actions">
                   <button class="btn btn-primary" id="paymentSubmitBtn" type="submit">Salva versamento</button>
@@ -203,7 +234,10 @@
               </form>
             </aside>
             <section class="split-content-pane versamenti-list-pane card stack data-panel">
-              <div class="panel-head"><div><h2>Storico versamenti</h2><p class="subtle">Filtro sulla data rata; in tabella anche la data versamento.</p></div></div>
+              <div class="panel-head">
+                <div><h2>Storico versamenti</h2><p class="subtle">Filtro sulla data rata; in tabella anche la data versamento.</p></div>
+                <button class="btn btn-primary form-sheet-open-btn" type="button" id="openPaymentFormSheet">+ Versamento</button>
+              </div>
               <div class="payments-toolbar field-grid">
                 <div><label for="paymentFilterYear">Anno rata</label><select id="paymentFilterYear"><option value="">Tutti</option></select></div>
                 <div><label for="paymentFilterMonth">Mese rata</label><select id="paymentFilterMonth"><option value="">Tutti</option></select></div>
@@ -214,8 +248,17 @@
           </div>
         </div>
         <div class="subview" data-subview-panel="import" role="tabpanel">
+          <nav class="sub-nav import-sub-nav" role="tablist" aria-label="Tipo import">
+            <button class="sub-nav-btn active" type="button" data-import-tab="documento" aria-selected="true">Documento amministratore</button>
+            <button class="sub-nav-btn" type="button" data-import-tab="banca" aria-selected="false">Banca Intesa</button>
+          </nav>
           <div class="import-stack stack">
-            <section class="card stack data-panel document-import-panel">
+            <section class="card stack data-panel document-import-panel" data-import-panel="documento">
+              <ol class="import-stepper" id="documentImportStepper" aria-label="Passaggi import">
+                <li class="import-step" data-step="upload"><span>1</span> Carica file</li>
+                <li class="import-step" data-step="review"><span>2</span> Scegli la tua riga</li>
+                <li class="import-step" data-step="confirm"><span>3</span> Conferma</li>
+              </ol>
               <div class="panel-head">
                 <div>
                   <h2>Importa documento amministratore</h2>
@@ -249,8 +292,8 @@
               <div id="documentImportStatus" class="document-import-status muted" aria-live="polite"></div>
               <div class="data-table-wrap" id="documentImportPreview"></div>
             </section>
-            <section class="card stack data-panel">
-              <div class="split-layout">
+            <section class="card stack data-panel" data-import-panel="banca" hidden>
+              <div class="split-layout split-layout--list-first">
                 <aside class="split-form-pane stack">
                   <div class="panel-head"><div><h2>Import Excel Banca Intesa</h2><p class="subtle">Formato export &quot;Lista Operazioni&quot;.</p></div></div>
                   <label class="btn btn-secondary" for="bankImportFile">Carica file Excel</label>
@@ -296,20 +339,16 @@
         </nav>
         <div class="subview active" data-subview-panel="backup" role="tabpanel">
           <div class="card stack">
-            <div class="panel-head"><div><h2>Backup e dati</h2><p class="subtle">Esporta o importa backup JSON.</p></div></div>
-            <div class="toolbar">
-              <label class="btn btn-secondary" for="importFile">Importa JSON</label>
-              <input class="file-input" id="importFile" type="file" accept="application/json" />
-              <button class="btn btn-secondary" id="exportBtn" type="button">Esporta JSON</button>
-            </div>
+            <div class="panel-head"><div><h2>Dati e backup</h2><p class="subtle">Funzioni tecniche spostate in Impostazioni.</p></div></div>
+            <p class="muted">Backup JSON e registro completo sono in <strong>Impostazioni → Avanzate</strong>.</p>
+            <button class="btn btn-primary" type="button" data-nav-target="impostazioni" data-nav-subview="avanzate">Apri Avanzate</button>
             <button class="btn btn-secondary hidden" id="demoBtn" type="button">Carica demo</button>
-            <p class="muted">Export v3 (schemaVersion 3). Import richiede login e sincronizza su Supabase.</p>
           </div>
         </div>
         <div class="subview" data-subview-panel="registro" role="tabpanel">
           <div class="card data-panel">
-            <div class="panel-head"><div><h2>Registro movimenti</h2><p class="subtle">Dovuti e versamenti della casa selezionata.</p></div></div>
-            <div class="data-table-wrap panel-table-wrap" id="movements"></div>
+            <p class="muted">Il registro movimenti è disponibile in Impostazioni → Avanzate.</p>
+            <button class="btn btn-secondary" type="button" data-nav-target="impostazioni" data-nav-subview="avanzate">Apri registro</button>
           </div>
         </div>
       </section>
@@ -318,6 +357,7 @@
         <nav class="sub-nav" role="tablist" aria-label="Sezioni impostazioni">
           <button class="sub-nav-btn active" type="button" role="tab" data-view="impostazioni" data-subview="casa" aria-selected="true">Immobili</button>
           <button class="sub-nav-btn" type="button" role="tab" data-view="impostazioni" data-subview="account" aria-selected="false">Account</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="impostazioni" data-subview="avanzate" aria-selected="false">Avanzate</button>
         </nav>
         <div class="subview active" data-subview-panel="casa" role="tabpanel">
           <div class="split-layout house-manage-layout">
@@ -354,6 +394,21 @@
             </section>
           </div>
         </div>
+        <div class="subview" data-subview-panel="avanzate" role="tabpanel">
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Backup e ripristino</h2><p class="subtle">Export/import JSON v3 — uso tecnico o migrazione.</p></div></div>
+            <div class="toolbar">
+              <label class="btn btn-secondary" for="importFileAdv">Importa JSON</label>
+              <input class="file-input" id="importFileAdv" type="file" accept="application/json" />
+              <button class="btn btn-secondary" id="exportBtnAdv" type="button">Esporta JSON</button>
+            </div>
+            <p class="muted">Il backup non sostituisce la sincronizzazione Supabase in uso quotidiano.</p>
+          </div>
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Registro movimenti</h2><p class="subtle">Vista auditoria: tutti i dovuti e versamenti.</p></div></div>
+            <div class="data-table-wrap panel-table-wrap" id="movementsAdv"></div>
+          </div>
+        </div>
         <div class="subview" data-subview-panel="account" role="tabpanel">
           <div class="stack-single">
             <div class="card stack">
@@ -384,7 +439,7 @@
     <nav class="bottom-nav" id="bottomNav" aria-label="Navigazione mobile">
       <button class="bottom-nav-btn active" data-view="panoramica" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span>Panoramica</span></button>
       <button class="bottom-nav-btn" data-view="movimenti" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span>Movimenti</span></button>
-      <button class="bottom-nav-btn" data-view="dati" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span><span>Dati</span></button>
+      <button class="bottom-nav-btn" data-view="movimenti" data-nav-mobile-subview="situazione" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M4 19h16M8 15v-4M12 19V9M16 13V7"/></svg></span><span>Situazione</span></button>
       <button class="bottom-nav-btn" data-view="impostazioni" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2"/></svg></span><span>Impostazioni</span></button>
     </nav>
 
@@ -396,12 +451,49 @@
     <div class="sheet hidden" id="quickAddSheet" role="dialog" aria-labelledby="quickAddTitle">
       <div class="sheet-head"><h2 id="quickAddTitle">Aggiungi</h2><button class="icon-btn sheet-close" id="quickAddClose" type="button" aria-label="Chiudi">×</button></div>
       <div class="sheet-body stack">
-        <button class="btn btn-primary" type="button" data-nav-target="movimenti" data-nav-subview="dovuti" data-close-sheet="true">Nuovo dovuto</button>
+        <button class="btn btn-primary" type="button" data-nav-target="movimenti" data-nav-subview="import" data-import-tab="documento" data-close-sheet="true">Importa documento</button>
         <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="versamenti" data-close-sheet="true">Nuovo versamento</button>
+        <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="dovuti" data-close-sheet="true">Nuovo dovuto</button>
       </div>
     </div>
 
   </div>
+
+  <div class="house-drawer-backdrop hidden" id="houseDrawerBackdrop"></div>
+  <aside class="house-drawer hidden" id="houseDrawer" aria-label="Gestione immobili" aria-hidden="true">
+    <div class="house-drawer-head">
+      <h2>Immobili</h2>
+      <button class="icon-btn" type="button" id="houseDrawerClose" aria-label="Chiudi">×</button>
+    </div>
+    <div class="house-drawer-list house-list-scroll" id="houseDrawerList"></div>
+    <div class="house-drawer-foot">
+      <button class="btn btn-primary" type="button" id="houseDrawerAdd">+ Nuovo immobile</button>
+    </div>
+  </aside>
+
+  <dialog id="confirmDialog" class="confirm-dialog">
+    <form method="dialog" class="stack">
+      <h3 id="confirmDialogTitle">Conferma</h3>
+      <p id="confirmDialogBody" class="subtle"></p>
+      <div class="form-actions">
+        <button class="btn btn-secondary" type="button" id="confirmDialogCancel">Annulla</button>
+        <button class="btn btn-primary" type="button" id="confirmDialogOk">Conferma</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="onboardingDialog" class="onboarding-dialog">
+    <form method="dialog" class="stack onboarding-form">
+      <p class="onboarding-step-label" id="onboardingStepLabel">Passo 1 di 3</p>
+      <h2 id="onboardingTitle">Benvenuto</h2>
+      <p class="subtle" id="onboardingBody"></p>
+      <div id="onboardingFields" class="stack"></div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" type="button" id="onboardingSkip">Salta</button>
+        <button class="btn btn-primary" type="button" id="onboardingNext">Avanti</button>
+      </div>
+    </form>
+  </dialog>
 
   <script type="module" src="js/main.js"></script>
 </body>

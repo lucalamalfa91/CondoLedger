@@ -1,0 +1,26 @@
+---
+pattern: plan-execute-verify
+protocol: deliberative-voting
+topic: "Verifica finale completa UX/UI, mobile, processi e roadmap prodotto — rendere l'app molto più facile da usare, chiara e pronta per utenti finali (review spietata in italiano, report strutturato A–G)."
+max_rounds: 4
+output_style: detailed
+devils_advocate: true
+setup_date: 2026-05-31
+agents:
+  - slug: requirements-planner
+    role: Requirements Planner
+    skill_path: .claude/skills/council-requirements-planner/SKILL.md
+    archetype: product-analyst
+  - slug: task-architect
+    role: Task Architect
+    skill_path: .claude/skills/council-task-architect/SKILL.md
+    archetype: architect
+  - slug: fullstack-implementer
+    role: Full-Stack Implementer
+    skill_path: .claude/skills/council-fullstack-implementer/SKILL.md
+    archetype: custom
+  - slug: quality-verifier
+    role: Quality Verifier
+    skill_path: .claude/skills/council-quality-verifier/SKILL.md
+    archetype: qa-strategist
+---

@@ -1,9 +1,9 @@
 ---
 pattern: plan-execute-verify
 protocol: deliberative-voting
-topic: "Caricamento preventivo/consuntivo condominiale (DOCX, PDF, immagine) con estrazione AI dei dati per creare l'esercizio contabile: anno fiscale, totale, ripartizione rate per persona; elenco costi, millesimi, verifiche ripartizione; fallback manuale e HITL su estrazioni incerte."
+topic: "Verifica finale completa UX/UI, mobile, processi e roadmap prodotto — rendere l'app molto più facile da usare, chiara e pronta per utenti finali (review spietata in italiano, report strutturato A–G)."
 max_rounds: 4
-output_style: standard
+output_style: detailed
 devils_advocate: true
 setup_date: 2026-05-31
 agents:
@@ -29,52 +29,33 @@ agents:
 
 ## Scenario
 
-Importare il file del preventivo o consuntivo fornito dall'amministratore di condominio (formati: DOCX, PDF, immagine — senza schema fisso) ed estrarre automaticamente via AI i dati necessari per creare l'esercizio contabile nell'app Gestione Spese Condominiali.
+Review finale orientata al miglioramento reale del prodotto (non solo estetica). Obiettivo: usabilità, chiarezza, valore per utenti finali.
 
-**Campi obbligatori da estrarre (MVP):**
-- Anno fiscale
-- Totale preventivo o consuntivo
-- Ripartizione delle rate per una persona specifica dell'elenco condomini
+**Aree obbligatorie:** (1) UX/UI completa, (2) mobile approfondito (priorità assoluta — app attualmente inutilizzabile su mobile), (3) processi e flussi, (4) miglioramento processo di prodotto, (5) future feature, (6) prioritizzazione Critical/High/Medium/Low.
 
-**Campi proposti (analisi esempi + estensione):**
-- Elenco dettagliato costi di esercizio che compongono il totale
-- Millesimi per condomino
-- Verifiche automatiche sulla correttezza della ripartizione
+**Deliverable:** `Sessions/verifica-finale-ux-prodotto/analysis-report.md` con sezioni A–G come da brief operatore (`operator-input.md`).
 
-**Principi UX:**
-- Privilegiare automazione completa; consentire inserimento manuale quando necessario
-- HITL: se dati mancanti o estrazione incerta → richiedere conferma operatore prima di persistere
-
-**File di esempio (operatore):** `C:\Users\luca.la-malfa\Documents\Spese Condiminiali` (cartella al momento vuota o non ancora popolata nel workspace).
+**Execute phase:** solo analisi (browser DevTools, code review UI/CSS/JS) — **nessuna modifica al codice** senza approvazione esplicita post-review.
 
 ## Pattern: Plan / Execute / Verify
 
 | Phase | Owner primario | Artifact |
 |-------|----------------|----------|
-| **Plan** | Requirements Planner + Task Architect | `Sessions/<slug>/plan.md` (approvazione umana obbligatoria prima di Execute) |
-| **Execute** | Full-Stack Implementer | Codice + `Sessions/<slug>/execution.md` |
-| **Verify** | Quality Verifier | `Sessions/<slug>/verification.md` |
-| **Final** | Coordinator | `Sessions/<slug>/decision.md` |
-| **Devil's Advocate** | devils-advocate | `devils-advocate-review.md` + eventuale `decision-after-devils-review.md` |
-
-## Protocol
-
-`deliberative-voting` — voti: PROPOSE | OBJECT | APPROVE | ABSTAIN | REJECT.
-
-## Output template
-
-`plan-and-verification` (standard narrative).
+| **Plan** | Requirements Planner + Task Architect | `plan.md` (gate umano prima di Execute) |
+| **Execute** | Tutti i teammate (map per area) | `execution.md` + evidenze per area |
+| **Verify** | Quality Verifier | `verification.md` |
+| **Final** | Coordinator | `analysis-report.md` |
+| **Devil's Advocate** | devils-advocate | `devils-advocate-review.md` + eventuale `analysis-report-after-devils-review.md` |
 
 ## Session slug
 
-`import-preventivo-consuntivo-ai`
+`verifica-finale-ux-prodotto`
 
 ## HITL
 
-- **Plan approval** (Type C): approve / revise / stop prima di qualsiasi modifica al codice.
-- **Estrazione incerta** (runtime): conferma operatore su campi a bassa confidenza.
-- **Devil's Advocate**: checkpoint inline yes/skip prima della review (default: yes).
+- Plan approval prima dell'analisi approfondita.
+- Devil's Advocate: checkpoint yes/skip (default: yes).
 
 ## Launch
 
-Invoca `council-launch` con cartella sessione `Sessions/import-preventivo-consuntivo-ai/`.
+`Sessions/verifica-finale-ux-prodotto/`

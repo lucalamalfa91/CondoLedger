@@ -30,7 +30,7 @@ export async function loadFromSupabase() {
   if (!user) return;
 
   const { data: houses, error } = await state.supabase.from('houses').select('*').order('created_at', { ascending: true });
-  if (error) { alert(error.message); return; }
+  if (error) throw error;
 
   const mapped = [];
   for (const house of houses || []) {

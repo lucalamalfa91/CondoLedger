@@ -50,7 +50,8 @@ export const viewMeta = {
     defaultSubview: 'casa',
     subviews: {
       casa: ['Gestione immobili', 'Aggiungi, modifica ed elimina case'],
-      account: ['Account', 'Profilo e password']
+      account: ['Account', 'Profilo e password'],
+      avanzate: ['Avanzate', 'Backup e dati tecnici']
     }
   }
 };

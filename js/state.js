@@ -18,7 +18,8 @@ export const state = {
   documentImportDuplicateAction: null,
   documentImportReplaceDueIds: [],
   houseFormMode: 'edit',
-  pendingSituazionePeriodId: null
+  pendingSituazionePeriodId: null,
+  postImportPaymentHint: null
 };
 
 export function activeHouse() {

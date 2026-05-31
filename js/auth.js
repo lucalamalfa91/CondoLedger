@@ -1,6 +1,15 @@
 import { STORAGE_KEY } from './config.js';
 import { loadFromSupabase } from './api.js';
 import { state } from './state.js';
+import { toastError } from './toast.js';
+
+async function loadHouseData() {
+  try {
+    await loadFromSupabase();
+  } catch (err) {
+    toastError(err.message || 'Impossibile caricare i dati.');
+  }
+}
 
 export function createAuthHandlers(els, { setView, render, setTheme }) {
   function setStatus(message) {
@@ -126,7 +135,7 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
       }
       setStatus(state.user.email);
       setAuthUI(true);
-      await loadFromSupabase();
+      await loadHouseData();
       clearAuthParamsFromUrl();
       return true;
     }
@@ -151,7 +160,7 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
       setStatus(state.user.email);
       setAuthUI(true);
       setView('panoramica');
-      await loadFromSupabase();
+      await loadHouseData();
       render();
     } catch (err) {
       showLoginError(err.message || 'Credenziali non valide');
@@ -189,7 +198,7 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
         setAuthUI(true);
         setView('impostazioni', 'account');
         renderAccountView();
-        await loadFromSupabase();
+        await loadHouseData();
         render();
       }
     } catch (err) {
@@ -217,7 +226,7 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
   }
 
   function scheduleLoadFromSupabase() {
-    queueMicrotask(() => { void loadFromSupabase().then(render); });
+    queueMicrotask(() => { void loadHouseData().then(render); });
   }
 
   function bindAuthStateChange() {

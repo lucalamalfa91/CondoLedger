@@ -21,7 +21,7 @@ import {
 } from './api.js';
 import { createAuthHandlers } from './auth.js';
 import { exportBackup, parseBackup } from './backup.js';
-import { resolveView } from './config.js';
+import { resolveView, viewMeta } from './config.js';
 import { suggestCarryover } from './carryover.js';
 import { periodLabel } from './fiscal.js';
 import { findInstallmentForDate } from './installments.js';
@@ -41,7 +41,12 @@ import { parseIntesaFile } from './intesa.js';
 import { enrichPreview } from './matching.js';
 import { collectDom, createRenderer } from './render.js';
 import { activeHouse, createLocalHouse, state } from './state.js';
+import { confirmDialog } from './confirm.js';
+import { computeNextPaymentGuide } from './payment-guide.js';
+import { showToast, toastError } from './toast.js';
 import { fmt, today, uid } from './utils.js';
+
+const ONBOARDING_STORAGE_KEY = 'app:onboarding:v1';
 
 const els = collectDom();
 
@@ -50,7 +55,10 @@ function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
 }
 
-const { setView, render: baseRender, syncPaymentPeriodSelect, syncPaymentCarryFromSelect, syncPaymentInstallmentSelect, syncDueKindFields } = createRenderer(els);
+const {
+  setView, render: baseRender, syncPaymentPeriodSelect, syncPaymentCarryFromSelect,
+  syncPaymentInstallmentSelect, syncDueKindFields, syncDuePeriodSelect, applyPaymentSmartAmount
+} = createRenderer(els);
 let renderedHouseId = null;
 function render(...args) {
   const house = activeHouse();
@@ -60,12 +68,108 @@ function render(...args) {
     renderedHouseId = house?.id ?? null;
   }
   baseRender(...args);
+  maybeShowOnboarding();
 }
+
+function setImportTab(tabId) {
+  document.querySelectorAll('.import-sub-nav [data-import-tab]').forEach(btn => {
+    const active = btn.dataset.importTab === tabId;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  document.querySelectorAll('[data-import-panel]').forEach(panel => {
+    panel.hidden = panel.dataset.importPanel !== tabId;
+  });
+}
+
+const onboardingDialog = document.getElementById('onboardingDialog');
+const onboardingTitle = document.getElementById('onboardingTitle');
+const onboardingBody = document.getElementById('onboardingBody');
+const onboardingStepLabel = document.getElementById('onboardingStepLabel');
+const onboardingFields = document.getElementById('onboardingFields');
+const onboardingNext = document.getElementById('onboardingNext');
+const onboardingSkip = document.getElementById('onboardingSkip');
+let onboardingStep = 0;
+
+function finishOnboarding() {
+  localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
+  onboardingDialog?.close();
+}
+
+function maybeShowOnboarding() {
+  if (!state.user || !onboardingDialog || localStorage.getItem(ONBOARDING_STORAGE_KEY)) return;
+  if (state.data.houses.length > 0 && state.data.houses.some(h => h.dues?.length)) return;
+  if (onboardingDialog.open) return;
+  onboardingStep = 0;
+  showOnboardingStep();
+  onboardingDialog.showModal();
+}
+
+function showOnboardingStep() {
+  const hasHouse = state.data.houses.length > 0;
+  const steps = [
+    {
+      label: 'Passo 1 di 3',
+      title: 'Gestisci le spese di condominio',
+      body: 'Importa preventivo e consuntivo dall’amministratore, registra i versamenti e controlla se sei in regola — anche da telefono.',
+      fields: '',
+      next: 'Avanti'
+    },
+    {
+      label: 'Passo 2 di 3',
+      title: hasHouse ? 'Immobile pronto' : 'Aggiungi il tuo immobile',
+      body: hasHouse
+        ? `${state.data.houses[0].name} è configurato. Puoi modificarlo da Impostazioni.`
+        : 'Serve almeno un appartamento o ufficio per iniziare.',
+      fields: hasHouse ? '' : `
+        <label for="onbHouseName">Nome immobile</label>
+        <input id="onbHouseName" type="text" required placeholder="es. Appartamento via Roma" />
+        <label for="onbFiscalMonth">Inizio esercizio fiscale</label>
+        <select id="onbFiscalMonth"><option value="6">Giugno (standard)</option><option value="1">Gennaio</option></select>`,
+      next: hasHouse ? 'Avanti' : 'Salva e continua'
+    },
+    {
+      label: 'Passo 3 di 3',
+      title: 'Prossimo passo',
+      body: 'Carica il PDF o la foto del preventivo dall’amministratore: l’app estrae importi e rate.',
+      fields: '',
+      next: 'Importa documento'
+    }
+  ];
+  const s = steps[onboardingStep];
+  if (onboardingStepLabel) onboardingStepLabel.textContent = s.label;
+  if (onboardingTitle) onboardingTitle.textContent = s.title;
+  if (onboardingBody) onboardingBody.textContent = s.body;
+  if (onboardingFields) onboardingFields.innerHTML = s.fields;
+  if (onboardingNext) onboardingNext.textContent = s.next;
+}
+
+function parseAppRouteHash() {
+  const raw = location.hash.slice(1);
+  if (!raw || /[=&]/.test(raw)) return null;
+  const [view, subview] = raw.split('/').filter(Boolean);
+  return view ? { view, subview: subview || null } : null;
+}
+
+function syncRouteHash(view, subview) {
+  const meta = viewMeta[view];
+  if (!meta) return;
+  const seg = subview && meta.subviews?.[subview] ? `${view}/${subview}` : view;
+  const next = `#${seg}`;
+  if (location.hash !== next) {
+    history.replaceState(null, '', `${location.pathname}${location.search}${next}`);
+  }
+}
+
 function navigate(view, subview = null) {
   setView(view, subview);
   const resolved = resolveView(view, subview);
+  syncRouteHash(resolved.view, resolved.subview);
   if (resolved.view === 'impostazioni' && resolved.subview === 'account') {
     auth.renderAccountView();
+  }
+  if (resolved.view === 'movimenti' && resolved.subview === 'import') {
+    setImportTab('documento');
   }
 }
 
@@ -77,8 +181,37 @@ const auth = createAuthHandlers(els, {
 
 function ensureHouse() {
   const house = activeHouse();
-  if (!house) { alert('Crea prima una casa.'); return null; }
+  if (!house) {
+    toastError('Crea prima una casa.');
+    navigate('impostazioni', 'casa');
+    return null;
+  }
   return house;
+}
+
+function openHouseDrawer() {
+  els.houseDrawer?.classList.remove('hidden');
+  els.houseDrawerBackdrop?.classList.remove('hidden');
+  els.houseDrawer?.setAttribute('aria-hidden', 'false');
+  render();
+}
+
+function closeHouseDrawer() {
+  els.houseDrawer?.classList.add('hidden');
+  els.houseDrawerBackdrop?.classList.add('hidden');
+  els.houseDrawer?.setAttribute('aria-hidden', 'true');
+}
+
+function applyPaymentGuideToForm() {
+  const house = activeHouse();
+  if (!house) return;
+  const g = computeNextPaymentGuide(house);
+  if (!g) { toastError('Nessuna rata aperta da precompilare.'); return; }
+  if (els.paymentPeriod) els.paymentPeriod.value = g.periodId;
+  syncPaymentInstallmentSelect(house, g.installmentKey);
+  if (els.paymentAmount) els.paymentAmount.value = String(g.gap);
+  if (els.paymentDate) els.paymentDate.value = today;
+  showToast('Versamento precompilato.');
 }
 
 async function ensureHousePersisted(house) {
@@ -99,11 +232,37 @@ function resetPaymentForm(house) {
   if (els.paymentEditId) els.paymentEditId.value = '';
   if (els.paymentSubmitBtn) els.paymentSubmitBtn.textContent = 'Salva versamento';
   els.paymentFormCancel?.classList.add('hidden');
+  els.paymentCarryWrap?.classList.add('hidden');
+  els.paymentCarryToggle?.classList.remove('hidden');
   if (house) syncPaymentPeriodSelect(house);
 }
 
+function openFormSheet(paneId) {
+  const pane = document.getElementById(paneId);
+  const backdrop = document.getElementById(`${paneId}Backdrop`);
+  pane?.classList.add('form-sheet--open');
+  backdrop?.classList.remove('hidden');
+  document.body.classList.add('form-sheet-open');
+}
+
+function closeFormSheet(paneId) {
+  const pane = document.getElementById(paneId);
+  const backdrop = document.getElementById(`${paneId}Backdrop`);
+  pane?.classList.remove('form-sheet--open');
+  backdrop?.classList.add('hidden');
+  if (!document.querySelector('.split-form-pane.form-sheet--open')) {
+    document.body.classList.remove('form-sheet-open');
+  }
+}
+
+function closeAllFormSheets() {
+  closeFormSheet('dueFormPane');
+  closeFormSheet('paymentFormPane');
+}
+
 function startEditDue(house, due) {
-  els.duePeriodLabel.value = periodLabel(house, due.fiscalPeriodId);
+  syncDuePeriodSelect(house, due.fiscalPeriodId);
+  if (els.duePeriodNew) els.duePeriodNew.value = periodLabel(house, due.fiscalPeriodId);
   els.dueForm.amount.value = String(due.amount);
   els.dueForm.description.value = due.description || '';
   if (els.dueKind) els.dueKind.value = due.dueKind || 'preventivo';
@@ -116,7 +275,8 @@ function startEditDue(house, due) {
   if (els.dueSubmitBtn) els.dueSubmitBtn.textContent = 'Aggiorna dovuto';
   els.dueFormCancel?.classList.remove('hidden');
   navigate('movimenti', 'dovuti');
-  els.dueForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('dueFormPane');
+  else els.dueForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function startEditPayment(house, payment) {
@@ -130,16 +290,21 @@ function startEditPayment(house, payment) {
   if (payment.fiscalPeriodId) els.paymentPeriod.value = payment.fiscalPeriodId;
   syncPaymentInstallmentSelect(house, payment.installmentKey || null);
   syncPaymentCarryFromSelect(house);
+  if (payment.carryFromPeriodId) {
+    els.paymentCarryWrap?.classList.remove('hidden');
+    els.paymentCarryToggle?.classList.add('hidden');
+  }
   if (els.paymentCarryFrom && payment.carryFromPeriodId) {
     els.paymentCarryFrom.value = payment.carryFromPeriodId;
   }
   navigate('movimenti', 'versamenti');
-  els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('paymentFormPane');
+  else els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function deleteDue(house, dueId) {
   const due = house.dues.find(d => d.id === dueId);
-  if (!due || !confirm('Eliminare questo dovuto?')) return;
+  if (!due || !await confirmDialog('Eliminare questo dovuto?', { title: 'Elimina dovuto', confirmLabel: 'Elimina', danger: true })) return;
   try {
     if (state.supabase && state.user && Number.isFinite(Number(dueId))) {
       await deleteDueFromSupabase(house, dueId);
@@ -149,14 +314,15 @@ async function deleteDue(house, dueId) {
     }
     if (els.dueEditId?.value === dueId) resetDueForm();
     render();
+    showToast('Dovuto eliminato.');
   } catch (err) {
-    alert(err.message);
+    toastError(err.message);
   }
 }
 
 async function deletePayment(house, paymentId) {
   const payment = house.payments.find(p => p.id === paymentId);
-  if (!payment || !confirm('Eliminare questo versamento?')) return;
+  if (!payment || !await confirmDialog('Eliminare questo versamento?', { title: 'Elimina versamento', confirmLabel: 'Elimina', danger: true })) return;
   try {
     if (state.supabase && state.user && Number.isFinite(Number(paymentId))) {
       await deletePaymentFromSupabase(house, payment);
@@ -166,8 +332,9 @@ async function deletePayment(house, paymentId) {
     }
     if (els.paymentEditId?.value === paymentId) resetPaymentForm(activeHouse());
     render();
+    showToast('Versamento eliminato.');
   } catch (err) {
-    alert(err.message);
+    toastError(err.message);
   }
 }
 
@@ -228,7 +395,7 @@ async function createHouseFromForm() {
     state.data.houses = state.data.houses.filter(h => h.id !== house.id);
     state.selectedHouseId = state.data.houses[0]?.id || null;
     state.houseFormMode = state.data.houses.length ? 'edit' : 'new';
-    alert(err.message || 'Errore salvataggio casa');
+    toastError(err.message || 'Errore salvataggio casa');
     render();
   }
 }
@@ -282,7 +449,7 @@ async function handleDocumentFiles(fileList) {
   const house = ensureHouse();
   if (!house) return;
   if (!Number.isFinite(Number(house.id))) {
-    alert('Salva prima la casa su Supabase.');
+    toastError('Salva prima la casa su Supabase.');
     return;
   }
   const files = [...fileList];
@@ -293,7 +460,7 @@ async function handleDocumentFiles(fileList) {
   try {
     await runDocumentExtraction(house, files);
   } catch (err) {
-    alert(err.message || 'Errore estrazione documento');
+    toastError(err.message || 'Errore estrazione documento');
   } finally {
     state.documentImportBusy = false;
     if (els.documentImportFile) els.documentImportFile.value = '';
@@ -315,19 +482,22 @@ async function confirmDocumentImport() {
   const warnings = validateCommitPreview(preview);
   const blocking = warnings.filter(w => w.includes('Seleziona') || w.includes('Indica') || w.includes('Conferma almeno'));
   if (blocking.length) {
-    alert(blocking.join('\n'));
+    toastError(blocking.join(' '));
     return;
   }
   const lowFields = collectLowConfidenceIssues(preview);
   if (lowFields.length && !preview.lowConfidenceAck?.all) {
-    if (!confirm(`Estrazione incerta su: ${lowFields.join(', ')}.\n\nConfermi comunque i valori in anteprima?`)) return;
+    if (!await confirmDialog(
+      `Estrazione incerta su: ${lowFields.join(', ')}.\n\nConfermi comunque i valori in anteprima?`,
+      { title: 'Estrazione incerta' }
+    )) return;
     preview.lowConfidenceAck.all = true;
   }
-  if (warnings.length && !confirm(`${warnings.join('\n')}\n\nProcedere con l'import?`)) return;
+  if (warnings.length && !await confirmDialog(`${warnings.join('\n')}\n\nProcedere con l'import?`, { title: 'Avvisi import' })) return;
 
   const summary = buildDuesFromPreview(preview, preview.sourceLabel, house);
   if (!summary.length) {
-    alert('Nessun dato da importare. Attiva almeno una scheda Preventivo o Consuntivo.');
+    toastError('Nessun dato da importare. Attiva almeno una scheda Preventivo o Consuntivo.');
     return;
   }
 
@@ -336,18 +506,22 @@ async function confirmDocumentImport() {
   const existing = findExistingDuesForImport(house, fiscalLabel, kinds);
   if (existing.length && state.documentImportDuplicateAction !== 'replace') {
     const labels = existing.map(d => `${d.dueKind} ${fmt(d.amount)}`).join(', ');
-    if (!confirm(
-      `Per l'esercizio ${fiscalLabel} esistono già dovuti: ${labels}.\n\nAggiungere comunque quelli dell'import?`
+    if (!await confirmDialog(
+      `Per l'esercizio ${fiscalLabel} esistono già dovuti: ${labels}.\n\nAggiungere comunque quelli dell'import?`,
+      { title: 'Dovuti esistenti' }
     )) return;
   }
 
   const { period, isNew } = await ensureFiscalPeriodByLabel(house, fiscalLabel);
   if (!isNew && !state.documentImportDuplicateAction) {
-    if (!confirm(`L'esercizio ${period.label} esiste già. Associare i nuovi dovuti a questo esercizio?`)) return;
+    if (!await confirmDialog(
+      `L'esercizio ${period.label} esiste già. Associare i nuovi dovuti a questo esercizio?`,
+      { title: 'Esercizio esistente' }
+    )) return;
   }
 
   const recap = summary.map(d => `${d.dueKind}: ${fmt(d.amount)} (${d.description.slice(0, 60)}…)`).join('\n');
-  if (!confirm(`Riepilogo import:\nEsercizio ${fiscalLabel}\n\n${recap}\n\nConfermi?`)) return;
+  if (!await confirmDialog(`Riepilogo import:\nEsercizio ${fiscalLabel}\n\n${recap}\n\nConfermi?`, { title: 'Conferma import' })) return;
 
   const oldIds =
     state.documentImportDuplicateAction === 'replace' ? [...(state.documentImportReplaceDueIds || [])] : [];
@@ -368,11 +542,13 @@ async function confirmDocumentImport() {
     state.documentImportDuplicateAction = null;
     state.documentImportReplaceDueIds = [];
     await loadFromSupabase();
+    const houseAfter = activeHouse();
+    state.postImportPaymentHint = houseAfter ? computeNextPaymentGuide(houseAfter) : true;
     render();
-    alert('Import documento completato. Controlla i dovuti nell\'esercizio indicato.');
-    navigate('movimenti', 'dovuti');
+    showToast('Import documento completato.');
+    navigate('movimenti', 'versamenti');
   } catch (err) {
-    alert(err.message || 'Errore salvataggio import');
+    toastError(err.message || 'Errore salvataggio import');
   }
 }
 
@@ -385,14 +561,15 @@ function cancelDocumentImport() {
 function goManualDueEntry() {
   cancelDocumentImport();
   navigate('movimenti', 'dovuti');
-  els.dueForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('dueFormPane');
+  else els.dueForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function handleBankFile(file) {
   const house = ensureHouse();
   if (!house) return;
   if (!Number.isFinite(Number(house.id))) {
-    alert('Salva prima la casa su Supabase.');
+    toastError('Salva prima la casa su Supabase.');
     return;
   }
   try {
@@ -404,7 +581,7 @@ async function handleBankFile(file) {
     render();
     navigate('movimenti', 'import');
   } catch (err) {
-    alert(err.message || 'Errore lettura file Excel');
+    toastError(err.message || 'Errore lettura file Excel');
   }
 }
 
@@ -427,9 +604,9 @@ async function confirmBankImport() {
     state.bankImportPreview = [];
     await loadFromSupabase();
     render();
-    alert('Import completato.');
+    showToast('Import banca completato.');
   } catch (err) {
-    alert(err.message || 'Errore import');
+    toastError(err.message || 'Errore import');
   }
 }
 
@@ -450,15 +627,15 @@ async function importJson(file) {
     try {
       const parsed = parseBackup(JSON.parse(String(e.target.result || '{}')));
       if (state.supabase && state.user) {
-        if (!confirm('Importare il backup su Supabase? Le case verranno aggiunte al tuo account.')) return;
+        if (!await confirmDialog('Importare il backup su Supabase? Le case verranno aggiunte al tuo account.', { title: 'Import backup' })) return;
         await syncBackupToSupabase(parsed);
         render();
-        alert('Backup importato su Supabase.');
+        showToast('Backup importato su Supabase.');
         return;
       }
-      alert('Accedi per importare il backup su Supabase.');
+      toastError('Accedi per importare il backup su Supabase.');
     } catch (err) {
-      alert(err.message || 'File JSON non valido.');
+      toastError(err.message || 'File JSON non valido.');
     }
   };
   reader.readAsText(file);
@@ -476,6 +653,8 @@ function closeQuickAddSheet() {
 
 function closeAllOverlays() {
   closeQuickAddSheet();
+  closeHouseDrawer();
+  closeAllFormSheets();
   els.userMenu?.classList.add('hidden');
   els.userMenuBtn?.setAttribute('aria-expanded', 'false');
 }
@@ -486,16 +665,42 @@ document.addEventListener('keydown', e => {
 });
 
 function wireNavigation() {
-  els.navButtons.forEach(btn => btn.addEventListener('click', () => navigate(btn.dataset.view)));
-  els.subviewTabs?.forEach(tab => tab.addEventListener('click', () => navigate(tab.dataset.view, tab.dataset.subview)));
-  document.querySelectorAll('[data-nav-target]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (btn.dataset.houseMode === 'new') startNewHouseForm();
-      else navigate(btn.dataset.navTarget, btn.dataset.navSubview || null);
-      if (btn.dataset.closeSheet) closeQuickAddSheet();
-    });
+  els.navButtons.forEach(btn => btn.addEventListener('click', () => {
+    const sub = btn.dataset.navMobileSubview;
+    navigate(btn.dataset.view, sub || null);
+  }));
+  els.subviewTabs?.forEach(tab => {
+    if (tab.closest('.import-sub-nav')) return;
+    tab.addEventListener('click', () => navigate(tab.dataset.view, tab.dataset.subview));
+  });
+  document.querySelectorAll('.import-sub-nav [data-import-tab]').forEach(btn => {
+    btn.addEventListener('click', () => setImportTab(btn.dataset.importTab));
+  });
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('[data-nav-target]');
+    if (!btn) return;
+    if (btn.dataset.houseMode === 'new') startNewHouseForm();
+    else {
+      navigate(btn.dataset.navTarget, btn.dataset.navSubview || null);
+      if (btn.dataset.navSubview === 'import') setImportTab(btn.dataset.importTab || 'documento');
+      if (btn.dataset.navSubview === 'dovuti' && window.matchMedia('(max-width: 860px)').matches) {
+        openFormSheet('dueFormPane');
+      }
+      if (btn.dataset.navSubview === 'versamenti' && window.matchMedia('(max-width: 860px)').matches) {
+        openFormSheet('paymentFormPane');
+      }
+    }
+    if (btn.dataset.closeSheet) closeQuickAddSheet();
   });
 }
+
+let resizeRenderTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeRenderTimer);
+  resizeRenderTimer = setTimeout(() => {
+    if (state.user && els.appShell && !els.appShell.classList.contains('hidden')) render();
+  }, 220);
+});
 
 els.loginForm.addEventListener('submit', auth.signIn);
 els.recoveryForm.addEventListener('submit', auth.updatePasswordFromRecovery);
@@ -511,12 +716,92 @@ els.housesManageList?.addEventListener('click', e => {
   if (!btn) return;
   selectHouse(btn.dataset.houseId);
 });
-els.exportBtn.addEventListener('click', exportJson);
-els.importFile.addEventListener('change', e => importJson(e.target.files[0]));
-els.demoBtn?.addEventListener('click', () => alert('Demo locale disabilitata con fiscalità Supabase.'));
+els.exportBtn?.addEventListener('click', exportJson);
+els.importFile?.addEventListener('change', e => importJson(e.target.files[0]));
+els.demoBtn?.addEventListener('click', () => toastError('Demo locale disabilitata con fiscalità Supabase.'));
+els.openHouseDrawerBtn?.addEventListener('click', openHouseDrawer);
+els.houseDrawerClose?.addEventListener('click', closeHouseDrawer);
+els.houseDrawerBackdrop?.addEventListener('click', closeHouseDrawer);
+els.houseDrawerAdd?.addEventListener('click', () => { closeHouseDrawer(); startNewHouseForm(); });
+els.houseDrawerList?.addEventListener('click', e => {
+  const btn = e.target.closest('.house-btn[data-house-id]');
+  if (!btn) return;
+  selectHouse(btn.dataset.houseId);
+  closeHouseDrawer();
+});
+els.duePeriod?.addEventListener('change', () => {
+  const house = activeHouse();
+  if (!house) return;
+  const isNew = els.duePeriod.value === '__new__';
+  els.duePeriodNewWrap?.classList.toggle('hidden', !isNew);
+});
+els.paymentCarryToggle?.addEventListener('click', () => {
+  els.paymentCarryWrap?.classList.remove('hidden');
+  els.paymentCarryToggle?.classList.add('hidden');
+});
+els.openDueFormSheet?.addEventListener('click', () => openFormSheet('dueFormPane'));
+els.closeDueFormSheet?.addEventListener('click', () => closeFormSheet('dueFormPane'));
+els.dueFormPaneBackdrop?.addEventListener('click', () => closeFormSheet('dueFormPane'));
+els.openPaymentFormSheet?.addEventListener('click', () => openFormSheet('paymentFormPane'));
+els.closePaymentFormSheet?.addEventListener('click', () => closeFormSheet('paymentFormPane'));
+els.paymentFormPaneBackdrop?.addEventListener('click', () => closeFormSheet('paymentFormPane'));
+els.paymentInstallment?.addEventListener('change', () => {
+  const house = activeHouse();
+  if (house) applyPaymentSmartAmount(house);
+});
+document.addEventListener('click', e => {
+  if (e.target.id === 'paymentGuideApply') applyPaymentGuideToForm();
+  if (e.target.id === 'paymentGuideCopyCausale') {
+    const code = document.getElementById('paymentGuideCausale')?.textContent;
+    if (code) navigator.clipboard?.writeText(code).then(() => showToast('Causale copiata.')).catch(() => toastError('Copia non riuscita.'));
+  }
+  if (e.target.id === 'postImportRegisterPay') {
+    navigate('movimenti', 'versamenti');
+    applyPaymentGuideToForm();
+    openFormSheet('paymentFormPane');
+    state.postImportPaymentHint = null;
+    render();
+  }
+  if (e.target.id === 'postImportDismiss') {
+    state.postImportPaymentHint = null;
+    render();
+  }
+});
 els.loginThemeToggle.addEventListener('click', () => setTheme(state.theme === 'dark' ? 'light' : 'dark'));
 els.recoveryThemeToggle.addEventListener('click', () => setTheme(state.theme === 'dark' ? 'light' : 'dark'));
 wireNavigation();
+
+onboardingSkip?.addEventListener('click', () => finishOnboarding());
+onboardingNext?.addEventListener('click', async () => {
+  if (onboardingStep === 1 && !state.data.houses.length) {
+    const name = document.getElementById('onbHouseName')?.value?.trim();
+    if (!name) { toastError('Inserisci un nome per l’immobile.'); return; }
+    const month = Number(document.getElementById('onbFiscalMonth')?.value || 6);
+    const house = createLocalHouse();
+    house.name = name;
+    house.fiscalStartMonth = month;
+    state.data.houses.push(house);
+    state.selectedHouseId = house.id;
+    try {
+      if (state.supabase && state.user) await saveHouseToSupabase(house);
+      await loadFromSupabase();
+      render();
+      showToast('Immobile creato.');
+    } catch (err) {
+      toastError(err.message || 'Errore salvataggio');
+      return;
+    }
+  }
+  if (onboardingStep >= 2) {
+    finishOnboarding();
+    navigate('movimenti', 'import');
+    setImportTab('documento');
+    return;
+  }
+  onboardingStep += 1;
+  showOnboardingStep();
+});
+
 els.periodFilter.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
 els.paymentFilterYear?.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
 els.paymentFilterMonth?.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
@@ -533,7 +818,7 @@ els.situazionePdfBtn?.addEventListener('click', async () => {
   try {
     await exportSituazionePdf(house, els.situazionePeriod.value, els.situazionePdfKind?.value);
   } catch (err) {
-    alert(err.message || 'Errore export PDF');
+    toastError(err.message || 'Errore export PDF');
   }
 });
 els.dueKind?.addEventListener('change', syncDueKindFields);
@@ -579,15 +864,16 @@ els.houseForm.addEventListener('submit', async e => {
   try {
     if (state.supabase && state.user) await saveHouseToSupabase(house);
     render();
+    showToast('Immobile salvato.');
   } catch (err) {
-    alert(err.message);
+    toastError(err.message);
   }
 });
 
 els.deleteHouseBtn.addEventListener('click', async () => {
   const house = activeHouse();
   if (!house) return;
-  if (!confirm(`Eliminare ${house.name}?`)) return;
+  if (!await confirmDialog(`Eliminare ${house.name}?`, { title: 'Elimina immobile', confirmLabel: 'Elimina', danger: true })) return;
   try {
     if (state.supabase && state.user && Number.isFinite(Number(house.id))) await deleteHouseRemote(house.id);
     state.data.houses = state.data.houses.filter(h => h.id !== house.id);
@@ -597,7 +883,7 @@ els.deleteHouseBtn.addEventListener('click', async () => {
     if (!state.data.houses.length) startNewHouseForm();
     else navigate('panoramica');
   } catch (err) {
-    alert(err.message);
+    toastError(err.message);
   }
 });
 
@@ -610,7 +896,17 @@ els.dueForm.addEventListener('submit', async e => {
     const fd = new FormData(els.dueForm);
     const editId = String(fd.get('editId') || els.dueEditId?.value || '').trim();
     const due = createLocalDue(fd);
-    due.fiscalPeriodLabel = String(fd.get('fiscalPeriodLabel') || els.duePeriodLabel?.value || '').trim();
+    const periodSel = els.duePeriod?.value;
+    if (periodSel && periodSel !== '__new__') {
+      due.fiscalPeriodId = periodSel;
+      due.fiscalPeriodLabel = periodLabel(house, periodSel);
+    } else {
+      due.fiscalPeriodLabel = String(fd.get('fiscalPeriodLabel') || els.duePeriodNew?.value || '').trim();
+      if (!due.fiscalPeriodLabel) {
+        toastError('Seleziona o inserisci l\'esercizio fiscale.');
+        return;
+      }
+    }
     if (editId) due.id = editId;
     let newPeriodId = null;
     if (state.supabase && state.user) {
@@ -638,14 +934,16 @@ els.dueForm.addEventListener('submit', async e => {
       house.dues.push({ ...due, id: uid('due'), fiscalPeriodId: due.fiscalPeriodLabel });
     }
     render();
-    navigate('panoramica');
+    closeFormSheet('dueFormPane');
+    showToast(editId ? 'Dovuto aggiornato.' : 'Dovuto salvato.');
   } catch (err) {
-    alert(err.message);
+    toastError(err.message);
   }
 });
 
 els.dueFormCancel?.addEventListener('click', () => {
   resetDueForm();
+  closeFormSheet('dueFormPane');
   render();
 });
 
@@ -664,7 +962,7 @@ els.paymentForm.addEventListener('submit', async e => {
     }
     const installmentKey = String(fd.get('installmentKey') || els.paymentInstallment?.value || '').trim();
     if (!installmentKey) {
-      alert('Seleziona la rata da associare al versamento.');
+      toastError('Seleziona la rata da associare al versamento.');
       return;
     }
     const payment = createLocalPayment(fd, periodId, installmentKey);
@@ -684,15 +982,17 @@ els.paymentForm.addEventListener('submit', async e => {
       house.payments.push({ ...payment, id: uid('pay') });
     }
     render();
-    navigate('panoramica');
+    closeFormSheet('paymentFormPane');
+    showToast(editId ? 'Versamento aggiornato.' : 'Versamento registrato.');
   } catch (err) {
-    alert(err.message);
+    toastError(err.message);
   }
 });
 
 els.paymentFormCancel?.addEventListener('click', () => {
   const house = activeHouse();
   resetPaymentForm(house);
+  closeFormSheet('paymentFormPane');
   render();
 });
 
@@ -709,7 +1009,7 @@ async function offerCarryoverDue(house, newPeriodId) {
   if (!suggestion) return;
   const eccedenza = suggestion.consuntivoBalance > 0;
   const msg = `Consuntivo ${suggestion.fromLabel}: saldo ${fmt(suggestion.consuntivoBalance)} (${eccedenza ? 'eccedenza' : 'debito'}).\n\nInserire sul preventivo ${periodLabel(house, newPeriodId)} una voce di ${fmt(suggestion.suggestedDueAmount)} per riportare il saldo consuntivo?`;
-  if (!confirm(msg)) return;
+  if (!await confirmDialog(msg, { title: 'Riporto consuntivo' })) return;
   const due = {
     id: uid('due'),
     fiscalPeriodId: newPeriodId,
@@ -724,8 +1024,9 @@ async function offerCarryoverDue(house, newPeriodId) {
     await saveDueToSupabase(house, due);
     await loadFromSupabase();
     render();
+    showToast('Riporto consuntivo registrato.');
   } catch (err) {
-    alert(err.message);
+    toastError(err.message);
   }
 }
 
@@ -750,14 +1051,17 @@ els.bankImportBatches?.addEventListener('click', async e => {
   const batchId = btn.dataset.batch;
   if (!batchId) return;
   const count = house.bankMovements.filter(m => m.importBatchId === batchId).length;
-  if (!confirm(`Eliminare questo import (${count} movimenti banca e i versamenti collegati)? L'operazione non è reversibile.`)) return;
+  if (!await confirmDialog(
+    `Eliminare questo import (${count} movimenti banca e i versamenti collegati)? L'operazione non è reversibile.`,
+    { title: 'Elimina import', confirmLabel: 'Elimina', danger: true }
+  )) return;
   try {
     await deleteBankImportBatch(house, batchId);
     await loadFromSupabase();
     render();
-    alert('Import eliminato.');
+    showToast('Import eliminato.');
   } catch (err) {
-    alert(err.message || 'Errore eliminazione import');
+    toastError(err.message || 'Errore eliminazione import');
   }
 });
 
@@ -766,14 +1070,17 @@ els.bankImportDeleteAll?.addEventListener('click', async () => {
   if (!house || !Number.isFinite(Number(house.id))) return;
   const count = house.bankMovements.length;
   if (!count) return;
-  if (!confirm(`Eliminare TUTTI gli import banca (${count} movimenti) e i versamenti collegati? I dovuti e i versamenti inseriti manualmente non verranno toccati.`)) return;
+  if (!await confirmDialog(
+    `Eliminare TUTTI gli import banca (${count} movimenti) e i versamenti collegati? I dovuti e i versamenti inseriti manualmente non verranno toccati.`,
+    { title: 'Elimina tutti gli import', confirmLabel: 'Elimina tutto', danger: true }
+  )) return;
   try {
     await deleteAllBankImports(house);
     await loadFromSupabase();
     render();
-    alert('Tutti gli import banca sono stati eliminati.');
+    showToast('Tutti gli import banca sono stati eliminati.');
   } catch (err) {
-    alert(err.message || 'Errore eliminazione import');
+    toastError(err.message || 'Errore eliminazione import');
   }
 });
 
@@ -784,16 +1091,16 @@ els.unlinkedMovements?.addEventListener('click', async e => {
   if (!house) return;
   const row = btn.closest('tr');
   const select = row?.querySelector('.link-period');
-  if (!select?.value) { alert('Seleziona un esercizio fiscale.'); return; }
+  if (!select?.value) { toastError('Seleziona un esercizio fiscale.'); return; }
   try {
     const periodId = select.value;
     await linkBankMovement(house, btn.dataset.id, periodId);
     state.pendingSituazionePeriodId = periodId;
     await loadFromSupabase();
     render();
-    alert('Versamento associato all\'esercizio selezionato. Controlla Versamenti o Situazione per l\'esercizio scelto.');
+    showToast('Movimento associato all\'esercizio.');
   } catch (err) {
-    alert(err.message);
+    toastError(err.message);
   }
 });
 
@@ -809,7 +1116,8 @@ async function initApp() {
     auth.bindAuthStateChange();
     const sessionResult = await auth.restoreSession();
     if (sessionResult === true) {
-      navigate('panoramica');
+      const route = parseAppRouteHash();
+      navigate(route?.view || 'panoramica', route?.subview);
       render();
     }
   } catch {
@@ -819,5 +1127,13 @@ async function initApp() {
     auth.setLoginLoading(false);
   }
 }
+
+window.addEventListener('hashchange', () => {
+  if (!state.user || !els.appShell || els.appShell.classList.contains('hidden')) return;
+  const route = parseAppRouteHash();
+  if (!route) return;
+  setView(route.view, route.subview);
+  render();
+});
 
 initApp();

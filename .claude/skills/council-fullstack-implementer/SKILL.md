@@ -9,7 +9,9 @@ description: Implementation agent for Gestione Spese Condominiali (HTML/JS + Sup
 
 Read `council/domain-context.md` (overview, tech-stack, bounded-context-pattern, cross-context-integration).
 
-**Primary file:** `gestione-spese-condominiali-supabase.html`
+**Primary file:** `index.html` (legacy redirect: `gestione-spese-condominiali-supabase.html`)
+
+**Import documento:** `references/document-import.md`, moduli `js/document-import-*.js`, Edge Function `supabase/functions/extract-document/`
 
 **Schema:** `supabase/migrations/20240101000000_initial_schema.sql`
 

@@ -224,3 +224,14 @@
       .sub-nav { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
     }
     @media (max-width: 520px) { .cards { grid-template-columns: 1fr; } }
+    .document-import-panel { margin-bottom: var(--space-4); }
+    .document-import-status { min-height: 1.25rem; }
+    .document-import-section { padding: var(--space-3); background: var(--color-surface-offset); }
+    .document-section-toggle { display: flex; align-items: center; gap: .5rem; cursor: pointer; }
+    tr.doc-row-selectable.row-selected td { background: color-mix(in srgb, var(--color-primary) 12%, transparent); }
+    input.warn-field { outline: 2px solid var(--color-warning, #c90); }
+    tr.row-warn td { background: color-mix(in srgb, var(--color-warning, #c90) 10%, transparent); }
+    .badge.warn { background: color-mix(in srgb, var(--color-warning, #c90) 25%, transparent); color: inherit; font-size: var(--text-xs); padding: .1rem .4rem; border-radius: 4px; }
+    .document-import-dup-dialog { max-width: 28rem; border: 1px solid var(--color-divider); border-radius: var(--radius-md, 8px); padding: var(--space-4); }
+    .doc-row-edit { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-divider); }
+    .doc-installments-edit input { width: 100%; }

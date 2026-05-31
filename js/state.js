@@ -12,6 +12,11 @@ export const state = {
   user: null,
   recoveryMode: false,
   bankImportPreview: [],
+  documentImportPreview: null,
+  documentImportBusy: false,
+  documentImportLastFiles: null,
+  documentImportDuplicateAction: null,
+  documentImportReplaceDueIds: [],
   houseFormMode: 'edit',
   pendingSituazionePeriodId: null
 };
@@ -58,6 +63,7 @@ export function mapHouseFromDb(house, dues, payments, periods, movements) {
       description: d.description || '',
       splitMode: d.split_mode || 'monthly',
       splitCustom: Array.isArray(d.split_custom) ? d.split_custom : null,
+      splitAmounts: Array.isArray(d.split_amounts) ? d.split_amounts : null,
       dueKind: d.due_kind || 'preventivo',
       carryFromPeriodId: d.carry_from_period_id ? String(d.carry_from_period_id) : null,
       date: d.created_at?.slice(0, 10) || today

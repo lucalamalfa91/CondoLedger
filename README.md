@@ -15,9 +15,11 @@ Web app statica per gestire le spese condominiali di più immobili, con persiste
 |---|---|
 | `index.html` | Entry point applicazione |
 | `css/app.css` | Stili |
-| `js/` | Moduli ES (auth, api, fiscal, import Intesa, UI) |
+| `js/` | Moduli ES (auth, api, fiscal, import documento AI, import Intesa, UI) |
 | `gestione-spese-condominiali-supabase.html` | Redirect legacy → `index.html` |
 | `supabase/migrations/` | Migration versionate |
+| `supabase/functions/extract-document/` | Edge Function estrazione AI (PDF/DOCX/immagini) |
+| `references/document-import.md` | **Flusso import preventivo/consuntivo** (guida utente e tecnica) |
 | `references/intesa-format.md` | Formato export Excel Banca Intesa |
 | `vercel.json` | Routing Vercel |
 
@@ -43,12 +45,17 @@ Questi passaggi non sono automatizzabili dal pipeline CI/CD perché richiedono i
 
 1. Crea un account su [supabase.com](https://supabase.com)
 2. Crea un nuovo progetto (nota: il provisioning richiede ~2 minuti)
-3. Vai in **SQL Editor** ed esegui le migration in ordine:
+3. Vai in **SQL Editor** ed esegui le migration in ordine (solo quelle non ancora applicate al tuo progetto):
    - `supabase/migrations/20240101000000_initial_schema.sql`
    - `supabase/migrations/20260528100000_fiscal_and_bank.sql`  
-   *(La seconda migration ricrea `dues`/`payments` — usa solo se non hai dati da conservare.)*
-4. In **Authentication → Users** crea almeno un utente email/password
-5. Vai in **Project Settings → API** e copia:
+   *(Ricrea `dues`/`payments` — solo installazioni nuove senza dati da conservare.)*
+   - `supabase/migrations/20260528120000_dues_payments_update.sql`
+   - `supabase/migrations/20260529120000_installments.sql`
+   - `supabase/migrations/20260529140000_preventivo_consuntivo.sql`
+   - `supabase/migrations/20260531120000_split_amounts_document_imports.sql` *(import documento AI + rate esatte)*
+4. Per l'**import documento amministratore** (opzionale ma necessario per l'AI): deploy Edge Function — vedi sezione [Import documento amministratore](#import-documento-amministratore) sotto
+5. In **Authentication → Users** crea almeno un utente email/password
+6. Vai in **Project Settings → API** e copia:
    - **Project URL** → es. `https://abcdefgh.supabase.co`
    - **anon public key** → stringa JWT lunga
 
@@ -169,9 +176,52 @@ Non committare mai la `service_role key` nel codice o nei secrets pubblici.
 
 - Gestione multi-casa
 - **Esercizio fiscale configurabile** per casa (es. giugno–maggio, etichetta 2024/2025)
-- Dovuti e versamenti legati all'esercizio fiscale
+- Dovuti e versamenti legati all'esercizio fiscale (preventivo con rate mensili/bimestrali/semestrali/custom o importi per rata dal documento)
+- **Import documento amministratore** — PDF, DOCX o foto del preventivo/consuntivo con estrazione AI, anteprima e conferma prima del salvataggio (vedi sotto)
 - **Import Excel Banca Intesa** (Lista Operazioni) con anteprima, match suggerito e coda manuale
+- Situazione per esercizio ed export PDF
 - Saldo per esercizio (eccedenza / debito / pareggio)
 - Dashboard con metriche aggregate
 - Tema chiaro/scuro · Responsive · Import/export JSON
 - Persistenza Supabase con autenticazione e RLS
+
+---
+
+## Import documento amministratore
+
+Carica il preventivo o il consuntivo che ricevi dall'amministratore (PDF, Word o scansione fotografica) e popola automaticamente esercizio fiscale, totale e rate della tua unità.
+
+### Percorso nell'app
+
+**Movimenti → Import → Importa documento amministratore**
+
+### Passi tipici
+
+1. Seleziona l'immobile.
+2. Carica il file (per più pagine fotografate, seleziona tutte le immagini in una volta).
+3. Attendi l'elaborazione AI.
+4. In **anteprima**: correggi l'esercizio se serve, attiva le schede Preventivo/Consuntivo presenti nel file, **clicca la riga della tabella che ti riguarda**.
+5. Conferma l'import dal riepilogo.
+
+Non ti viene chiesto il nome prima dell'estrazione: scegli la tua riga solo dopo, nella tabella estratta.
+
+Le **rate del preventivo** vengono importate con gli **stessi importi** del documento (non una ripartizione equa approssimata).
+
+Se il file era già importato, puoi **annullare**, **aggiungere** un nuovo dovuto o **sostituire** quelli creati dall'import precedente.
+
+Documentazione completa: [`references/document-import.md`](references/document-import.md)
+
+### Setup Edge Function (una tantum)
+
+Richiede [Supabase CLI](https://supabase.com/docs/guides/cli) e una chiave API OpenAI.
+
+```bash
+supabase login
+supabase link --project-ref <PROJECT_REF>   # es. da Project Settings → General
+supabase secrets set OPENAI_API_KEY=sk-...
+supabase functions deploy extract-document
+```
+
+Assicurati di aver eseguito la migration `20260531120000_split_amounts_document_imports.sql`.
+
+Senza deploy, l'upload mostra un errore che indica di configurare la function; puoi comunque usare **Inserisci manualmente** o l'import Intesa.

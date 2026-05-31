@@ -4,7 +4,7 @@
 
 ## overview
 
-Applicazione single-page (`gestione-spese-condominiali-supabase.html`) per registrare dovuti, versamenti e saldi per annualità su più case/immobili. Autenticazione Supabase (email/password); dati isolati per utente tramite RLS. Deploy statico su Vercel. Flusso utente: login → selezione/creazione casa → inserimento movimenti → dashboard e report annualità.
+Applicazione single-page (`index.html`) per registrare dovuti, versamenti e saldi per esercizio fiscale su più case/immobili. Autenticazione Supabase (email/password); dati isolati per utente tramite RLS. Deploy statico su Vercel. Flussi principali: login → selezione casa → dovuti/versamenti (manuale o **import documento amministratore** con AI) → import banca Intesa → situazione/PDF e dashboard.
 
 Problemi noti risolti di recente: deadlock `onAuthStateChange` async + `getSession()` che bloccava le chiamate REST; le case ora si caricano/salvano via API se la sessione è attiva.
 
@@ -13,7 +13,7 @@ Problemi noti risolti di recente: deadlock `onAuthStateChange` async + `getSessi
 | Stakeholder | Role / Interest | Authority | Notes |
 |-------------|-----------------|-----------|-------|
 | Proprietario app (utente loggato) | Gestisce i propri immobili e movimenti | Decision | Un account = un insieme di case |
-| Amministratore condominio (implicito) | Fonte dati reali (preventivi, versamenti) | Informed | Non modella multi-condomino nell'app |
+| Amministratore condominio (implicito) | Fonte PDF/DOCX/foto preventivo e consuntivo | Informed | Import estrae tabella anagrafica; l'utente sceglie la propria riga in anteprima |
 | Maintainer tecnico | Evoluzione codice e schema DB | Decision | Repo privato, deploy Vercel |
 
 ## services
@@ -22,7 +22,8 @@ Problemi noti risolti di recente: deadlock `onAuthStateChange` async + `getSessi
 |---------|------|--------|----------------|
 | Static frontend | 3456 (locale `npx serve`) | N/A | `gestione-spese-condominiali-supabase.html` |
 | Supabase Auth | HTTPS | `auth.users` | PKCE, session in `localStorage` |
-| Supabase REST (PostgREST) | HTTPS | `public` | tabelle `houses`, `dues`, `payments` |
+| Supabase REST (PostgREST) | HTTPS | `public` | `houses`, `fiscal_periods`, `dues`, `payments`, `bank_movements`, `document_imports` |
+| Supabase Edge Functions | HTTPS | N/A | `extract-document` (OpenAI, estrazione preventivo/consuntivo) |
 
 ## tech-stack
 
@@ -58,6 +59,8 @@ Nessun Docker in runtime. Deploy: push su Vercel; DB gestito da Supabase cloud. 
 
 | Document | Summary | Relevant to |
 |----------|---------|-------------|
-| `README.md` | Setup locale, Supabase, deploy Vercel | Tutti gli agenti tech |
+| `README.md` | Setup locale, Supabase, deploy Vercel, panoramica import documento | Tutti gli agenti tech |
+| `references/document-import.md` | Flusso import preventivo/consuntivo (HITL, split_amounts, Edge Function) | Implementer, QA, Planner |
+| `references/intesa-format.md` | Export Excel Banca Intesa | Implementer |
 | `supabase-schema.sql` | Schema + policy RLS | Architect, Implementer, QA |
-| *(Docs/ assente)* | Nessun indice documentale business | — |
+| `Docs/INDEX.md` | Indice documentazione | Tutti |

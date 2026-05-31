@@ -26,6 +26,17 @@ import { suggestCarryover } from './carryover.js';
 import { periodLabel } from './fiscal.js';
 import { findInstallmentForDate } from './installments.js';
 import { exportSituazionePdf } from './pdf-situazione.js';
+import { buildDuesFromPreview, initPreviewFromExtraction } from './document-import-map.js';
+import {
+  deleteDuesByIds,
+  extractFromDocument,
+  findDuplicateImport,
+  findExistingDuesForImport,
+  hashFiles,
+  recordDocumentImport,
+  sourceLabelFromFiles
+} from './document-import-api.js';
+import { collectLowConfidenceIssues, validateCommitPreview } from './document-import-validate.js';
 import { parseIntesaFile } from './intesa.js';
 import { enrichPreview } from './matching.js';
 import { collectDom, createRenderer } from './render.js';
@@ -220,6 +231,161 @@ async function createHouseFromForm() {
     alert(err.message || 'Errore salvataggio casa');
     render();
   }
+}
+
+function askDuplicateImportChoice(dup) {
+  return new Promise(resolve => {
+    const dlg = els.documentImportDupDialog;
+    if (!dlg) {
+      resolve(null);
+      return;
+    }
+    const when = dup.created_at ? new Date(dup.created_at).toLocaleString('it-IT') : '—';
+    els.documentImportDupMsg.textContent =
+      `Import precedente: «${dup.source_label}» (${when}). Come vuoi procedere?`;
+    const finish = v => {
+      dlg.close();
+      resolve(v);
+    };
+    els.documentImportDupAdd.onclick = () => finish('add');
+    els.documentImportDupReplace.onclick = () => finish('replace');
+    els.documentImportDupCancel.onclick = () => finish(null);
+    dlg.addEventListener('cancel', () => finish(null), { once: true });
+    dlg.showModal();
+  });
+}
+
+async function runDocumentExtraction(house, files) {
+  const fileHash = await hashFiles(files);
+  const dup = await findDuplicateImport(house.id, fileHash);
+  if (dup) {
+    const choice = await askDuplicateImportChoice(dup);
+    if (!choice) return false;
+    state.documentImportDuplicateAction = choice === 'replace' ? 'replace' : 'add';
+    state.documentImportReplaceDueIds = dup.committed_due_ids || [];
+  } else {
+    state.documentImportDuplicateAction = null;
+    state.documentImportReplaceDueIds = [];
+  }
+  const extraction = await extractFromDocument(house.id, files);
+  state.documentImportPreview = initPreviewFromExtraction(extraction, {
+    sourceLabel: sourceLabelFromFiles(files),
+    fileHash,
+    fiscalStartMonth: house.fiscalStartMonth ?? 6,
+    mimeTypes: files.map(f => f.type).join(',')
+  });
+  navigate('movimenti', 'import');
+  return true;
+}
+
+async function handleDocumentFiles(fileList) {
+  const house = ensureHouse();
+  if (!house) return;
+  if (!Number.isFinite(Number(house.id))) {
+    alert('Salva prima la casa su Supabase.');
+    return;
+  }
+  const files = [...fileList];
+  if (!files.length) return;
+  state.documentImportLastFiles = files;
+  state.documentImportBusy = true;
+  render();
+  try {
+    await runDocumentExtraction(house, files);
+  } catch (err) {
+    alert(err.message || 'Errore estrazione documento');
+  } finally {
+    state.documentImportBusy = false;
+    if (els.documentImportFile) els.documentImportFile.value = '';
+    render();
+  }
+}
+
+async function retryDocumentImport() {
+  const files = state.documentImportLastFiles;
+  if (!files?.length) return;
+  await handleDocumentFiles(files);
+}
+
+async function confirmDocumentImport() {
+  const house = ensureHouse();
+  const preview = state.documentImportPreview;
+  if (!house || !preview) return;
+
+  const warnings = validateCommitPreview(preview);
+  const blocking = warnings.filter(w => w.includes('Seleziona') || w.includes('Indica') || w.includes('Conferma almeno'));
+  if (blocking.length) {
+    alert(blocking.join('\n'));
+    return;
+  }
+  const lowFields = collectLowConfidenceIssues(preview);
+  if (lowFields.length && !preview.lowConfidenceAck?.all) {
+    if (!confirm(`Estrazione incerta su: ${lowFields.join(', ')}.\n\nConfermi comunque i valori in anteprima?`)) return;
+    preview.lowConfidenceAck.all = true;
+  }
+  if (warnings.length && !confirm(`${warnings.join('\n')}\n\nProcedere con l'import?`)) return;
+
+  const summary = buildDuesFromPreview(preview, preview.sourceLabel, house);
+  if (!summary.length) {
+    alert('Nessun dato da importare. Attiva almeno una scheda Preventivo o Consuntivo.');
+    return;
+  }
+
+  const fiscalLabel = preview.extraction.fiscalYearLabel.trim();
+  const kinds = summary.map(d => d.dueKind);
+  const existing = findExistingDuesForImport(house, fiscalLabel, kinds);
+  if (existing.length && state.documentImportDuplicateAction !== 'replace') {
+    const labels = existing.map(d => `${d.dueKind} ${fmt(d.amount)}`).join(', ');
+    if (!confirm(
+      `Per l'esercizio ${fiscalLabel} esistono già dovuti: ${labels}.\n\nAggiungere comunque quelli dell'import?`
+    )) return;
+  }
+
+  const { period, isNew } = await ensureFiscalPeriodByLabel(house, fiscalLabel);
+  if (!isNew && !state.documentImportDuplicateAction) {
+    if (!confirm(`L'esercizio ${period.label} esiste già. Associare i nuovi dovuti a questo esercizio?`)) return;
+  }
+
+  const recap = summary.map(d => `${d.dueKind}: ${fmt(d.amount)} (${d.description.slice(0, 60)}…)`).join('\n');
+  if (!confirm(`Riepilogo import:\nEsercizio ${fiscalLabel}\n\n${recap}\n\nConfermi?`)) return;
+
+  const oldIds =
+    state.documentImportDuplicateAction === 'replace' ? [...(state.documentImportReplaceDueIds || [])] : [];
+
+  try {
+    const savedIds = [];
+    for (const due of summary) {
+      await saveDueToSupabase(house, due);
+      if (due.id) savedIds.push(due.id);
+    }
+    if (oldIds.length) await deleteDuesByIds(house, oldIds);
+    await recordDocumentImport(house, {
+      sourceLabel: preview.sourceLabel,
+      fileHash: preview.fileHash,
+      mimeTypes: preview.mimeTypes
+    }, preview.extraction, savedIds);
+    state.documentImportPreview = null;
+    state.documentImportDuplicateAction = null;
+    state.documentImportReplaceDueIds = [];
+    await loadFromSupabase();
+    render();
+    alert('Import documento completato. Controlla i dovuti nell\'esercizio indicato.');
+    navigate('movimenti', 'dovuti');
+  } catch (err) {
+    alert(err.message || 'Errore salvataggio import');
+  }
+}
+
+function cancelDocumentImport() {
+  state.documentImportPreview = null;
+  state.documentImportBusy = false;
+  render();
+}
+
+function goManualDueEntry() {
+  cancelDocumentImport();
+  navigate('movimenti', 'dovuti');
+  els.dueForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function handleBankFile(file) {
@@ -566,6 +732,12 @@ async function offerCarryoverDue(house, newPeriodId) {
 els.duesTable?.addEventListener('click', handleRecordAction);
 els.paymentsTable?.addEventListener('click', handleRecordAction);
 els.movements?.addEventListener('click', handleRecordAction);
+
+els.documentImportFile?.addEventListener('change', e => handleDocumentFiles(e.target.files));
+els.documentImportConfirm?.addEventListener('click', confirmDocumentImport);
+els.documentImportCancel?.addEventListener('click', cancelDocumentImport);
+els.documentImportRetry?.addEventListener('click', retryDocumentImport);
+els.documentImportManual?.addEventListener('click', goManualDueEntry);
 
 els.bankImportFile?.addEventListener('change', e => handleBankFile(e.target.files[0]));
 els.bankImportConfirm?.addEventListener('click', confirmBankImport);

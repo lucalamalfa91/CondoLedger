@@ -25,7 +25,7 @@ agents:
     archetype: qa-strategist
 ---
 
-# Council configuration
+# Council configuration (snapshot at launch)
 
 ## Scenario
 
@@ -45,36 +45,4 @@ Importare il file del preventivo o consuntivo fornito dall'amministratore di con
 - Privilegiare automazione completa; consentire inserimento manuale quando necessario
 - HITL: se dati mancanti o estrazione incerta → richiedere conferma operatore prima di persistere
 
-**File di esempio (operatore):** `C:\Users\luca.la-malfa\Documents\Spese Condiminiali` (cartella al momento vuota o non ancora popolata nel workspace).
-
-## Pattern: Plan / Execute / Verify
-
-| Phase | Owner primario | Artifact |
-|-------|----------------|----------|
-| **Plan** | Requirements Planner + Task Architect | `Sessions/<slug>/plan.md` (approvazione umana obbligatoria prima di Execute) |
-| **Execute** | Full-Stack Implementer | Codice + `Sessions/<slug>/execution.md` |
-| **Verify** | Quality Verifier | `Sessions/<slug>/verification.md` |
-| **Final** | Coordinator | `Sessions/<slug>/decision.md` |
-| **Devil's Advocate** | devils-advocate | `devils-advocate-review.md` + eventuale `decision-after-devils-review.md` |
-
-## Protocol
-
-`deliberative-voting` — voti: PROPOSE | OBJECT | APPROVE | ABSTAIN | REJECT.
-
-## Output template
-
-`plan-and-verification` (standard narrative).
-
-## Session slug
-
-`import-preventivo-consuntivo-ai`
-
-## HITL
-
-- **Plan approval** (Type C): approve / revise / stop prima di qualsiasi modifica al codice.
-- **Estrazione incerta** (runtime): conferma operatore su campi a bassa confidenza.
-- **Devil's Advocate**: checkpoint inline yes/skip prima della review (default: yes).
-
-## Launch
-
-Invoca `council-launch` con cartella sessione `Sessions/import-preventivo-consuntivo-ai/`.
+**File di esempio (operatore):** `C:\Users\luca.la-malfa\Documents\Spese Condiminiali`

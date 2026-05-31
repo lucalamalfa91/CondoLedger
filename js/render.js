@@ -586,6 +586,146 @@ export function createRenderer(els) {
     els.currentHouseMeta.textContent = [house.location || 'Località non indicata', house.notes || 'Nessuna nota'].join(' · ');
   }
 
+  function esc(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function renderDocumentImportPreview(house) {
+    if (!els.documentImportPreview) return;
+    const preview = state.documentImportPreview;
+    const busy = state.documentImportBusy;
+    if (els.documentImportConfirm) els.documentImportConfirm.disabled = !preview || busy;
+    if (els.documentImportCancel) els.documentImportCancel.classList.toggle('hidden', !preview);
+    if (els.documentImportRetry) {
+      els.documentImportRetry.classList.toggle('hidden', !state.documentImportLastFiles?.length);
+    }
+    if (els.documentImportStatus) {
+      els.documentImportStatus.textContent = busy
+        ? 'Elaborazione documento in corso…'
+        : preview
+          ? `Anteprima: ${preview.sourceLabel}. Seleziona la riga che ti riguarda e conferma.`
+          : '';
+    }
+    if (!preview) {
+      els.documentImportPreview.innerHTML =
+        '<div class="empty">Carica un preventivo o consuntivo (PDF, DOCX o foto). Dopo l\'estrazione scegli la tua riga nella tabella.</div>';
+      return;
+    }
+    const ext = preview.extraction;
+    const fyConf = ext.fieldConfidence?.fiscalYearLabel;
+    const fyLow = fyConf != null && fyConf < 0.7;
+    let html = `<div class="document-import-review stack">`;
+    html += `<div class="field-grid"><div><label for="docImportFiscalLabel">Esercizio fiscale</label>`;
+    html += `<input id="docImportFiscalLabel" type="text" value="${esc(ext.fiscalYearLabel)}" class="${fyLow ? 'warn-field' : ''}" /></div></div>`;
+    if (ext.extractionNotes) {
+      html += `<p class="hint">${esc(ext.extractionNotes)}</p>`;
+    }
+    for (const section of ext.sections || []) {
+      const kind = section.documentKind;
+      const kindLabel = kind === 'consuntivo' ? 'Consuntivo' : 'Preventivo';
+      const checked = preview.confirmedSections?.[kind] ? 'checked' : '';
+      const rowIdx = preview.selectedRowIndex?.[kind] ?? 0;
+      if (!section.rows?.length) {
+        if (!preview.manualRows) preview.manualRows = {};
+        if (!preview.manualRows[kind]) {
+          preview.manualRows[kind] = {
+            label: 'Inserimento manuale',
+            unit: '',
+            total: 0,
+            installments: [],
+            confidence: 1
+          };
+        }
+        section.rows = [preview.manualRows[kind]];
+      }
+      const secLow = section.confidence != null && section.confidence < 0.7;
+      html += `<div class="card stack document-import-section" data-kind="${kind}">`;
+      html += `<label class="document-section-toggle"><input type="checkbox" class="doc-section-confirm" data-kind="${kind}" ${checked} /> <strong>${kindLabel}</strong>`;
+      if (secLow) html += ` <span class="badge warn">estrazione incerta</span>`;
+      html += `</label>`;
+      html += `<table><thead><tr><th></th><th>Condomino / unità</th><th>Millesimi</th><th>Totale</th><th>Rate</th></tr></thead><tbody>`;
+      section.rows.forEach((row, i) => {
+        const sel = i === rowIdx ? 'checked' : '';
+        const rowLow = row.confidence != null && row.confidence < 0.7;
+        const inst = row.installments?.length
+          ? row.installments.map(x => `${esc(x.label || x.periodStart)}: ${fmt(x.amount)}`).join('<br/>')
+          : '—';
+        html += `<tr class="doc-row-selectable ${i === rowIdx ? 'row-selected' : ''} ${rowLow ? 'row-warn' : ''}" data-kind="${kind}" data-idx="${i}">`;
+        html += `<td><input type="radio" name="docRow-${kind}" class="doc-row-radio" data-kind="${kind}" data-idx="${i}" ${sel} /></td>`;
+        html += `<td><strong>${esc(row.label)}</strong>${row.unit ? `<div class="hint">${esc(row.unit)}</div>` : ''}</td>`;
+        html += `<td>${row.millesimi != null ? row.millesimi : '—'}</td>`;
+        html += `<td class="amount">${fmt(row.total)}</td>`;
+        html += `<td class="hint">${inst}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+      const selected = section.rows[rowIdx];
+      if (selected) {
+        html += `<div class="doc-row-edit stack" data-kind="${kind}">`;
+        html += `<p class="hint">Modifica i valori della riga selezionata prima di confermare.</p>`;
+        html += `<div class="field-grid"><div><label>Totale (€)</label>`;
+        html += `<input type="number" step="0.01" class="doc-edit-total" data-kind="${kind}" value="${Number(selected.total || 0)}" /></div></div>`;
+        if (kind === 'preventivo' && selected.installments?.length) {
+          html += `<table class="doc-installments-edit"><thead><tr><th>Rata</th><th>Data inizio</th><th>Importo (€)</th></tr></thead><tbody>`;
+          selected.installments.forEach((inst, ii) => {
+            html += `<tr><td><input type="text" class="doc-edit-inst-label" data-kind="${kind}" data-ii="${ii}" value="${esc(inst.label || '')}" /></td>`;
+            html += `<td><input type="date" class="doc-edit-inst-date" data-kind="${kind}" data-ii="${ii}" value="${esc(inst.periodStart || '')}" /></td>`;
+            html += `<td><input type="number" step="0.01" class="doc-edit-inst-amount" data-kind="${kind}" data-ii="${ii}" value="${Number(inst.amount || 0)}" /></td></tr>`;
+          });
+          html += `</tbody></table>`;
+        }
+        html += `</div>`;
+      }
+      html += `</div>`;
+    }
+    html += `</div>`;
+    els.documentImportPreview.innerHTML = html;
+
+    els.documentImportPreview.querySelector('#docImportFiscalLabel')?.addEventListener('change', e => {
+      preview.extraction.fiscalYearLabel = e.target.value;
+    });
+    els.documentImportPreview.querySelector('#docImportFiscalLabel')?.addEventListener('input', e => {
+      preview.extraction.fiscalYearLabel = e.target.value;
+    });
+    els.documentImportPreview.querySelectorAll('.doc-section-confirm').forEach(el => {
+      el.addEventListener('change', e => {
+        const kind = e.target.dataset.kind;
+        preview.confirmedSections[kind] = e.target.checked;
+      });
+    });
+    els.documentImportPreview.querySelectorAll('.doc-row-radio').forEach(el => {
+      el.addEventListener('change', e => {
+        const kind = e.target.dataset.kind;
+        preview.selectedRowIndex[kind] = Number(e.target.dataset.idx);
+        renderDocumentImportPreview(house);
+      });
+    });
+    els.documentImportPreview.querySelectorAll('.doc-edit-total').forEach(el => {
+      el.addEventListener('input', e => {
+        const kind = e.target.dataset.kind;
+        const section = ext.sections.find(s => s.documentKind === kind);
+        const row = section?.rows?.[preview.selectedRowIndex?.[kind] ?? 0];
+        if (row) row.total = Number(e.target.value);
+      });
+    });
+    els.documentImportPreview.querySelectorAll('.doc-edit-inst-amount, .doc-edit-inst-date, .doc-edit-inst-label').forEach(el => {
+      el.addEventListener('input', e => {
+        const kind = e.target.dataset.kind;
+        const ii = Number(e.target.dataset.ii);
+        const section = ext.sections.find(s => s.documentKind === kind);
+        const row = section?.rows?.[preview.selectedRowIndex?.[kind] ?? 0];
+        const inst = row?.installments?.[ii];
+        if (!inst) return;
+        if (e.target.classList.contains('doc-edit-inst-amount')) inst.amount = Number(e.target.value);
+        if (e.target.classList.contains('doc-edit-inst-date')) inst.periodStart = e.target.value;
+        if (e.target.classList.contains('doc-edit-inst-label')) inst.label = e.target.value;
+      });
+    });
+  }
+
   function renderBankImportPreview(house) {
     if (!els.bankImportPreview) return;
     const preview = state.bankImportPreview;
@@ -735,6 +875,7 @@ export function createRenderer(els) {
     renderMovements(house);
     renderHouseForm(house);
     renderPeriodSelects(house);
+    renderDocumentImportPreview(house);
     renderBankImportPreview(house);
     renderBankImportBatches(house);
     renderUnlinkedMovements(house);
@@ -744,6 +885,7 @@ export function createRenderer(els) {
   return {
     setView,
     render,
+    renderDocumentImportPreview,
     renderBankImportPreview,
     renderUnlinkedMovements,
     syncPaymentPeriodSelect,
@@ -810,6 +952,18 @@ export function collectDom() {
     fiscalStartMonth: document.getElementById('fiscalStartMonth'),
     exportBtn: document.getElementById('exportBtn'),
     importFile: document.getElementById('importFile'),
+    documentImportFile: document.getElementById('documentImportFile'),
+    documentImportConfirm: document.getElementById('documentImportConfirm'),
+    documentImportManual: document.getElementById('documentImportManual'),
+    documentImportCancel: document.getElementById('documentImportCancel'),
+    documentImportRetry: document.getElementById('documentImportRetry'),
+    documentImportDupDialog: document.getElementById('documentImportDupDialog'),
+    documentImportDupMsg: document.getElementById('documentImportDupMsg'),
+    documentImportDupAdd: document.getElementById('documentImportDupAdd'),
+    documentImportDupReplace: document.getElementById('documentImportDupReplace'),
+    documentImportDupCancel: document.getElementById('documentImportDupCancel'),
+    documentImportPreview: document.getElementById('documentImportPreview'),
+    documentImportStatus: document.getElementById('documentImportStatus'),
     bankImportFile: document.getElementById('bankImportFile'),
     bankImportConfirm: document.getElementById('bankImportConfirm'),
     bankImportPreview: document.getElementById('bankImportPreview'),

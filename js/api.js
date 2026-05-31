@@ -140,6 +140,7 @@ export async function saveDueToSupabase(house, due) {
     description: due.description,
     split_mode: due.splitMode || 'monthly',
     split_custom: due.splitMode === 'custom' && Array.isArray(due.splitCustom) ? due.splitCustom : null,
+    split_amounts: Array.isArray(due.splitAmounts) && due.splitAmounts.length ? due.splitAmounts : null,
     due_kind: due.dueKind || 'preventivo',
     carry_from_period_id: due.carryFromPeriodId ? Number(due.carryFromPeriodId) : null
   };
@@ -150,14 +151,16 @@ export async function saveDueToSupabase(house, due) {
       description: payload.description,
       split_mode: payload.split_mode,
       split_custom: payload.split_custom,
+      split_amounts: payload.split_amounts,
       due_kind: payload.due_kind,
       carry_from_period_id: payload.carry_from_period_id
     }).eq('id', Number(due.id)).eq('house_id', Number(house.id));
     if (error) throw error;
     return;
   }
-  const { error } = await state.supabase.from('dues').insert(payload);
+  const { data, error } = await state.supabase.from('dues').insert(payload).select('id').single();
   if (error) throw error;
+  if (data?.id) due.id = String(data.id);
 }
 
 export async function deleteDueFromSupabase(house, dueId) {
@@ -476,6 +479,7 @@ export async function syncBackupToSupabase(backup) {
         description: due.description || '',
         split_mode: due.splitMode || 'monthly',
         split_custom: due.splitCustom || null,
+        split_amounts: due.splitAmounts || null,
         due_kind: due.dueKind || 'preventivo',
         carry_from_period_id: due.carryFromPeriodId ? Number(due.carryFromPeriodId) : null
       });

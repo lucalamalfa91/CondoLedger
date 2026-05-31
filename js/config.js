@@ -31,7 +31,7 @@ export const viewMeta = {
     subviews: {
       dovuti: ['Dovuti', 'Quote e annualità'],
       versamenti: ['Versamenti', 'Pagamenti registrati'],
-      import: ['Import banca', 'Excel Banca Intesa'],
+      import: ['Import', 'Documento amministratore e banca'],
       situazione: ['Situazione', 'Saldi per esercizio']
     }
   },

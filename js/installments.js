@@ -43,10 +43,43 @@ function slotMonthOffsets(due) {
   return Array.from({ length: 12 }, (_, i) => i);
 }
 
+function normalizeSplitAmounts(due) {
+  if (!Array.isArray(due.splitAmounts) || !due.splitAmounts.length) return null;
+  return due.splitAmounts
+    .map((row, slotIndex) => {
+      const periodStart = String(row.periodStart || row.period_start || '').slice(0, 10);
+      if (!periodStart) return null;
+      const amount = Number(row.amount);
+      if (!Number.isFinite(amount)) return null;
+      const periodEnd = row.periodEnd || row.period_end
+        ? String(row.periodEnd || row.period_end).slice(0, 10)
+        : monthEnd(periodStart);
+      const monthNum = Number(periodStart.slice(5, 7));
+      const label = row.label || `${MONTH_NAMES[monthNum - 1]} ${periodStart.slice(0, 4)}`;
+      return { periodStart, periodEnd, amount, label, slotIndex };
+    })
+    .filter(Boolean);
+}
+
 export function listInstallmentsForDue(house, due) {
   if (!isPreventivoDue(due)) return [];
   const period = house.fiscalPeriods.find(p => p.id === due.fiscalPeriodId);
   if (!period?.startDate) return [];
+
+  const explicit = normalizeSplitAmounts(due);
+  if (explicit?.length) {
+    return explicit.map(row => ({
+      key: makeInstallmentKey(due.id, row.slotIndex),
+      dueId: due.id,
+      fiscalPeriodId: due.fiscalPeriodId,
+      slotIndex: row.slotIndex,
+      label: row.label,
+      periodStart: row.periodStart,
+      periodEnd: row.periodEnd,
+      amountDue: row.amount,
+      dueDescription: due.description || ''
+    }));
+  }
 
   const offsets = slotMonthOffsets(due);
   const total = Number(due.amount || 0);

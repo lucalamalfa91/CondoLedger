@@ -25,7 +25,7 @@ agents:
     archetype: qa-strategist
 ---
 
-# Council configuration
+# Council configuration (snapshot)
 
 ## Scenario
 
@@ -38,26 +38,6 @@ Estendere il modello **casa/immobile** con anagrafica proprietario (nome, cognom
 
 Pattern esistente da riusare: import Intesa e import preventivo/consuntivo AI (`references/document-import.md`, sessione `import-preventivo-consuntivo-ai`).
 
-## Pattern: Plan / Execute / Verify
-
-| Phase | Owner primario | Artifact |
-|-------|----------------|----------|
-| **Plan** | Requirements Planner + Task Architect | `plan.md` (gate umano prima di Execute) |
-| **Execute** | Full-Stack Implementer | `execution.md` + codice/schema |
-| **Verify** | Quality Verifier | `verification.md` |
-| **Final** | Coordinator | `plan-and-verification.md` |
-| **Devil's Advocate** | devils-advocate | `devils-advocate-review.md` + eventuale `plan-and-verification-after-devils-review.md` |
-
 ## Session slug
 
 `proprietario-case-resoconto-import`
-
-## HITL
-
-- Plan approval prima dell'implementazione.
-- Resoconto import: conferma operatore prima di persistenza.
-- Devil's Advocate: checkpoint yes/skip (default: yes).
-
-## Launch
-
-`Sessions/proprietario-case-resoconto-import/`

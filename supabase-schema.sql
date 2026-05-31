@@ -9,6 +9,7 @@ create table if not exists houses (
   location text,
   notes text,
   fiscal_start_month int not null default 6 check (fiscal_start_month between 1 and 12),
+  import_parties jsonb not null default '[]'::jsonb,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 

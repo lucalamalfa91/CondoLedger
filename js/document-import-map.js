@@ -6,9 +6,12 @@ import { parseFiscalLabel } from './fiscal.js';
  * @param {string} sourceLabel
  */
 export function buildDuesFromPreview(preview, sourceLabel, house) {
-  const label = preview.extraction.fiscalYearLabel.trim();
+  const label = (preview.resoconto?.fiscalYearLabel || preview.extraction.fiscalYearLabel || '').trim();
   const dues = [];
   const stamp = `Import: ${sourceLabel} (${new Date().toISOString().slice(0, 10)})`;
+  const matchNote = preview.filterMode === 'auto' && preview.resoconto?.matchSummary
+    ? ` — ${preview.resoconto.matchSummary}`
+    : '';
 
   for (const { section, row } of activeSectionsFromPreview(preview)) {
     if (!row) continue;
@@ -17,7 +20,7 @@ export function buildDuesFromPreview(preview, sourceLabel, house) {
     const due = {
       fiscalPeriodLabel: label,
       amount: row.total,
-      description: `${descBase} ${label} — ${row.label}${row.unit ? ` (${row.unit})` : ''} — ${stamp}`,
+      description: `${descBase} ${label} — ${row.label}${row.unit ? ` (${row.unit})` : ''} — ${stamp}${matchNote}`,
       dueKind: kind,
       splitMode: 'custom',
       splitCustom: null,
@@ -50,6 +53,24 @@ export function buildDuesFromPreview(preview, sourceLabel, house) {
     }
     dues.push(due);
   }
+
+  const r = preview.resoconto;
+  if (r?.applyCarryover && r.carryoverAmount != null && Math.abs(r.carryoverAmount) >= 0.005) {
+    const carryDesc = r.carryFromPeriodLabel
+      ? `Riporto da esercizio ${r.carryFromPeriodLabel}`
+      : 'Riporto saldo precedente';
+    dues.push({
+      fiscalPeriodLabel: label,
+      amount: Number(r.carryoverAmount),
+      description: `${carryDesc} — ${stamp}${matchNote}`,
+      dueKind: 'preventivo',
+      splitMode: 'monthly',
+      splitCustom: null,
+      splitAmounts: null,
+      carryFromPeriodId: r.carryFromPeriodId || null
+    });
+  }
+
   return dues;
 }
 
@@ -111,6 +132,9 @@ export function initPreviewFromExtraction(extraction, meta) {
     confirmedSections,
     selectedRowIndex,
     lowConfidenceAck: {},
+    filterMode: 'manual',
+    showAllRows: false,
+    resocontoConfirmed: false,
     status: 'review'
   };
 }

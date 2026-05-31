@@ -1,5 +1,6 @@
 import { DEFAULT_SUPABASE_ANON_KEY, DEFAULT_SUPABASE_URL } from './config.js';
 import { legacyCalendarPeriod, periodFromLabel } from './backup.js';
+import { serializeImportParties } from './house-import-parties.js';
 import { mapHouseFromDb, state } from './state.js';
 import { ensurePeriodPayload, parseFiscalLabel } from './fiscal.js';
 import { findInstallmentForDate } from './installments.js';
@@ -63,6 +64,7 @@ export async function saveHouseToSupabase(house) {
     location: house.location,
     notes: house.notes,
     fiscal_start_month: house.fiscalStartMonth,
+    import_parties: serializeImportParties(house.importParties || []),
     user_id: user.id
   };
   const numericId = Number(house.id);
@@ -448,6 +450,7 @@ export async function syncBackupToSupabase(backup) {
       location: houseData.location || '',
       notes: houseData.notes || '',
       fiscalStartMonth: houseData.fiscalStartMonth ?? 6,
+      importParties: houseData.importParties || [],
       fiscalPeriods: [],
       dues: [],
       payments: [],

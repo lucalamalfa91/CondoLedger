@@ -26,7 +26,11 @@ import { suggestCarryover } from './carryover.js';
 import { periodLabel } from './fiscal.js';
 import { findInstallmentForDate } from './installments.js';
 import { exportSituazionePdf } from './pdf-situazione.js';
+import { getPreviousPeriod } from './fiscal.js';
+import { applyAutoFilterToPreview } from './document-import-match.js';
+import { applyResocontoToPreview, buildResoconto, ensureResoconto } from './document-import-resoconto.js';
 import { buildDuesFromPreview, initPreviewFromExtraction } from './document-import-map.js';
+import { collectImportPartiesFromDom, validateParties } from './house-import-parties.js';
 import {
   deleteDuesByIds,
   extractFromDocument,
@@ -370,6 +374,12 @@ async function createHouseFromForm() {
   house.location = els.houseForm.location.value.trim();
   house.notes = els.houseForm.notes.value.trim();
   house.fiscalStartMonth = Number(els.fiscalStartMonth?.value || 6);
+  house.importParties = collectImportPartiesFromDom(els.houseImportParties);
+  const partyWarnings = validateParties(house.importParties);
+  if (partyWarnings.length) {
+    toastError(partyWarnings[0]);
+    return;
+  }
   state.data.houses.push(house);
   state.selectedHouseId = house.id;
   state.houseFormMode = 'edit';
@@ -421,12 +431,15 @@ async function runDocumentExtraction(house, files) {
     state.documentImportReplaceDueIds = [];
   }
   const extraction = await extractFromDocument(house.id, files);
-  state.documentImportPreview = initPreviewFromExtraction(extraction, {
+  let preview = initPreviewFromExtraction(extraction, {
     sourceLabel: sourceLabelFromFiles(files),
     fileHash,
     fiscalStartMonth: house.fiscalStartMonth ?? 6,
     mimeTypes: files.map(f => f.type).join(',')
   });
+  preview = applyAutoFilterToPreview(preview, house);
+  ensureResoconto(preview, house);
+  state.documentImportPreview = preview;
   navigate('movimenti', 'import-doc');
   return true;
 }
@@ -465,8 +478,16 @@ async function confirmDocumentImport() {
   const preview = state.documentImportPreview;
   if (!house || !preview) return;
 
+  applyResocontoToPreview(preview);
+
   const warnings = validateCommitPreview(preview);
-  const blocking = warnings.filter(w => w.includes('Seleziona') || w.includes('Indica') || w.includes('Conferma almeno'));
+  const blocking = warnings.filter(w =>
+    w.includes('Seleziona') ||
+    w.includes('Indica') ||
+    w.includes('Conferma almeno') ||
+    w.includes('Conferma il resoconto') ||
+    w.includes('nessuna riga')
+  );
   if (blocking.length) {
     toastError(blocking.join(' '));
     return;
@@ -487,7 +508,8 @@ async function confirmDocumentImport() {
     return;
   }
 
-  const fiscalLabel = preview.extraction.fiscalYearLabel.trim();
+  const fiscalLabel = (preview.resoconto?.fiscalYearLabel || preview.extraction.fiscalYearLabel).trim();
+  preview.extraction.fiscalYearLabel = fiscalLabel;
   const kinds = summary.map(d => d.dueKind);
   const existing = findExistingDuesForImport(house, fiscalLabel, kinds);
   if (existing.length && state.documentImportDuplicateAction !== 'replace') {
@@ -499,6 +521,11 @@ async function confirmDocumentImport() {
   }
 
   const { period, isNew } = await ensureFiscalPeriodByLabel(house, fiscalLabel);
+  const r = preview.resoconto;
+  if (r?.applyCarryover && !r.carryFromPeriodId) {
+    const prev = getPreviousPeriod(house, period.id);
+    if (prev) r.carryFromPeriodId = prev.id;
+  }
   if (!isNew && !state.documentImportDuplicateAction) {
     if (!await confirmDialog(
       `L'esercizio ${period.label} esiste già. Associare i nuovi dovuti a questo esercizio?`,
@@ -841,6 +868,12 @@ els.houseForm.addEventListener('submit', async e => {
   house.location = els.houseForm.location.value.trim();
   house.notes = els.houseForm.notes.value.trim();
   house.fiscalStartMonth = Number(els.fiscalStartMonth?.value || 6);
+  house.importParties = collectImportPartiesFromDom(els.houseImportParties);
+  const partyWarnings = validateParties(house.importParties);
+  if (partyWarnings.length) {
+    toastError(partyWarnings[0]);
+    return;
+  }
   try {
     if (state.supabase && state.user) await saveHouseToSupabase(house);
     render();

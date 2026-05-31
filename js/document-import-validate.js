@@ -59,8 +59,15 @@ export function collectLowConfidenceIssues(preview) {
 
 export function validateCommitPreview(preview) {
   const warnings = [];
-  if (!preview?.extraction?.fiscalYearLabel?.trim()) {
+  const fiscalLabel = preview.resoconto?.fiscalYearLabel || preview?.extraction?.fiscalYearLabel;
+  if (!fiscalLabel?.trim()) {
     warnings.push('Indica l\'esercizio fiscale (es. 2024/2025).');
+  }
+  if (preview?.filterMode === 'auto' && !preview.resocontoConfirmed) {
+    warnings.push('Conferma il resoconto prima di importare.');
+  }
+  if (preview?.autoFilterFailed) {
+    warnings.push('Nessuna riga corrisponde ai nominativi configurati: seleziona la riga manualmente o aggiorna i nominativi.');
   }
   const sections = getActiveSections(preview);
   if (!sections.length) warnings.push('Conferma almeno una scheda Preventivo o Consuntivo.');

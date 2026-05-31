@@ -60,10 +60,24 @@ export function normalizeExtraction(raw) {
   if (!sections.length && raw.documentKind) {
     sections.push(normalizeSection(raw));
   }
+  const summaryRaw = raw.summary || raw.documentSummary;
+  let summary = null;
+  if (summaryRaw && typeof summaryRaw === 'object') {
+    summary = {
+      previousBalance: num(summaryRaw.previousBalance ?? summaryRaw.previous_balance, null),
+      previousExerciseLabel: String(
+        summaryRaw.previousExerciseLabel ?? summaryRaw.previous_exercise_label ?? ''
+      ).trim(),
+      previousExerciseTotal: num(summaryRaw.previousExerciseTotal ?? summaryRaw.previous_exercise_total, null),
+      notes: String(summaryRaw.notes ?? '').trim()
+    };
+  }
+
   return {
     fiscalYearLabel: String(raw.fiscalYearLabel || raw.fiscal_year_label || '').trim(),
     fieldConfidence: raw.fieldConfidence || raw.field_confidence || {},
     extractionNotes: String(raw.extractionNotes || raw.extraction_notes || '').trim(),
+    summary,
     sections
   };
 }
@@ -121,6 +135,7 @@ export function emptyExtraction(note = '') {
     fiscalYearLabel: '',
     fieldConfidence: {},
     extractionNotes: note,
+    summary: null,
     sections: []
   };
 }

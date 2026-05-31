@@ -17,6 +17,12 @@ const EXTRACTION_SCHEMA = `{
   "fiscalYearLabel": "string es. 2024/2025",
   "fieldConfidence": { "fiscalYearLabel": 0.0-1.0 },
   "extractionNotes": "string",
+  "summary": {
+    "previousBalance": "number | null saldo/riporto esercizio precedente per la riga o documento",
+    "previousExerciseLabel": "string | null es. 2023/2024",
+    "previousExerciseTotal": "number | null totale consuntivo/preventivo esercizio precedente",
+    "notes": "string"
+  },
   "sections": [{
     "documentKind": "preventivo" | "consuntivo",
     "confidence": 0.0-1.0,
@@ -140,6 +146,7 @@ function pickAiProvider(
 function buildPrompt(): string {
   return `Sei un assistente contabile per spese condominiali italiane. Analizza il/i documento/i (preventivo, consuntivo, ripartizioni per anagrafica, bilancio).
 Estrai TUTTE le righe condomino visibili con nome/unità, totale, rate con importi e date esatte se presenti.
+Se presenti nel documento, compila "summary" con saldi precedenti, etichetta esercizio precedente e relativi totali.
 Se ci sono sia preventivo che consuntivo, crea due sezioni in "sections".
 Rispondi SOLO con JSON valido conforme a questo schema:
 ${EXTRACTION_SCHEMA}`;

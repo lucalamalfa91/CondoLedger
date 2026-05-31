@@ -1,3 +1,5 @@
+import { ensureResoconto, resocontoHtml } from './document-import-resoconto.js';
+import { partyDisplayName } from './house-import-parties.js';
 import { resolveView, viewHeading, viewMeta } from './config.js';
 import {
   DUE_KINDS,
@@ -182,6 +184,7 @@ export function createRenderer(els) {
     syncHouseFormChrome('new');
     els.houseForm?.reset();
     if (els.fiscalStartMonth) els.fiscalStartMonth.value = '6';
+    renderHouseImportParties({ importParties: [] });
   }
 
   function periodOptions(house, selectedId) {
@@ -729,7 +732,7 @@ export function createRenderer(els) {
 
   function updateDocumentImportStepper(phase) {
     const steps = document.querySelectorAll('#documentImportStepper .import-step');
-    const order = ['upload', 'review', 'confirm'];
+    const order = ['upload', 'resoconto', 'review', 'confirm'];
     const idx = order.indexOf(phase);
     steps.forEach(li => {
       const i = order.indexOf(li.dataset.step);
@@ -752,6 +755,51 @@ export function createRenderer(els) {
     ).join('')}</tbody></table>`;
   }
 
+  function renderHouseImportParties(house) {
+    if (!els.houseImportParties) return;
+    const parties = house?.importParties?.length
+      ? [...house.importParties]
+      : [{ role: 'owner', firstName: '', lastName: '' }];
+    const owners = parties.filter(p => p.role === 'owner');
+    const tenant = parties.find(p => p.role === 'tenant') || { role: 'tenant', firstName: '', lastName: '' };
+    const hasTenant = parties.some(p => p.role === 'tenant');
+
+    let html = '<div id="houseOwnersList" class="stack">';
+    owners.forEach((o, i) => {
+      html += `<div class="field-grid" data-party-row data-role="owner">
+        <div><label>Proprietario ${owners.length > 1 ? i + 1 : ''} — Nome</label>
+          <input type="text" data-party-first value="${esc(o.firstName)}" placeholder="Mario" /></div>
+        <div><label>Cognome</label>
+          <input type="text" data-party-last value="${esc(o.lastName)}" placeholder="Rossi" /></div>
+      </div>`;
+    });
+    html += '</div>';
+    html += '<button type="button" class="btn btn-secondary" id="houseAddOwnerBtn">+ Aggiungi proprietario</button>';
+    html += `<label class="document-section-toggle" style="margin-top:0.75rem">
+      <input type="checkbox" id="houseTenantEnabled" ${hasTenant ? 'checked' : ''} /> Affittuario (somma voci con proprietario in import)
+    </label>`;
+    html += `<div id="houseTenantFields" class="field-grid ${hasTenant ? '' : 'hidden'}" data-party-row data-role="tenant">
+      <div><label>Nome affittuario</label><input type="text" data-party-first value="${esc(tenant.firstName)}" /></div>
+      <div><label>Cognome affittuario</label><input type="text" data-party-last value="${esc(tenant.lastName)}" /></div>
+    </div>`;
+    els.houseImportParties.innerHTML = html;
+
+    els.houseImportParties.querySelector('#houseAddOwnerBtn')?.addEventListener('click', () => {
+      const list = els.houseImportParties.querySelector('#houseOwnersList');
+      const n = list.querySelectorAll('[data-party-row]').length + 1;
+      const row = document.createElement('div');
+      row.className = 'field-grid';
+      row.dataset.partyRow = '';
+      row.dataset.role = 'owner';
+      row.innerHTML = `<div><label>Proprietario ${n} — Nome</label><input type="text" data-party-first placeholder="Nome" /></div>
+        <div><label>Cognome</label><input type="text" data-party-last placeholder="Cognome" /></div>`;
+      list.appendChild(row);
+    });
+    els.houseImportParties.querySelector('#houseTenantEnabled')?.addEventListener('change', e => {
+      els.houseImportParties.querySelector('#houseTenantFields')?.classList.toggle('hidden', !e.target.checked);
+    });
+  }
+
   function renderHouseForm(house) {
     state.houseFormMode = 'edit';
     syncHouseFormChrome('edit');
@@ -759,6 +807,7 @@ export function createRenderer(els) {
     els.houseForm.location.value = house.location || '';
     els.houseForm.notes.value = house.notes || '';
     if (els.fiscalStartMonth) els.fiscalStartMonth.value = String(house.fiscalStartMonth || 6);
+    renderHouseImportParties(house);
     els.currentHouseTitle.textContent = house.name;
     els.currentHouseMeta.textContent = [house.location || 'Località non indicata', house.notes || 'Nessuna nota'].join(' · ');
   }
@@ -775,7 +824,11 @@ export function createRenderer(els) {
     if (!els.documentImportPreview) return;
     const preview = state.documentImportPreview;
     const busy = state.documentImportBusy;
-    if (els.documentImportConfirm) els.documentImportConfirm.disabled = !preview || busy;
+    const needsResoconto = preview?.filterMode === 'auto' && !preview.resocontoConfirmed;
+    if (els.documentImportConfirm) {
+      els.documentImportConfirm.disabled = !preview || busy || needsResoconto;
+      els.documentImportConfirm.textContent = needsResoconto ? 'Conferma import (dopo resoconto)' : 'Conferma import';
+    }
     if (els.documentImportCancel) els.documentImportCancel.classList.toggle('hidden', !preview);
     if (els.documentImportRetry) {
       els.documentImportRetry.classList.toggle('hidden', !state.documentImportLastFiles?.length);
@@ -784,11 +837,14 @@ export function createRenderer(els) {
       els.documentImportStatus.textContent = busy
         ? 'Elaborazione documento in corso…'
         : preview
-          ? `Anteprima: ${preview.sourceLabel}. Seleziona la riga che ti riguarda e conferma.`
+          ? preview.filterMode === 'auto'
+            ? `Anteprima: ${preview.sourceLabel}. Verifica il resoconto e conferma.`
+            : `Anteprima: ${preview.sourceLabel}. Seleziona la riga che ti riguarda e conferma.`
           : '';
     }
     if (busy) updateDocumentImportStepper('upload');
     else if (!preview) updateDocumentImportStepper('upload');
+    else if (preview.filterMode === 'auto' && !preview.resocontoConfirmed) updateDocumentImportStepper('resoconto');
     else if (preview && els.documentImportConfirm && !els.documentImportConfirm.disabled) updateDocumentImportStepper('confirm');
     else updateDocumentImportStepper('review');
 
@@ -798,15 +854,35 @@ export function createRenderer(els) {
       return;
     }
     const ext = preview.extraction;
+    ensureResoconto(preview, house);
     const fyConf = ext.fieldConfidence?.fiscalYearLabel;
     const fyLow = fyConf != null && fyConf < 0.7;
     let html = `<div class="document-import-review stack">`;
+
+    if (preview.autoFilterFailed) {
+      html += `<div class="banner warn">Nessuna riga corrisponde ai nominativi configurati (${(house.importParties || []).map(partyDisplayName).join(', ')}). Seleziona la riga manualmente o aggiorna i nominativi in Impostazioni → Casa.</div>`;
+    }
+
+    html += resocontoHtml(preview.resoconto, {
+      editable: true,
+      filterMode: preview.filterMode || 'manual'
+    });
+
+    const hideTables = preview.filterMode === 'auto' && !preview.showAllRows;
     html += `<div class="field-grid"><div><label for="docImportFiscalLabel">Esercizio fiscale</label>`;
     html += `<input id="docImportFiscalLabel" type="text" value="${esc(ext.fiscalYearLabel)}" class="${fyLow ? 'warn-field' : ''}" /></div></div>`;
     if (ext.extractionNotes) {
       html += `<p class="hint">${esc(ext.extractionNotes)}</p>`;
     }
+    if (hideTables) {
+      html += `<p class="hint">Righe filtrate automaticamente. Usa «Mostra tutte le righe» nel resoconto per modificare la selezione.</p></div>`;
+      els.documentImportPreview.innerHTML = html;
+      bindDocumentImportPreviewEvents(house, preview, ext);
+      return;
+    }
+
     for (const section of ext.sections || []) {
+      const rowsSource = section._allRows?.length ? section._allRows : section.rows;
       const kind = section.documentKind;
       const kindLabel = kind === 'consuntivo' ? 'Consuntivo' : 'Preventivo';
       const checked = preview.confirmedSections?.[kind] ? 'checked' : '';
@@ -830,7 +906,7 @@ export function createRenderer(els) {
       if (secLow) html += ` <span class="badge warn">estrazione incerta</span>`;
       html += `</label>`;
       html += `<table><thead><tr><th></th><th>Condomino / unità</th><th>Millesimi</th><th>Totale</th><th>Rate</th></tr></thead><tbody>`;
-      section.rows.forEach((row, i) => {
+      rowsSource.forEach((row, i) => {
         const sel = i === rowIdx ? 'checked' : '';
         const rowLow = row.confidence != null && row.confidence < 0.7;
         const inst = row.installments?.length
@@ -844,7 +920,7 @@ export function createRenderer(els) {
         html += `<td class="hint">${inst}</td></tr>`;
       });
       html += `</tbody></table>`;
-      const selected = section.rows[rowIdx];
+      const selected = rowsSource[rowIdx];
       if (selected) {
         html += `<div class="doc-row-edit stack" data-kind="${kind}">`;
         html += `<p class="hint">Modifica i valori della riga selezionata prima di confermare.</p>`;
@@ -865,12 +941,65 @@ export function createRenderer(els) {
     }
     html += `</div>`;
     els.documentImportPreview.innerHTML = html;
+    bindDocumentImportPreviewEvents(house, preview, ext);
+  }
+
+  function bindResocontoFields(preview, house) {
+    const r = preview.resoconto;
+    if (!r) return;
+    const bind = (sel, key, parser = v => v) => {
+      els.documentImportPreview.querySelectorAll(sel).forEach(el => {
+        el.addEventListener('input', e => {
+          r[key] = parser(e.target.value);
+        });
+      });
+    };
+    bind('.resoconto-field[data-field="resocontoPrevBalance"]', 'previousBalance', v => (v === '' ? null : Number(v)));
+    bind('.resoconto-field[data-field="resocontoPrevExerciseLabel"]', 'previousExerciseLabel', v => String(v).trim());
+    bind('.resoconto-field[data-field="resocontoPrevExerciseTotal"]', 'previousExerciseTotal', v => (v === '' ? null : Number(v)));
+    bind('.resoconto-field[data-field="resocontoPreventivo"]', 'preventivoTotal', v => (v === '' ? null : Number(v)));
+    bind('.resoconto-field[data-field="resocontoConsuntivo"]', 'consuntivoTotal', v => (v === '' ? null : Number(v)));
+    els.documentImportPreview.querySelector('#resocontoApplyCarryover')?.addEventListener('change', e => {
+      r.applyCarryover = e.target.checked;
+    });
+    els.documentImportPreview.querySelectorAll('.resoconto-inst-amount').forEach(el => {
+      el.addEventListener('input', e => {
+        const ii = Number(e.target.dataset.ii);
+        if (r.installments?.[ii]) r.installments[ii].amount = Number(e.target.value);
+      });
+    });
+    els.documentImportPreview.querySelectorAll('.resoconto-inst-date').forEach(el => {
+      el.addEventListener('input', e => {
+        const ii = Number(e.target.dataset.ii);
+        if (r.installments?.[ii]) r.installments[ii].periodStart = e.target.value;
+      });
+    });
+    els.documentImportPreview.querySelectorAll('.resoconto-inst-label').forEach(el => {
+      el.addEventListener('input', e => {
+        const ii = Number(e.target.dataset.ii);
+        if (r.installments?.[ii]) r.installments[ii].label = e.target.value;
+      });
+    });
+    els.documentImportPreview.querySelector('#docResocontoConfirmBtn')?.addEventListener('click', () => {
+      preview.resocontoConfirmed = true;
+      renderDocumentImportPreview(house);
+    });
+    els.documentImportPreview.querySelector('#docShowAllRowsBtn')?.addEventListener('click', () => {
+      preview.showAllRows = true;
+      renderDocumentImportPreview(house);
+    });
+  }
+
+  function bindDocumentImportPreviewEvents(house, preview, ext) {
+    bindResocontoFields(preview, house);
 
     els.documentImportPreview.querySelector('#docImportFiscalLabel')?.addEventListener('change', e => {
       preview.extraction.fiscalYearLabel = e.target.value;
+      if (preview.resoconto) preview.resoconto.fiscalYearLabel = e.target.value;
     });
     els.documentImportPreview.querySelector('#docImportFiscalLabel')?.addEventListener('input', e => {
       preview.extraction.fiscalYearLabel = e.target.value;
+      if (preview.resoconto) preview.resoconto.fiscalYearLabel = e.target.value;
     });
     els.documentImportPreview.querySelectorAll('.doc-section-confirm').forEach(el => {
       el.addEventListener('change', e => {
@@ -881,7 +1010,15 @@ export function createRenderer(els) {
     els.documentImportPreview.querySelectorAll('.doc-row-radio').forEach(el => {
       el.addEventListener('change', e => {
         const kind = e.target.dataset.kind;
-        preview.selectedRowIndex[kind] = Number(e.target.dataset.idx);
+        const idx = Number(e.target.dataset.idx);
+        preview.selectedRowIndex[kind] = idx;
+        const section = ext.sections.find(s => s.documentKind === kind);
+        const rowsSource = section?._allRows?.length ? section._allRows : section?.rows;
+        if (section && rowsSource?.[idx] && preview.filterMode === 'auto') {
+          section.rows = [rowsSource[idx]];
+          preview.selectedRowIndex[kind] = 0;
+          ensureResoconto(preview, house);
+        }
         renderDocumentImportPreview(house);
       });
     });
@@ -1140,6 +1277,7 @@ export function collectDom() {
     dueForm: document.getElementById('dueForm'),
     paymentForm: document.getElementById('paymentForm'),
     houseForm: document.getElementById('houseForm'),
+    houseImportParties: document.getElementById('houseImportParties'),
     fiscalStartMonth: document.getElementById('fiscalStartMonth'),
     exportBtn: document.getElementById('exportBtnAdv'),
     importFile: document.getElementById('importFileAdv'),

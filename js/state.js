@@ -1,3 +1,4 @@
+import { parseImportPartiesFromDb } from './house-import-parties.js';
 import { today } from './utils.js';
 
 export const state = {
@@ -33,6 +34,7 @@ export function createLocalHouse() {
     location: '',
     notes: '',
     fiscalStartMonth: 6,
+    importParties: [],
     fiscalPeriods: [],
     dues: [],
     payments: [],
@@ -51,6 +53,7 @@ export function mapHouseFromDb(house, dues, payments, periods, movements) {
     location: house.location || '',
     notes: house.notes || '',
     fiscalStartMonth: house.fiscal_start_month ?? 6,
+    importParties: parseImportPartiesFromDb(house.import_parties),
     fiscalPeriods: (periods || []).map(p => ({
       id: String(p.id),
       label: p.label,

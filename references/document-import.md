@@ -34,7 +34,16 @@ Nella stessa pagina resta disponibile l'import Excel Banca Intesa (sotto).
 6. "Conferma import" → riepilogo finale → conferma
 ```
 
-Non viene chiesto nome o cognome **prima** del caricamento: l'estrazione include tutte le righe dell'anagrafica; scegli la tua riga solo in anteprima (revisione guidata).
+### Nominativi sulla casa (filtro automatico)
+
+In **Impostazioni → Gestione immobili** puoi configurare uno o più **proprietari** (nome e cognome) e opzionalmente un **affittuario**. Se configurati:
+
+1. Dopo l'estrazione l'app **filtra** le righe del documento che corrispondono ai nominativi (match tollerante su accenti e ordine nome/cognome).
+2. Con più proprietari: unione delle righe trovate. Con affittuario: **somma** delle voci proprietario + affittuario (anche le rate per scadenza).
+3. Compare un **resoconto** (saldi precedenti, esercizio precedente, preventivo, consuntivo, rate) da confermare prima del salvataggio.
+4. Se nel resoconto è attivo il riporto saldo precedente, viene creato automaticamente il dovuto di carryover sul nuovo esercizio.
+
+Senza nominativi: flusso precedente (tabella completa e scelta manuale della riga).
 
 ### Fallback manuale
 

@@ -10,6 +10,7 @@ export function exportBackup(data) {
       location: house.location || '',
       notes: house.notes || '',
       fiscalStartMonth: house.fiscalStartMonth ?? 6,
+      importParties: house.importParties || [],
       fiscalPeriods: (house.fiscalPeriods || []).map(p => ({
         label: p.label,
         startDate: p.startDate,
@@ -46,9 +47,22 @@ function resolvePeriodLabel(house, periodId) {
 export function parseBackup(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Formato backup non valido');
   if (raw.schemaVersion === JSON_SCHEMA_VERSION) return raw;
-  if (raw.schemaVersion === 2) return migrateV2ToV3(raw);
+  if (raw.schemaVersion === 3) return migrateV3ToV4(raw);
+  if (raw.schemaVersion === 2) return migrateV3ToV4(migrateV2ToV3(raw));
   if (!raw.schemaVersion && Array.isArray(raw.houses)) return migrateLegacyV1(raw);
   throw new Error(`Versione backup non supportata: ${raw.schemaVersion ?? 'sconosciuta'}`);
+}
+
+function migrateV3ToV4(raw) {
+  return {
+    ...raw,
+    schemaVersion: JSON_SCHEMA_VERSION,
+    migratedFrom: raw.migratedFrom ? `${raw.migratedFrom}+v4` : 'v4',
+    houses: (raw.houses || []).map(h => ({
+      ...h,
+      importParties: h.importParties || []
+    }))
+  };
 }
 
 function migrateV2ToV3(raw) {

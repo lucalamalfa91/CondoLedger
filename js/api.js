@@ -257,13 +257,19 @@ export async function savePriorBalanceToSupabase(house, priorBalance) {
     description: priorBalance.description || null
   };
   if (Number.isFinite(Number(priorBalance.id))) {
-    const { error } = await state.supabase.from('prior_balances').update({
+    const { data, error } = await state.supabase.from('prior_balances').update({
       fiscal_period_id: payload.fiscal_period_id,
       source_period_id: payload.source_period_id,
       amount: payload.amount,
       description: payload.description
-    }).eq('id', Number(priorBalance.id)).eq('house_id', Number(house.id));
-    if (error) throw error;
+    }).eq('id', Number(priorBalance.id)).eq('house_id', Number(house.id)).select('id').maybeSingle();
+    if (error) {
+      if (error.code === '23505') {
+        throw new Error('Esiste già un saldo precedente per questo esercizio.');
+      }
+      throw error;
+    }
+    if (!data) throw new Error('Saldo precedente non trovato. Ricarica la pagina e riprova.');
     syncPriorBalanceLocal(house, priorBalance, periodId);
     return;
   }
@@ -294,8 +300,13 @@ function syncPriorBalanceLocal(house, priorBalance, periodId) {
     amount: Number(priorBalance.amount),
     description: priorBalance.description || ''
   };
-  const idx = house.priorBalances.findIndex(b => String(b.fiscalPeriodId) === String(periodId));
-  if (idx >= 0) house.priorBalances[idx] = entry;
+  const byId = house.priorBalances.findIndex(b => String(b.id) === String(priorBalance.id));
+  if (byId >= 0) {
+    house.priorBalances[byId] = entry;
+    return;
+  }
+  const byPeriod = house.priorBalances.findIndex(b => String(b.fiscalPeriodId) === String(periodId));
+  if (byPeriod >= 0) house.priorBalances[byPeriod] = entry;
   else house.priorBalances.push(entry);
 }
 

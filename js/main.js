@@ -2,7 +2,6 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   createLocalDue,
   createLocalPayment,
-  createLocalPriorBalance,
   createSupabaseClient,
   deleteAllBankImports,
   deleteBankImportBatch,
@@ -74,11 +73,11 @@ const {
 let renderedHouseId = null;
 function render(...args) {
   const house = activeHouse();
-  if (house?.id !== renderedHouseId) {
+  if (String(house?.id ?? '') !== String(renderedHouseId ?? '')) {
     resetDueForm();
     resetPaymentForm(house);
     resetPriorBalanceForm(house);
-    renderedHouseId = house?.id ?? null;
+    renderedHouseId = house?.id != null ? String(house.id) : null;
   }
   baseRender(...args);
   maybeShowOnboarding();
@@ -241,6 +240,7 @@ function resetPriorBalanceForm(house) {
   if (els.priorBalanceEditId) els.priorBalanceEditId.value = '';
   if (els.priorBalanceSubmitBtn) els.priorBalanceSubmitBtn.textContent = 'Salva saldo';
   els.priorBalanceFormCancel?.classList.add('hidden');
+  if (els.priorBalancePeriod) els.priorBalancePeriod.disabled = false;
   if (house) syncPriorBalancePeriodSelect(house);
 }
 
@@ -303,28 +303,29 @@ function startEditPayment(house, payment) {
 }
 
 function startEditPriorBalance(house, priorBalance) {
+  navigate('movimenti', 'saldi-precedenti');
   syncPriorBalancePeriodSelect(house, priorBalance.fiscalPeriodId, priorBalance.sourcePeriodId);
   if (els.priorBalanceAmount) els.priorBalanceAmount.value = String(priorBalance.amount);
   if (els.priorBalanceDescription) els.priorBalanceDescription.value = priorBalance.description || '';
   if (els.priorBalanceEditId) els.priorBalanceEditId.value = priorBalance.id;
   if (els.priorBalanceSubmitBtn) els.priorBalanceSubmitBtn.textContent = 'Aggiorna saldo';
   els.priorBalanceFormCancel?.classList.remove('hidden');
-  navigate('movimenti', 'saldi-precedenti');
+  if (els.priorBalancePeriod) els.priorBalancePeriod.disabled = true;
   if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('priorBalanceFormPane');
   else els.priorBalanceForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function deletePriorBalance(house, priorBalanceId) {
-  const item = (house.priorBalances || []).find(b => b.id === priorBalanceId);
+  const item = (house.priorBalances || []).find(b => String(b.id) === String(priorBalanceId));
   if (!item || !await confirmDialog('Eliminare questo saldo precedente?', { title: 'Elimina saldo', confirmLabel: 'Elimina', danger: true })) return;
   try {
     if (state.supabase && state.user && Number.isFinite(Number(priorBalanceId))) {
       await deletePriorBalanceFromSupabase(house, priorBalanceId);
       await reloadHouseFromSupabase(house.id);
     } else {
-      house.priorBalances = (house.priorBalances || []).filter(b => b.id !== priorBalanceId);
+      house.priorBalances = (house.priorBalances || []).filter(b => String(b.id) !== String(priorBalanceId));
     }
-    if (els.priorBalanceEditId?.value === priorBalanceId) resetPriorBalanceForm(activeHouse());
+    if (String(els.priorBalanceEditId?.value) === String(priorBalanceId)) resetPriorBalanceForm(activeHouse());
     render();
     showToast('Saldo precedente eliminato.');
   } catch (err) {
@@ -405,6 +406,7 @@ function handleRecordAction(e) {
     } else if (action === 'delete') {
       deletePriorBalance(house, id);
     }
+    return;
   }
 }
 
@@ -775,6 +777,9 @@ function wireNavigation() {
   document.addEventListener('click', e => {
     const btn = e.target.closest('[data-nav-target]');
     if (!btn) return;
+    if (btn.dataset.situazionePeriod) {
+      state.pendingSituazionePeriodId = btn.dataset.situazionePeriod;
+    }
     if (btn.dataset.houseMode === 'new') startNewHouseForm();
     else {
       navigate(btn.dataset.navTarget, btn.dataset.navSubview || null);
@@ -836,7 +841,10 @@ els.dueFormPaneBackdrop?.addEventListener('click', () => closeFormSheet('dueForm
 els.openPaymentFormSheet?.addEventListener('click', () => openFormSheet('paymentFormPane'));
 els.closePaymentFormSheet?.addEventListener('click', () => closeFormSheet('paymentFormPane'));
 els.paymentFormPaneBackdrop?.addEventListener('click', () => closeFormSheet('paymentFormPane'));
-els.openPriorBalanceFormSheet?.addEventListener('click', () => openFormSheet('priorBalanceFormPane'));
+els.openPriorBalanceFormSheet?.addEventListener('click', () => {
+  resetPriorBalanceForm(activeHouse());
+  openFormSheet('priorBalanceFormPane');
+});
 els.closePriorBalanceFormSheet?.addEventListener('click', () => closeFormSheet('priorBalanceFormPane'));
 els.priorBalanceFormPaneBackdrop?.addEventListener('click', () => closeFormSheet('priorBalanceFormPane'));
 els.priorBalancePeriod?.addEventListener('change', () => {
@@ -850,20 +858,25 @@ els.priorBalanceForm?.addEventListener('submit', async e => {
   try {
     await ensureHousePersisted(house);
     const fd = new FormData(els.priorBalanceForm);
-    const editId = String(fd.get('editId') || els.priorBalanceEditId?.value || '').trim();
-    const periodId = String(fd.get('fiscalPeriodId') || els.priorBalancePeriod?.value || '').trim();
+    const editId = String(els.priorBalanceEditId?.value || fd.get('editId') || '').trim();
+    const periodId = String(els.priorBalancePeriod?.value || fd.get('fiscalPeriodId') || '').trim();
+    const sourcePeriodId = String(els.priorBalanceSourcePeriod?.value || fd.get('sourcePeriodId') || '').trim() || null;
     if (!periodId) {
       toastError('Seleziona l\'esercizio fiscale.');
       return;
     }
-    const amount = Number(fd.get('amount'));
+    const amount = Number(els.priorBalanceAmount?.value ?? fd.get('amount'));
     if (!Number.isFinite(amount)) {
       toastError('Inserisci un importo valido.');
       return;
     }
-    const priorBalance = createLocalPriorBalance(fd);
-    priorBalance.fiscalPeriodId = periodId;
-    if (editId) priorBalance.id = editId;
+    const priorBalance = {
+      id: editId || uid('prior'),
+      fiscalPeriodId: periodId,
+      sourcePeriodId,
+      amount,
+      description: String(els.priorBalanceDescription?.value ?? fd.get('description') ?? '').trim()
+    };
     const duesBefore = house.dues?.length || 0;
     if (state.supabase && state.user) {
       await savePriorBalanceToSupabase(house, priorBalance);
@@ -876,7 +889,7 @@ els.priorBalanceForm?.addEventListener('submit', async e => {
         }
       }
     } else if (editId) {
-      const existing = (house.priorBalances || []).find(b => b.id === editId);
+      const existing = (house.priorBalances || []).find(b => String(b.id) === String(editId));
       if (existing) Object.assign(existing, priorBalance);
     } else {
       if (!house.priorBalances) house.priorBalances = [];

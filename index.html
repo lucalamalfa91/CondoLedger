@@ -148,20 +148,17 @@
             <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="versamenti">+ Versamento</button>
           </div>
         </div>
-        <section class="cards metrics-compact" id="metrics"></section>
-        <section class="grid-2">
-          <div class="panel data-panel">
-            <div class="panel-head"><div><h2>Riepilogo annualità</h2><p class="subtle">Preventivo, consuntivo e saldi per esercizio.</p></div><select id="periodFilter" aria-label="Filtra esercizio"><option value="all">Tutti</option></select></div>
-            <div class="data-table-wrap panel-table-wrap" id="annualTableWrap"></div>
+        <section class="panel panoramica-kpi-panel">
+          <div class="panel-head">
+            <div><h2>La tua situazione</h2><p class="subtle" id="panoramicaScopeNote">Indicatori sintetici — apri Situazione per il dettaglio completo.</p></div>
+            <select id="periodFilter" aria-label="Filtra esercizio"><option value="all">Esercizio in corso (auto)</option></select>
           </div>
-          <div class="panel">
-            <div class="panel-head"><div><h2>Scadenzario sintetico</h2><p class="subtle">Saldi aperti o in eccedenza.</p></div></div>
-            <div id="annualCards"></div>
+          <section class="panoramica-kpis" id="panoramicaKpis" aria-live="polite"></section>
+          <section id="panoramicaPeriodLinks" class="panoramica-period-links" aria-label="Altri esercizi"></section>
+          <div class="panoramica-foot-actions">
+            <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="situazione" id="panoramicaSituazioneLink">Rendiconto completo</button>
+            <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="versamenti">Storico versamenti</button>
           </div>
-        </section>
-        <section class="panel dashboard-payments-panel">
-          <div class="panel-head"><div><h2>Versamenti</h2><p class="subtle">Pagamenti nel contesto del filtro esercizio sopra.</p></div></div>
-          <div class="data-table-wrap dashboard-payments-scroll" id="dashboardPayments"></div>
         </section>
       </section>
 

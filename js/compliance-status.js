@@ -83,7 +83,7 @@ export function computeComplianceStatus(house) {
       detail: `Mancano ${formatEuro(worst.gap)} sulla rata di ${worst.slot.label}.`,
       facts,
       primaryCta: { label: 'Registra versamento', view: 'movimenti', subview: 'versamenti' },
-      secondaryCta: { label: 'Vedi situazione', view: 'movimenti', subview: 'situazione' }
+      secondaryCta: { label: 'Vedi situazione', view: 'movimenti', subview: 'situazione', situazionePeriod: period.id }
     };
   }
 
@@ -94,7 +94,7 @@ export function computeComplianceStatus(house) {
       subline: `Saldo consuntivo ${formatEuro(consBalance)} sull’esercizio ${period.label}.`,
       detail: 'Verifica i versamenti o salda il consuntivo dell’esercizio precedente.',
       facts,
-      primaryCta: { label: 'Vedi situazione', view: 'movimenti', subview: 'situazione' },
+      primaryCta: { label: 'Vedi situazione', view: 'movimenti', subview: 'situazione', situazionePeriod: period.id },
       secondaryCta: { label: 'Registra versamento', view: 'movimenti', subview: 'versamenti' }
     };
   }
@@ -107,7 +107,7 @@ export function computeComplianceStatus(house) {
       detail: 'Importa il consuntivo quando l’amministratore lo pubblica.',
       facts,
       primaryCta: { label: 'Importa consuntivo', view: 'movimenti', subview: 'import-doc' },
-      secondaryCta: { label: 'Panoramica esercizi', view: 'movimenti', subview: 'situazione' }
+      secondaryCta: { label: 'Vedi situazione', view: 'movimenti', subview: 'situazione', situazionePeriod: period.id }
     };
   }
 
@@ -122,7 +122,7 @@ export function computeComplianceStatus(house) {
       detail: 'Registra il versamento appena effettui il bonifico.',
       facts,
       primaryCta: { label: 'Registra versamento', view: 'movimenti', subview: 'versamenti' },
-      secondaryCta: { label: 'Dettaglio rate', view: 'movimenti', subview: 'situazione' }
+      secondaryCta: { label: 'Dettaglio rate', view: 'movimenti', subview: 'situazione', situazionePeriod: period.id }
     };
   }
 
@@ -149,12 +149,12 @@ export function computeComplianceStatus(house) {
       ? `Hai un credito consuntivo di ${formatEuro(consBalance)}.`
       : 'Tutti i pagamenti risultano allineati.',
     facts,
-    primaryCta: { label: 'Vedi situazione', view: 'movimenti', subview: 'situazione' },
+    primaryCta: { label: 'Vedi situazione', view: 'movimenti', subview: 'situazione', situazionePeriod: period.id },
     secondaryCta: null
   };
 }
 
-function resolveFocusPeriod(house) {
+export function resolveFocusPeriod(house) {
   const byDate = findPeriodByDate(house, today);
   if (byDate?.id) return house.fiscalPeriods.find(p => p.id === byDate.id) || byDate;
   const sorted = [...house.fiscalPeriods].sort((a, b) =>

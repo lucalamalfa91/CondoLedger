@@ -37,25 +37,6 @@ Migliorare **chiarezza e leggibilità** delle visualizzazioni sui rendiconti con
 
 Stack: HTML/JS vanilla + Supabase.
 
-## Pattern: Plan / Execute / Verify
-
-| Phase | Owner primario | Artifact |
-|-------|----------------|----------|
-| **Plan** | Requirements Planner + Task Architect | `plan.md` (gate umano prima di Execute) |
-| **Execute** | Full-Stack Implementer | `execution.md` + codice |
-| **Verify** | Quality Verifier | `verification.md` |
-| **Final** | Coordinator | `plan-and-verification.md` |
-| **Devil's Advocate** | devils-advocate | `devils-advocate-review.md` + eventuale `plan-and-verification-after-devils-review.md` |
-
 ## Session slug
 
 `rendiconti-kpi-situazione-panoramica`
-
-## HITL
-
-- Plan approval prima dell'implementazione.
-- Devil's Advocate: checkpoint yes/skip (default: yes).
-
-## Launch
-
-`Sessions/rendiconti-kpi-situazione-panoramica/`

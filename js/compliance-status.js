@@ -1,5 +1,6 @@
 import { findPeriodByDate, periodSummary, totals } from './fiscal.js';
 import { installmentSummaryForPeriod } from './installments.js';
+import { buildSituazioneReport, computeSituazioneTotals } from './situazione-report.js';
 import { today } from './utils.js';
 
 const MS_DAY = 86400000;
@@ -44,6 +45,8 @@ export function computeComplianceStatus(house) {
 
   const summary = periodSummary(house).find(p => p.id === period.id);
   const t = totals(house, period.id);
+  const report = buildSituazioneReport(house, period.id);
+  const display = computeSituazioneTotals(report, summary);
   const inst = installmentSummaryForPeriod(house, period.id);
   const now = today;
 
@@ -58,13 +61,13 @@ export function computeComplianceStatus(house) {
   }
   upcoming.sort((a, b) => a.dueBy.localeCompare(b.dueBy));
 
-  const consBalance = summary?.balanceConsuntivo ?? t.balanceConsuntivo;
-  const consInDebit = consBalance != null && consBalance < -0.005 && !summary?.consuntivoSettledInNext;
+  const netSaldo = display.saldo ?? summary?.balanceConsuntivo ?? t.balanceConsuntivo;
+  const consInDebit = netSaldo != null && netSaldo < -0.005 && !summary?.consuntivoSettledInNext;
   const hasConsuntivo = inst.consuntivoDues?.length > 0;
 
   const facts = [
     { label: 'Esercizio', value: period.label },
-    { label: 'Saldo consuntivo', value: formatEuro(consBalance), tone: consInDebit ? 'negative' : 'positive' }
+    { label: display.saldoLabel, value: formatEuro(netSaldo), tone: consInDebit ? 'negative' : 'positive' }
   ];
   if (upcoming[0]) {
     facts.push({
@@ -91,7 +94,7 @@ export function computeComplianceStatus(house) {
     return {
       level: 'azione',
       headline: 'Consuntivo in debito',
-      subline: `Saldo consuntivo ${formatEuro(consBalance)} sull’esercizio ${period.label}.`,
+      subline: `${display.saldoLabel} ${formatEuro(netSaldo)} sull’esercizio ${period.label}.`,
       detail: 'Verifica i versamenti o salda il consuntivo dell’esercizio precedente.',
       facts,
       primaryCta: { label: 'Vedi situazione', view: 'movimenti', subview: 'situazione', situazionePeriod: period.id },
@@ -145,8 +148,8 @@ export function computeComplianceStatus(house) {
     subline: summary?.consuntivoSettledInNext
       ? `Esercizio ${period.label} saldato.`
       : `Nessuna rata aperta su ${period.label}.`,
-    detail: consBalance != null && consBalance > 0.005
-      ? `Hai un credito consuntivo di ${formatEuro(consBalance)}.`
+    detail: netSaldo != null && netSaldo > 0.005
+      ? `Hai un credito di ${formatEuro(netSaldo)}.`
       : 'Tutti i pagamenti risultano allineati.',
     facts,
     primaryCta: { label: 'Vedi situazione', view: 'movimenti', subview: 'situazione', situazionePeriod: period.id },

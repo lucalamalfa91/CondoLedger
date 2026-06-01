@@ -1,4 +1,4 @@
-import { periodLabel, periodSummary, sumPaid } from './fiscal.js';
+import { periodLabel, periodSummary, sumPaid, getPreviousPeriod, consuntivoBalanceFootnote } from './fiscal.js';
 import { inferInstallmentKey, installmentSummaryForPeriod } from './installments.js';
 
 export function getPriorBalanceForPeriod(house, fiscalPeriodId) {
@@ -79,6 +79,75 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
   };
 }
 
+export function computeSituazioneTotals(report, totalsRow) {
+  const preventivo = report?.preventivoBase ?? totalsRow?.preventivo ?? 0;
+  const consuntivo = report?.consuntivoBase ?? totalsRow?.consuntivo ?? 0;
+  const pagato = report?.paidTotal ?? totalsRow?.paid ?? 0;
+  const hasCons = consuntivo > 0.005;
+  const hasPrior = Boolean(report?.priorBalance);
+
+  let daPagare = null;
+  if (hasPrior && hasCons && report.totalToPayConsuntivo != null) {
+    daPagare = report.totalToPayConsuntivo;
+  } else if (hasPrior && report.totalToPayPreventivo != null) {
+    daPagare = report.totalToPayPreventivo;
+  } else if (hasCons) {
+    daPagare = consuntivo;
+  } else if (preventivo > 0.005) {
+    daPagare = preventivo;
+  }
+
+  let saldo = null;
+  let saldoHint = '';
+  if (hasPrior && hasCons && report.balanceVsTotalConsuntivo != null) {
+    saldo = report.balanceVsTotalConsuntivo;
+    saldoHint = 'Versato − (consuntivo + saldo precedente)';
+  } else if (hasPrior && !hasCons && report.balanceVsTotalPreventivo != null) {
+    saldo = report.balanceVsTotalPreventivo;
+    saldoHint = 'Versato − (preventivo + saldo precedente)';
+  } else if (hasPrior && report.totalToPayPreventivo != null && !hasCons) {
+    saldo = report.balanceVsTotalPreventivo ?? Math.round((pagato - report.totalToPayPreventivo) * 100) / 100;
+    saldoHint = 'Versato − saldo di apertura';
+  } else if (hasCons) {
+    saldo = totalsRow?.balanceConsuntivo ?? Math.round((pagato - consuntivo) * 100) / 100;
+    saldoHint = 'Versato − consuntivo';
+  } else if (preventivo > 0.005) {
+    saldo = Math.round((pagato - preventivo) * 100) / 100;
+    saldoHint = 'Versato − preventivo';
+  } else {
+    saldo = 0;
+    saldoHint = '';
+  }
+
+  let saldoLabel = 'Saldo';
+  let saldoTone = '';
+  if (totalsRow?.consuntivoSettledInNext) {
+    saldoLabel = 'Saldo';
+    saldoTone = 'success';
+  } else if (saldo > 0.005) {
+    saldoLabel = 'Saldo positivo';
+    saldoTone = 'positive';
+  } else if (saldo < -0.005) {
+    saldoLabel = 'Saldo negativo';
+    saldoTone = 'negative';
+  } else {
+    saldoTone = 'warn';
+  }
+
+  return {
+    preventivo,
+    consuntivo,
+    daPagare,
+    pagato,
+    saldo,
+    saldoHint,
+    saldoLabel,
+    saldoTone,
+    hasCons,
+    hasPrior
+  };
+}
+
 export function situazioneStatusLabel(balance) {
   if (balance > 0.005) return { text: 'Eccedenza', cls: 'success' };
   if (balance < -0.005) return { text: 'Debito', cls: 'error' };
@@ -93,6 +162,81 @@ export function carryFromLabel(house, due) {
 export function priorBalanceSourceLabel(house, priorBalance) {
   if (!priorBalance?.sourcePeriodId) return '—';
   return periodLabel(house, priorBalance.sourcePeriodId);
+}
+
+/** Consuntivo e saldo (eccedenza/debito) dell'esercizio di origine del riporto. */
+export function computePriorYearSourceSummary(house, priorBalance, currentPeriodId) {
+  if (!priorBalance) return null;
+
+  let sourcePeriodId = priorBalance.sourcePeriodId || null;
+  if (!sourcePeriodId && currentPeriodId) {
+    const prev = getPreviousPeriod(house, currentPeriodId);
+    sourcePeriodId = prev?.id ?? null;
+  }
+  if (!sourcePeriodId) {
+    const pres = priorBalancePresentation(priorBalance.amount);
+    return {
+      sourceLabel: '—',
+      consuntivo: null,
+      saldo: Number(priorBalance.amount || 0),
+      saldoLabel: pres.label,
+      saldoCls: pres.amountCls,
+      settledInNext: false,
+      footnote: 'Esercizio di origine non indicato'
+    };
+  }
+
+  const sourceRow = periodSummary(house).find(p => String(p.id) === String(sourcePeriodId));
+  const sourceLabel = sourceRow?.label ?? periodLabel(house, sourcePeriodId);
+  const consuntivo = sourceRow?.consuntivo ?? 0;
+  const hasCons = consuntivo > 0.005;
+
+  if (!hasCons) {
+    const pres = priorBalancePresentation(priorBalance.amount);
+    return {
+      sourcePeriodId,
+      sourceLabel,
+      consuntivo: null,
+      saldo: Number(priorBalance.amount || 0),
+      saldoLabel: pres.label,
+      saldoCls: pres.amountCls,
+      settledInNext: false,
+      footnote: `Consuntivo non registrato per ${sourceLabel}`
+    };
+  }
+
+  const saldo = sourceRow.balanceConsuntivo ?? 0;
+  let saldoLabel = 'Pareggio';
+  let saldoCls = 'warn';
+  if (sourceRow.consuntivoSettledInNext) {
+    saldoLabel = 'Saldato';
+    saldoCls = 'success';
+  } else if (saldo > 0.005) {
+    saldoLabel = 'Eccedenza totale';
+    saldoCls = 'positive';
+  } else if (saldo < -0.005) {
+    saldoLabel = 'Debito totale';
+    saldoCls = 'negative';
+  }
+
+  let footnote = 'Versato − consuntivo';
+  if (sourceRow.consuntivoSettledInNext) {
+    footnote = consuntivoBalanceFootnote(house, sourceRow);
+  } else if (Math.abs((sourceRow.balanceConsuntivoRaw ?? saldo) - saldo) > 0.005) {
+    footnote = `Lordo ${sourceRow.balanceConsuntivoRaw}`;
+  }
+
+  return {
+    sourcePeriodId,
+    sourceLabel,
+    consuntivo,
+    saldo,
+    saldoRaw: sourceRow.balanceConsuntivoRaw,
+    saldoLabel,
+    saldoCls,
+    settledInNext: Boolean(sourceRow.consuntivoSettledInNext),
+    footnote
+  };
 }
 
 export function hasConsuntivoReport(report) {

@@ -32,10 +32,12 @@ import {
   priorBalancePresentation,
   priorBalanceSourceLabel,
   resolveSituazionePdfKind,
+  computeSituazioneTotals,
+  computePriorYearSourceSummary,
   situazioneStatusLabel
 } from './situazione-report.js';
 import { resolveFocusPeriod } from './compliance-status.js';
-import { computePanoramicaKpis, resolveToPayInfo } from './kpi-metrics.js';
+import { computePanoramicaKpis } from './kpi-metrics.js';
 import { dataListHtml, emptyListHtml } from './mobile-cards.js';
 import { computeNextPaymentGuide, formatPaymentGuideSummary } from './payment-guide.js';
 import { activeHouse, state } from './state.js';
@@ -163,12 +165,11 @@ export function createRenderer(els) {
     }
     els.housesManageList.innerHTML = '';
     for (const h of state.data.houses) {
-      const t = totals(h);
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = `house-btn ${h.id === state.selectedHouseId && state.houseFormMode === 'edit' ? 'active' : ''}`;
       btn.dataset.houseId = h.id;
-      btn.innerHTML = `<strong>${h.name}</strong><span class="muted">${h.location || 'Località non indicata'}</span><span class="muted">Saldo cons.: ${fmt(t.balanceConsuntivo)}</span>`;
+      btn.innerHTML = `<strong>${h.name}</strong>`;
       els.housesManageList.appendChild(btn);
     }
   }
@@ -477,7 +478,7 @@ export function createRenderer(els) {
           const linkBtn = card.linkSubview
             ? `<button type="button" class="kpi-card-link" data-nav-target="movimenti" data-nav-subview="${card.linkSubview}"${periodAttr} aria-label="Apri dettaglio in Situazione">Dettaglio →</button>`
             : '';
-          return `<article class="kpi-card kpi-card--${card.tone || 'neutral'}">
+          return `<article class="kpi-card kpi-card--${card.tone || 'neutral'}${card.primary ? ' kpi-card--primary' : ''}">
             <div class="kpi-card-label">${card.label}</div>
             <div class="kpi-card-value ${card.tone || ''}">${card.value}</div>
             <div class="kpi-card-hint hint">${card.hint}</div>
@@ -649,45 +650,29 @@ export function createRenderer(els) {
   }
 
   function renderSituazioneSummaryChips(house, totalsRow, report) {
-    const consBal = totalsRow?.balanceConsuntivo ?? 0;
-    const cons = totalsRow?.consuntivoSettledInNext
-      ? { text: consuntivoBalanceFootnote(house, totalsRow), cls: 'success' }
-      : (() => {
-        const s = situazioneStatusLabel(consBal);
-        return { text: s.text, cls: s.cls === 'error' ? 'negative' : s.cls };
-      })();
-    const consFoot = totalsRow?.consuntivoSettledInNext && Math.abs((totalsRow.balanceConsuntivoRaw ?? 0) - consBal) > 0.005
-      ? `${cons.text} (lordo ${fmt(totalsRow.balanceConsuntivoRaw)})`
-      : cons.text;
+    const t = computeSituazioneTotals(report, totalsRow);
+    const settledNote = totalsRow?.consuntivoSettledInNext
+      ? consuntivoBalanceFootnote(house, totalsRow)
+      : t.saldoHint;
 
-    const primary = [
-      ['Saldo consuntivo', fmt(consBal), consFoot, cons.cls]
-    ];
+    const primary = [[
+      t.saldoLabel,
+      fmt(t.saldo),
+      settledNote,
+      totalsRow?.consuntivoSettledInNext ? 'success' : t.saldoTone
+    ]];
 
-    let toPayVal = null;
-    let toPayHint = '';
-    const toPayInfo = resolveToPayInfo(report, consBal, totalsRow);
-    if (toPayInfo && toPayInfo.value > 0.005) {
-      toPayVal = toPayInfo.value;
-      toPayHint = toPayInfo.hint;
+    const secondary = [];
+    if (t.preventivo > 0.005 || !t.hasCons) {
+      secondary.push(['Preventivo', fmt(t.preventivo), 'Voci preventivo esercizio', '']);
     }
-    if (toPayVal != null && toPayVal > 0.005) {
-      primary.push(['Da pagare', fmt(toPayVal), toPayHint, 'negative']);
-    } else {
-      primary.push([
-        'Stato',
-        consBal < -0.005 && !totalsRow?.consuntivoSettledInNext ? 'Debito' : consBal > 0.005 ? 'Credito' : 'Pareggio',
-        'Rispetto al consuntivo',
-        cons.cls === 'error' ? 'negative' : cons.cls
-      ]);
+    if (t.hasCons) {
+      secondary.push(['Consuntivo', fmt(t.consuntivo), t.hasPrior ? 'Prima del saldo precedente' : 'Addebiti consuntivi', '']);
     }
-
-    const secondary = [
-      ['Preventivo', fmt(totalsRow?.preventivo ?? 0), 'Totale voci iniziali'],
-      ['Consuntivo', fmt(totalsRow?.consuntivo ?? 0), 'Addebiti consuntivi'],
-      ['Versato', fmt(totalsRow?.paid ?? 0), `${report.periodPayments.length} movimenti`],
-      ['Saldo rate prev.', fmt(report.slotsBalance), 'Versato − rate', report.slotsBalance >= 0 ? 'positive' : 'negative']
-    ];
+    if (t.daPagare != null && t.daPagare > 0.005) {
+      secondary.push(['Da pagare', fmt(t.daPagare), t.hasPrior ? 'Consuntivo + saldo precedente' : 'Totale dovuto', 'warn']);
+    }
+    secondary.push(['Pagato', fmt(t.pagato), `${report.periodPayments.length} versamenti`, 'positive']);
 
     const chipHtml = (label, value, foot, status, tier) =>
       `<div class="metric-chip metric-chip--${tier}${status ? ` metric-chip--${status}` : ''}"><span class="muted">${label}</span><strong class="${status || ''}">${value}</strong><span class="hint">${foot}</span></div>`;
@@ -700,37 +685,27 @@ export function createRenderer(els) {
   function renderPriorBalanceSection(house, report, periodId) {
     if (!report.priorBalance) return '';
     const pb = report.priorBalance;
-    const pres = priorBalancePresentation(pb.amount);
-    const src = priorBalanceSourceLabel(house, pb);
-    const prevBase = report.preventivoBase ?? 0;
-    const consBase = report.consuntivoBase ?? 0;
-    const footRows = [];
-    if (prevBase > 0.005) {
-      footRows.push(`<tr><th colspan="3">Preventivo iniziale (voci)</th><td class="amount">${fmt(prevBase)}</td></tr>`);
+    const src = computePriorYearSourceSummary(house, pb, periodId);
+    if (!src) return '';
+
+    const bodyRows = [];
+    if (src.consuntivo != null) {
+      bodyRows.push(`<tr><td>Consuntivo · ${src.sourceLabel}</td><td class="amount">${fmt(src.consuntivo)}</td></tr>`);
     }
-    if (consBase > 0.005) {
-      footRows.push(`<tr><th colspan="3">Consuntivo iniziale (voci)</th><td class="amount">${fmt(consBase)}</td></tr>`);
-    }
-    if (report.totalToPayPreventivo != null && prevBase > 0.005) {
-      footRows.push(`<tr class="prior-balance-total-row"><th colspan="3">Totale da pagare (preventivo)</th><td class="amount"><strong>${fmt(report.totalToPayPreventivo)}</strong><div class="hint">Preventivo iniziale + saldo precedente</div></td></tr>`);
-    }
-    if (report.totalToPayConsuntivo != null && consBase > 0.005) {
-      footRows.push(`<tr class="prior-balance-total-row"><th colspan="3">Totale da pagare (consuntivo)</th><td class="amount"><strong>${fmt(report.totalToPayConsuntivo)}</strong><div class="hint">Consuntivo iniziale + saldo precedente</div></td></tr>`);
-    }
-    if (report.totalToPayPreventivo != null && prevBase <= 0.005 && consBase <= 0.005) {
-      footRows.push(`<tr class="prior-balance-total-row"><th colspan="3">Totale da pagare</th><td class="amount"><strong>${fmt(report.totalToPayPreventivo)}</strong></td></tr>`);
-    }
+    bodyRows.push(`<tr class="prior-balance-total-row"><th>${src.saldoLabel}</th><td class="amount ${src.saldoCls}"><strong>${fmt(src.saldo)}</strong>${src.footnote ? `<div class="hint">${src.footnote}</div>` : ''}</td></tr>`);
+
     const warning = report.priorBalanceWarning
       ? `<p class="hint warn">${report.priorBalanceWarning}</p>` : '';
-    const tableBody = `<div class="prior-balance-box"><p class="hint subtle">Voce di apertura esercizio: non modifica le voci iniziali; si somma al totale da pagare su preventivo e consuntivo.</p>${warning}<div class="data-table-wrap"><table><thead><tr><th>Tipo</th><th>Da esercizio</th><th>Descrizione</th><th>Importo</th></tr></thead><tbody><tr><td><span class="badge ${pres.badgeCls}">${pres.label}</span></td><td>${src}</td><td>${pb.description || 'Saldo precedente'}</td><td class="amount ${pres.amountCls}">${fmt(pb.amount)}</td></tr></tbody><tfoot>${footRows.join('')}</tfoot></table></div></div>`;
-    const summaryTotal = report.totalToPayConsuntivo != null && consBase > 0.005
-      ? fmt(report.totalToPayConsuntivo)
-      : report.totalToPayPreventivo != null ? fmt(report.totalToPayPreventivo) : fmt(pb.amount);
+    const intro = src.consuntivo != null
+      ? `<p class="hint subtle">Esercizio di origine ${src.sourceLabel}: consuntivo e ${src.saldoLabel.toLowerCase()} riportati sull'esercizio corrente.</p>`
+      : `<p class="hint subtle">${src.footnote || 'Saldo riportato da esercizio precedente.'}</p>`;
+    const tableBody = `<div class="prior-balance-box">${intro}${warning}<div class="data-table-wrap"><table><thead><tr><th>Voce</th><th>Importo</th></tr></thead><tbody>${bodyRows.join('')}</tbody></table></div></div>`;
+
     return situazioneCollapsibleSection({
       id: `situazione-prior-${periodId || 'x'}`,
       title: 'Saldi anno precedente',
-      summaryTotal,
-      summaryHint: pres.label,
+      summaryTotal: fmt(src.saldo),
+      summaryHint: src.sourceLabel !== '—' ? `${src.sourceLabel} · ${src.saldoLabel}` : src.saldoLabel,
       bodyHtml: tableBody
     });
   }

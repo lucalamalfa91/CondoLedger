@@ -1,5 +1,5 @@
 import { findPeriodByDate, periodSummary, totals } from './fiscal.js';
-import { buildSituazioneReport } from './situazione-report.js';
+import { buildSituazioneReport, computeSituazioneTotals } from './situazione-report.js';
 import { installmentSummaryForPeriod } from './installments.js';
 import { today } from './utils.js';
 
@@ -18,17 +18,6 @@ function formatEuro(n) {
   return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(Number(n));
 }
 
-function countOverdueSlots(house, periodId) {
-  const inst = installmentSummaryForPeriod(house, periodId);
-  let count = 0;
-  for (const slot of inst.slots) {
-    const gap = slot.amountDue - slot.paid;
-    if (gap <= 0.01) continue;
-    if (slot.periodEnd < today) count += 1;
-  }
-  return count;
-}
-
 function nextUpcomingSlot(house, periodId) {
   const inst = installmentSummaryForPeriod(house, periodId);
   const upcoming = [];
@@ -41,33 +30,30 @@ function nextUpcomingSlot(house, periodId) {
   return upcoming[0] || null;
 }
 
-export function resolveToPayInfo(report, consBal, periodRow) {
-  if (report?.totalToPayConsuntivo != null && (report.consuntivoBase ?? 0) > 0.005) {
-    return {
-      value: report.totalToPayConsuntivo,
-      hint: report.priorBalance ? 'Consuntivo + saldo precedente' : 'Totale consuntivo da saldare'
-    };
-  }
-  if (report?.totalToPayPreventivo != null && (report.preventivoBase ?? 0) > 0.005) {
-    return {
-      value: report.totalToPayPreventivo,
-      hint: report.priorBalance ? 'Preventivo + saldo precedente' : 'Totale preventivo da saldare'
-    };
-  }
-  if (report?.totalToPayPreventivo != null && report.priorBalance) {
-    return { value: report.totalToPayPreventivo, hint: 'Solo saldo di apertura' };
-  }
-  if (consBal < -0.005 && !periodRow?.consuntivoSettledInNext) {
-    return { value: Math.abs(consBal), hint: 'Residuo consuntivo' };
+export function resolveToPayInfo(report, totalsRow) {
+  const t = computeSituazioneTotals(report, totalsRow);
+  if (t.daPagare != null && t.daPagare > 0.005) {
+    let hint = 'Totale dovuto';
+    if (t.hasPrior && t.hasCons) hint = 'Consuntivo + saldo precedente';
+    else if (t.hasPrior) hint = 'Preventivo + saldo precedente';
+    else if (t.hasCons) hint = 'Totale consuntivo';
+    else hint = 'Totale preventivo';
+    return { value: t.daPagare, hint };
   }
   return null;
+}
+
+export function netSaldoForPeriod(house, periodId) {
+  const report = buildSituazioneReport(house, periodId);
+  const t = computeSituazioneTotals(report, report.totalsRow);
+  return t.saldo ?? 0;
 }
 
 /**
  * @returns {{
  *   focusPeriodId: string | null,
  *   focusPeriodLabel: string,
- *   cards: { id: string, label: string, value: string, hint: string, tone: string, linkSubview?: string }[],
+ *   cards: { id: string, label: string, value: string, hint: string, tone: string, linkSubview?: string, primary?: boolean }[],
  *   periodLinks: { periodId: string, label: string, statusLabel: string, statusCls: string, saldo: string, saldoCls: string }[]
  * }}
  */
@@ -82,63 +68,63 @@ export function computePanoramicaKpis(house, filterPeriodId = null) {
     return { focusPeriodId, focusPeriodLabel, cards: [], periodLinks: [] };
   }
 
-  const report = focusPeriodId ? buildSituazioneReport(house, focusPeriodId) : null;
-  const t = focusPeriodId ? totals(house, focusPeriodId) : totals(house);
-  const consBal = periodRow?.balanceConsuntivo ?? t.balanceConsuntivo;
-  const consTone = periodRow?.consuntivoSettledInNext
-    ? 'success'
-    : consBal >= 0 ? 'positive' : 'negative';
-
-  cards.push({
-    id: 'saldo-consuntivo',
-    label: 'Saldo consuntivo',
-    value: formatEuro(consBal),
-    hint: periodRow?.consuntivoSettledInNext ? 'Saldato in esercizio successivo' : 'Versato − consuntivo',
-    tone: consTone,
-    linkSubview: 'situazione'
-  });
-
-  const toPayInfo = report ? resolveToPayInfo(report, consBal, periodRow) : null;
-  const toPay = toPayInfo?.value ?? null;
-
-  const paid = periodRow?.paid ?? t.paid;
-  if (toPay != null && toPay > 0.005) {
-    const coverageRaw = Math.round((paid / toPay) * 100);
-    const coverage = Math.min(100, coverageRaw);
-    cards.push({
-      id: 'da-pagare',
-      label: 'Da pagare',
-      value: formatEuro(toPay),
-      hint: toPayInfo.hint,
-      tone: 'negative',
-      linkSubview: 'situazione'
-    });
-    let coverageHint = `${formatEuro(paid)} versati su ${formatEuro(toPay)}`;
-    if (paid > toPay + 0.005) {
-      coverageHint += ` · Eccedenza ${formatEuro(paid - toPay)}`;
-    }
-    cards.push({
-      id: 'copertura',
-      label: 'Copertura pagamenti',
-      value: coverageRaw > 100 ? `${coverageRaw}%` : `${coverage}%`,
-      hint: coverageHint,
-      tone: coverageRaw >= 100 ? 'positive' : coverage >= 50 ? 'warn' : 'negative',
-      linkSubview: 'situazione'
-    });
-  }
-
   if (focusPeriodId) {
-    const overdue = countOverdueSlots(house, focusPeriodId);
-    if (overdue > 0) {
+    const report = buildSituazioneReport(house, focusPeriodId);
+    const t = computeSituazioneTotals(report, report.totalsRow);
+    const settledNote = periodRow?.consuntivoSettledInNext ? 'Saldato in esercizio successivo' : t.saldoHint;
+
+    cards.push({
+      id: 'saldo',
+      label: t.saldoLabel,
+      value: formatEuro(t.saldo),
+      hint: settledNote,
+      tone: periodRow?.consuntivoSettledInNext ? 'success' : t.saldoTone,
+      linkSubview: 'situazione',
+      primary: true
+    });
+
+    if (t.preventivo > 0.005 || !t.hasCons) {
       cards.push({
-        id: 'rate-scadute',
-        label: 'Rate scadute',
-        value: String(overdue),
-        hint: overdue === 1 ? '1 rata oltre scadenza' : `${overdue} rate oltre scadenza`,
-        tone: 'negative',
+        id: 'preventivo',
+        label: 'Preventivo',
+        value: formatEuro(t.preventivo),
+        hint: 'Voci preventivo esercizio',
+        tone: 'neutral',
         linkSubview: 'situazione'
       });
     }
+
+    if (t.hasCons) {
+      cards.push({
+        id: 'consuntivo',
+        label: 'Consuntivo',
+        value: formatEuro(t.consuntivo),
+        hint: t.hasPrior ? 'Voci consuntivo (prima del saldo prec.)' : 'Addebiti consuntivi',
+        tone: 'neutral',
+        linkSubview: 'situazione'
+      });
+    }
+
+    if (t.daPagare != null && t.daPagare > 0.005) {
+      cards.push({
+        id: 'da-pagare',
+        label: 'Da pagare',
+        value: formatEuro(t.daPagare),
+        hint: t.hasPrior ? 'Consuntivo + saldo precedente' : 'Totale dovuto',
+        tone: 'warn',
+        linkSubview: 'situazione'
+      });
+    }
+
+    cards.push({
+      id: 'pagato',
+      label: 'Pagato',
+      value: formatEuro(t.pagato),
+      hint: `${report.periodPayments.length} versamenti`,
+      tone: 'positive',
+      linkSubview: 'versamenti'
+    });
+
     const next = nextUpcomingSlot(house, focusPeriodId);
     if (next) {
       cards.push({
@@ -152,46 +138,20 @@ export function computePanoramicaKpis(house, filterPeriodId = null) {
     }
   }
 
-  const prev = periodRow?.preventivo ?? t.preventivo;
-  const cons = periodRow?.consuntivo ?? t.consuntivo;
-  if (prev > 0.005 && cons > 0.005) {
-    const delta = Math.round((cons - prev) * 100) / 100;
-    cards.push({
-      id: 'scostamento',
-      label: 'Scostamento consuntivo',
-      value: (delta >= 0 ? '+' : '') + formatEuro(delta),
-      hint: 'Consuntivo vs preventivo',
-      tone: Math.abs(delta) < 0.01 ? 'positive' : delta > 0 ? 'warn' : 'positive',
-      linkSubview: 'situazione'
-    });
-  }
-
-  const allTotals = totals(house);
-  if (allTotals.debtYears > 0) {
-    cards.push({
-      id: 'esercizi-debito',
-      label: 'Esercizi in debito',
-      value: String(allTotals.debtYears),
-      hint: allTotals.debtYears === 1 ? '1 esercizio non saldato' : `${allTotals.debtYears} esercizi non saldati`,
-      tone: 'negative',
-      linkSubview: 'situazione'
-    });
-  }
-
   const periodLinks = summary
     .filter(p => p.id !== focusPeriodId)
     .sort((a, b) => {
-      const aDebit = a.balanceConsuntivo < -0.005 && !a.consuntivoSettledInNext ? 0 : 1;
-      const bDebit = b.balanceConsuntivo < -0.005 && !b.consuntivoSettledInNext ? 0 : 1;
+      const aSaldo = netSaldoForPeriod(house, a.id);
+      const bSaldo = netSaldoForPeriod(house, b.id);
+      const aDebit = aSaldo < -0.005 ? 0 : 1;
+      const bDebit = bSaldo < -0.005 ? 0 : 1;
       if (aDebit !== bDebit) return aDebit - bDebit;
       return String(b.startDate || b.label).localeCompare(String(a.startDate || a.label));
     })
     .slice(0, 5)
     .map(item => {
-      const b = item.balanceConsuntivo;
-      const status = item.consuntivoSettledInNext
-        ? ['Saldato', 'success']
-        : b > 0.005 ? ['Eccedenza', 'success'] : b < -0.005 ? ['In debito', 'error'] : ['Pareggio', 'warn'];
+      const b = netSaldoForPeriod(house, item.id);
+      const status = b > 0.005 ? ['Eccedenza', 'success'] : b < -0.005 ? ['In debito', 'error'] : ['Pareggio', 'warn'];
       return {
         periodId: item.id,
         label: item.label,
@@ -202,5 +162,5 @@ export function computePanoramicaKpis(house, filterPeriodId = null) {
       };
     });
 
-  return { focusPeriodId, focusPeriodLabel, cards: cards.slice(0, 8), periodLinks };
+  return { focusPeriodId, focusPeriodLabel, cards, periodLinks };
 }

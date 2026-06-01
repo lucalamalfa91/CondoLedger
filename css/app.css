@@ -284,6 +284,12 @@
       background: var(--color-surface-offset);
       min-height: 6.5rem;
     }
+    .kpi-card--primary {
+      grid-column: 1 / -1;
+      border-width: 2px;
+      background: color-mix(in srgb, var(--color-surface-offset) 65%, var(--color-primary) 35%);
+    }
+    .kpi-card--primary .kpi-card-value { font-size: 1.75rem; }
     .kpi-card--negative { border-color: color-mix(in srgb, var(--color-error) 40%, var(--color-divider)); }
     .kpi-card--warn { border-color: color-mix(in srgb, var(--color-warning) 40%, var(--color-divider)); }
     .kpi-card--positive, .kpi-card--success { border-color: color-mix(in srgb, var(--color-success) 35%, var(--color-divider)); }

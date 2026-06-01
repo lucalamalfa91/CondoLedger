@@ -3,8 +3,8 @@ import { legacyCalendarPeriod, periodFromLabel } from './backup.js';
 import { serializeImportParties } from './house-import-parties.js';
 import { mapHouseFromDb, state } from './state.js';
 import { ensurePeriodPayload, parseFiscalLabel } from './fiscal.js';
-import { findInstallmentForDate } from './installments.js';
-import { hashText, today, uid } from './utils.js';
+import { findInstallment, findInstallmentForDate, inferInstallmentKey } from './installments.js';
+import { chunkArray, hashText, today, uid } from './utils.js';
 
 export function createSupabaseClient(createClient) {
   if (!DEFAULT_SUPABASE_URL || !DEFAULT_SUPABASE_ANON_KEY) {
@@ -26,6 +26,84 @@ export async function ensureAuthenticated() {
   return state.user;
 }
 
+async function fetchAllRows(buildPageQuery, pageSize = 1000) {
+  const all = [];
+  let from = 0;
+  while (true) {
+    const to = from + pageSize - 1;
+    const { data, error } = await buildPageQuery(from, to);
+    if (error) throw error;
+    if (!data?.length) break;
+    all.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
+async function fetchPriorBalancesForHouse(hid) {
+  try {
+    return await fetchAllRows((from, to) =>
+      state.supabase.from('prior_balances').select('*').eq('house_id', hid).order('id', { ascending: true }).range(from, to)
+    );
+  } catch (err) {
+    if (err?.code === '42P01') return [];
+    throw err;
+  }
+}
+
+async function fetchHouseRelations(hid) {
+  return Promise.all([
+    fetchAllRows((from, to) =>
+      state.supabase.from('fiscal_periods').select('*').eq('house_id', hid)
+        .order('start_date', { ascending: false }).order('id', { ascending: true }).range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      state.supabase.from('dues').select('*').eq('house_id', hid).order('id', { ascending: true }).range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      state.supabase.from('payments').select('*').eq('house_id', hid)
+        .order('date', { ascending: false }).order('id', { ascending: true }).range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      state.supabase.from('bank_movements').select('*').eq('house_id', hid)
+        .order('movement_date', { ascending: false }).order('id', { ascending: true }).range(from, to)
+    ),
+    fetchPriorBalancesForHouse(hid)
+  ]);
+}
+
+function preserveSelectedHouseId(mapped, previousId) {
+  const prevStr = previousId != null ? String(previousId) : null;
+  const stillSelected = prevStr && mapped.some(h => String(h.id) === prevStr);
+  state.selectedHouseId = stillSelected ? prevStr : (mapped[0] ? String(mapped[0].id) : null);
+  if (state.selectedHouseId) {
+    sessionStorage.setItem('app:selectedHouseId', state.selectedHouseId);
+  } else {
+    sessionStorage.removeItem('app:selectedHouseId');
+  }
+}
+
+export async function reloadHouseFromSupabase(houseId) {
+  await ensureAuthenticated();
+  const idStr = String(houseId);
+  const numericId = Number(houseId);
+  if (!Number.isFinite(numericId)) throw new Error('Immobile non valido');
+
+  const { data: houseRow, error } = await state.supabase.from('houses').select('*').eq('id', numericId).single();
+  if (error) throw error;
+
+  const [periods, dues, payments, movements, priorBalances] = await fetchHouseRelations(numericId);
+  const mapped = mapHouseFromDb(houseRow, dues, payments, periods, movements, priorBalances);
+  const idx = state.data.houses.findIndex(h => String(h.id) === idStr);
+  if (idx >= 0) state.data.houses[idx] = mapped;
+  else state.data.houses.push(mapped);
+
+  state.selectedHouseId = idStr;
+  sessionStorage.setItem('app:selectedHouseId', idStr);
+  return mapped;
+}
+
 export async function loadFromSupabase() {
   const user = await ensureAuthenticated();
   if (!user) return;
@@ -33,28 +111,16 @@ export async function loadFromSupabase() {
   const { data: houses, error } = await state.supabase.from('houses').select('*').order('created_at', { ascending: true });
   if (error) throw error;
 
+  const previousId = state.selectedHouseId ?? sessionStorage.getItem('app:selectedHouseId');
   const mapped = [];
   for (const house of houses || []) {
     const hid = house.id;
-    const [{ data: periods }, { data: dues }, { data: payments }, { data: movements }, { data: priorBalances }] = await Promise.all([
-      state.supabase.from('fiscal_periods').select('*').eq('house_id', hid).order('start_date', { ascending: false }),
-      state.supabase.from('dues').select('*').eq('house_id', hid),
-      state.supabase.from('payments').select('*').eq('house_id', hid).order('date', { ascending: false }),
-      state.supabase.from('bank_movements').select('*').eq('house_id', hid).order('movement_date', { ascending: false }),
-      state.supabase.from('prior_balances').select('*').eq('house_id', hid)
-    ]);
+    const [periods, dues, payments, movements, priorBalances] = await fetchHouseRelations(hid);
     mapped.push(mapHouseFromDb(house, dues, payments, periods, movements, priorBalances));
   }
 
-  const previousId = state.selectedHouseId || sessionStorage.getItem('app:selectedHouseId');
   state.data = { houses: mapped };
-  const stillSelected = previousId && mapped.some(h => h.id === previousId);
-  state.selectedHouseId = stillSelected ? previousId : (mapped[0]?.id || null);
-  if (state.selectedHouseId) {
-    sessionStorage.setItem('app:selectedHouseId', state.selectedHouseId);
-  } else {
-    sessionStorage.removeItem('app:selectedHouseId');
-  }
+  preserveSelectedHouseId(mapped, previousId);
 }
 
 export async function saveHouseToSupabase(house) {
@@ -198,6 +264,7 @@ export async function savePriorBalanceToSupabase(house, priorBalance) {
       description: payload.description
     }).eq('id', Number(priorBalance.id)).eq('house_id', Number(house.id));
     if (error) throw error;
+    syncPriorBalanceLocal(house, priorBalance, periodId);
     return;
   }
   const existing = (house.priorBalances || []).find(b => String(b.fiscalPeriodId) === String(periodId));
@@ -209,11 +276,27 @@ export async function savePriorBalanceToSupabase(house, priorBalance) {
     }).eq('id', Number(existing.id)).eq('house_id', Number(house.id));
     if (error) throw error;
     priorBalance.id = existing.id;
+    syncPriorBalanceLocal(house, priorBalance, periodId);
     return;
   }
   const { data, error } = await state.supabase.from('prior_balances').insert(payload).select('id').single();
   if (error) throw error;
   if (data?.id) priorBalance.id = String(data.id);
+  syncPriorBalanceLocal(house, priorBalance, periodId);
+}
+
+function syncPriorBalanceLocal(house, priorBalance, periodId) {
+  if (!house.priorBalances) house.priorBalances = [];
+  const entry = {
+    id: String(priorBalance.id),
+    fiscalPeriodId: String(periodId),
+    sourcePeriodId: priorBalance.sourcePeriodId ? String(priorBalance.sourcePeriodId) : null,
+    amount: Number(priorBalance.amount),
+    description: priorBalance.description || ''
+  };
+  const idx = house.priorBalances.findIndex(b => String(b.fiscalPeriodId) === String(periodId));
+  if (idx >= 0) house.priorBalances[idx] = entry;
+  else house.priorBalances.push(entry);
 }
 
 export async function deletePriorBalanceFromSupabase(house, priorBalanceId) {
@@ -239,8 +322,8 @@ export async function savePaymentToSupabase(house, payment) {
     date: payment.date,
     method: payment.method,
     installment_key: payment.installmentKey || null,
-    carry_from_period_id: payment.carryFromPeriodId ? Number(payment.carryFromPeriodId) : null,
-    is_carry_forward: Boolean(payment.isCarryForward),
+    carry_from_period_id: null,
+    is_carry_forward: false,
     bank_movement_id: payment.bankMovementId ? Number(payment.bankMovementId) : null
   };
   if (Number.isFinite(Number(payment.id))) {
@@ -250,8 +333,9 @@ export async function savePaymentToSupabase(house, payment) {
       date: payload.date,
       method: payload.method,
       installment_key: payload.installment_key,
-      carry_from_period_id: payload.carry_from_period_id,
-      is_carry_forward: payload.is_carry_forward
+      bank_movement_id: payload.bank_movement_id,
+      carry_from_period_id: null,
+      is_carry_forward: false
     }).eq('id', Number(payment.id)).eq('house_id', Number(house.id));
     if (error) throw error;
     return;
@@ -364,66 +448,155 @@ export async function saveUnlinkedBankMovements(house, batchId, previewRows) {
   }
 }
 
-async function deletePaymentsForBankMovements(house, movements) {
-  if (!movements?.length) return 0;
-  const movementIds = movements.map(m => Number(m.id));
-  const linkedPayIds = [...new Set(
-    movements.map(m => m.linked_payment_id).filter(id => Number.isFinite(Number(id)))
-  )];
+async function fetchBankMovements(houseId, { importBatchId } = {}) {
+  const hid = Number(houseId);
+  const pageSize = 1000;
+  const all = [];
+  let from = 0;
+  while (true) {
+    let query = state.supabase.from('bank_movements')
+      .select('id, linked_payment_id, status')
+      .eq('house_id', hid)
+      .order('id', { ascending: true });
+    if (importBatchId) query = query.eq('import_batch_id', importBatchId);
+    const { data, error } = await query.range(from, from + pageSize - 1);
+    if (error) throw error;
+    if (!data?.length) break;
+    all.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
 
-  const { error: pErr } = await state.supabase.from('payments')
-    .delete()
-    .eq('house_id', Number(house.id))
-    .in('bank_movement_id', movementIds);
-  if (pErr) throw pErr;
+function enrichMovement(house, movement) {
+  const local = house.bankMovements?.find(m => String(m.id) === String(movement.id));
+  if (!local) return movement;
+  return {
+    ...movement,
+    status: movement.status ?? local.status,
+    linked_payment_id: movement.linked_payment_id ?? local.linkedPaymentId,
+    linkedPaymentId: movement.linked_payment_id ?? local.linkedPaymentId
+  };
+}
 
-  if (linkedPayIds.length) {
-    const { error: pErr2 } = await state.supabase.from('payments')
-      .delete()
-      .eq('house_id', Number(house.id))
-      .in('id', linkedPayIds);
-    if (pErr2) throw pErr2;
+function resolveMovementPayment(house, movement) {
+  const linkedPayId = movement.linked_payment_id ?? movement.linkedPaymentId;
+  if (linkedPayId) {
+    const byLink = house.payments?.find(p => String(p.id) === String(linkedPayId));
+    if (byLink) return byLink;
+  }
+  return house.payments?.find(p => Number(p.bankMovementId) === Number(movement.id)) || null;
+}
+
+function isPaymentLinkedToDue(house, payment) {
+  if (!payment) return false;
+  const key = payment.installmentKey || inferInstallmentKey(house, payment);
+  if (!key) return false;
+  return Boolean(findInstallment(house, key));
+}
+
+function classifyMovementsForDelete(house, movements) {
+  const deletable = [];
+  const protectedMovements = [];
+  let deletablePayments = 0;
+
+  for (const raw of movements) {
+    const movement = enrichMovement(house, raw);
+    const status = movement.status || 'unlinked';
+    const payment = resolveMovementPayment(house, movement);
+
+    if (status === 'unlinked' || !payment) {
+      deletable.push(movement);
+      continue;
+    }
+
+    if (isPaymentLinkedToDue(house, payment)) {
+      protectedMovements.push(movement);
+    } else {
+      deletable.push(movement);
+      deletablePayments += 1;
+    }
   }
 
-  return movementIds.length;
+  return { deletable, protectedMovements, deletablePayments };
+}
+
+export function previewBankImportDelete(house, movements) {
+  const { deletable, protectedMovements, deletablePayments } = classifyMovementsForDelete(house, movements || []);
+  return {
+    deletableMovements: deletable.length,
+    deletablePayments,
+    protectedMovements: protectedMovements.length
+  };
+}
+
+async function deleteOrphanImportPayments(house, deletableMovements) {
+  const hid = Number(house.id);
+  const payIds = [...new Set(
+    deletableMovements
+      .map(m => resolveMovementPayment(house, m))
+      .filter(p => p && !isPaymentLinkedToDue(house, p))
+      .map(p => Number(p.id))
+      .filter(Number.isFinite)
+  )];
+  for (const chunk of chunkArray(payIds)) {
+    const { error } = await state.supabase.from('payments')
+      .delete()
+      .eq('house_id', hid)
+      .in('id', chunk);
+    if (error) throw error;
+  }
+  return payIds.length;
+}
+
+async function deleteBankMovementsByIds(house, movementIds) {
+  const ids = movementIds.filter(Number.isFinite);
+  if (!ids.length) return;
+  const hid = Number(house.id);
+  for (const chunk of chunkArray(ids)) {
+    const { error } = await state.supabase.from('bank_movements')
+      .delete()
+      .eq('house_id', hid)
+      .in('id', chunk);
+    if (error) throw error;
+  }
 }
 
 export async function deleteBankImportBatch(house, batchId) {
   await ensureAuthenticated();
-  const { data: movements, error: mErr } = await state.supabase.from('bank_movements')
-    .select('id, linked_payment_id')
-    .eq('house_id', Number(house.id))
-    .eq('import_batch_id', batchId);
-  if (mErr) throw mErr;
-  if (!movements?.length) return { deletedMovements: 0, deletedPayments: 0 };
+  const movements = await fetchBankMovements(house.id, { importBatchId: batchId });
+  const { deletable, protectedMovements, deletablePayments } = classifyMovementsForDelete(house, movements);
+  if (!deletable.length) {
+    return { deletedMovements: 0, deletedPayments: 0, skippedMovements: protectedMovements.length };
+  }
 
-  await deletePaymentsForBankMovements(house, movements);
+  await deleteOrphanImportPayments(house, deletable);
+  await deleteBankMovementsByIds(house, deletable.map(m => Number(m.id)));
 
-  const { error: bmErr } = await state.supabase.from('bank_movements')
-    .delete()
-    .eq('house_id', Number(house.id))
-    .eq('import_batch_id', batchId);
-  if (bmErr) throw bmErr;
-
-  return { deletedMovements: movements.length };
+  return {
+    deletedMovements: deletable.length,
+    deletedPayments: deletablePayments,
+    skippedMovements: protectedMovements.length
+  };
 }
 
 export async function deleteAllBankImports(house) {
   await ensureAuthenticated();
-  const { data: movements, error: mErr } = await state.supabase.from('bank_movements')
-    .select('id, linked_payment_id')
-    .eq('house_id', Number(house.id));
-  if (mErr) throw mErr;
-  if (!movements?.length) return { deletedMovements: 0 };
+  const movements = await fetchBankMovements(house.id);
+  const { deletable, protectedMovements, deletablePayments } = classifyMovementsForDelete(house, movements);
+  if (!deletable.length) {
+    return { deletedMovements: 0, deletedPayments: 0, skippedMovements: protectedMovements.length };
+  }
 
-  await deletePaymentsForBankMovements(house, movements);
+  await deleteOrphanImportPayments(house, deletable);
+  await deleteBankMovementsByIds(house, deletable.map(m => Number(m.id)));
 
-  const { error: bmErr } = await state.supabase.from('bank_movements')
-    .delete()
-    .eq('house_id', Number(house.id));
-  if (bmErr) throw bmErr;
-
-  return { deletedMovements: movements.length };
+  return {
+    deletedMovements: deletable.length,
+    deletedPayments: deletablePayments,
+    skippedMovements: protectedMovements.length
+  };
 }
 
 export async function linkBankMovement(house, movementId, fiscalPeriodId) {
@@ -478,7 +651,6 @@ export function createLocalDue(formData) {
 }
 
 export function createLocalPayment(formData, fiscalPeriodId, installmentKey) {
-  const carryFrom = String(formData.get('carryFromPeriodId') || '').trim() || null;
   return {
     id: uid('pay'),
     fiscalPeriodId: fiscalPeriodId || null,
@@ -486,8 +658,8 @@ export function createLocalPayment(formData, fiscalPeriodId, installmentKey) {
     amount: Number(formData.get('amount')),
     date: String(formData.get('date') || today),
     method: String(formData.get('method') || '').trim(),
-    isCarryForward: Boolean(carryFrom),
-    carryFromPeriodId: carryFrom
+    isCarryForward: false,
+    carryFromPeriodId: null
   };
 }
 

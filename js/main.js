@@ -6,6 +6,7 @@ import {
   createSupabaseClient,
   deleteAllBankImports,
   deleteBankImportBatch,
+  previewBankImportDelete,
   deleteDueFromSupabase,
   deleteHouseRemote,
   deletePaymentFromSupabase,
@@ -14,6 +15,7 @@ import {
   ensureFiscalPeriodByLabel,
   linkBankMovement,
   loadFromSupabase,
+  reloadHouseFromSupabase,
   saveBankImport,
   saveDueToSupabase,
   saveHouseToSupabase,
@@ -53,6 +55,7 @@ import { confirmDialog } from './confirm.js';
 import { computeNextPaymentGuide } from './payment-guide.js';
 import { showToast, toastError } from './toast.js';
 import { fmt, today, uid } from './utils.js';
+import { appRouteUrl, sanitizeLocationUrl } from './url-sanitize.js';
 
 const ONBOARDING_STORAGE_KEY = 'app:onboarding:v1';
 
@@ -64,7 +67,7 @@ function setTheme(theme) {
 }
 
 const {
-  setView, render: baseRender, syncPaymentPeriodSelect, syncPaymentCarryFromSelect,
+  setView, render: baseRender, syncPaymentPeriodSelect,
   syncPaymentInstallmentSelect, syncDueKindFields, syncDuePeriodSelect, applyPaymentSmartAmount,
   syncPriorBalancePeriodSelect, syncPriorBalanceSourceSelect
 } = createRenderer(els);
@@ -155,8 +158,8 @@ function syncRouteHash(view, subview) {
   if (!meta) return;
   const seg = subview && meta.subviews?.[subview] ? `${view}/${subview}` : view;
   const next = `#${seg}`;
-  if (location.hash !== next) {
-    history.replaceState(null, '', `${location.pathname}${location.search}${next}`);
+  if (location.hash !== next || location.search) {
+    history.replaceState(null, '', appRouteUrl(location.pathname, next));
   }
 }
 
@@ -213,6 +216,8 @@ function applyPaymentGuideToForm() {
 async function ensureHousePersisted(house) {
   if (state.supabase && state.user && !Number.isFinite(Number(house.id))) {
     await saveHouseToSupabase(house);
+    state.selectedHouseId = String(house.id);
+    sessionStorage.setItem('app:selectedHouseId', String(house.id));
   }
 }
 
@@ -228,8 +233,6 @@ function resetPaymentForm(house) {
   if (els.paymentEditId) els.paymentEditId.value = '';
   if (els.paymentSubmitBtn) els.paymentSubmitBtn.textContent = 'Salva versamento';
   els.paymentFormCancel?.classList.add('hidden');
-  els.paymentCarryWrap?.classList.add('hidden');
-  els.paymentCarryToggle?.classList.remove('hidden');
   if (house) syncPaymentPeriodSelect(house);
 }
 
@@ -294,14 +297,6 @@ function startEditPayment(house, payment) {
   syncPaymentPeriodSelect(house);
   if (payment.fiscalPeriodId) els.paymentPeriod.value = payment.fiscalPeriodId;
   syncPaymentInstallmentSelect(house, payment.installmentKey || null);
-  syncPaymentCarryFromSelect(house);
-  if (payment.carryFromPeriodId) {
-    els.paymentCarryWrap?.classList.remove('hidden');
-    els.paymentCarryToggle?.classList.add('hidden');
-  }
-  if (els.paymentCarryFrom && payment.carryFromPeriodId) {
-    els.paymentCarryFrom.value = payment.carryFromPeriodId;
-  }
   navigate('movimenti', 'versamenti');
   if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('paymentFormPane');
   else els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -325,7 +320,7 @@ async function deletePriorBalance(house, priorBalanceId) {
   try {
     if (state.supabase && state.user && Number.isFinite(Number(priorBalanceId))) {
       await deletePriorBalanceFromSupabase(house, priorBalanceId);
-      await loadFromSupabase();
+      await reloadHouseFromSupabase(house.id);
     } else {
       house.priorBalances = (house.priorBalances || []).filter(b => b.id !== priorBalanceId);
     }
@@ -374,40 +369,42 @@ async function deletePayment(house, paymentId) {
 }
 
 function handleRecordAction(e) {
-  const editDue = e.target.closest('.edit-due');
-  const deleteDueBtn = e.target.closest('.delete-due');
-  const editPayment = e.target.closest('.edit-payment');
-  const deletePaymentBtn = e.target.closest('.delete-payment');
-  const editPriorBalance = e.target.closest('.edit-prior-balance');
-  const deletePriorBalanceBtn = e.target.closest('.delete-prior-balance');
+  const btn = e.target.closest('[data-record-action][data-record-kind][data-id]');
+  if (!btn) return;
   const house = ensureHouse();
   if (!house) return;
 
-  if (editDue) {
-    const due = house.dues.find(d => d.id === editDue.dataset.id);
-    if (due) startEditDue(house, due);
+  const action = btn.dataset.recordAction;
+  const kind = btn.dataset.recordKind;
+  const id = btn.dataset.id;
+
+  if (kind === 'due') {
+    if (action === 'edit') {
+      const due = house.dues.find(d => String(d.id) === String(id));
+      if (due) startEditDue(house, due);
+    } else if (action === 'delete') {
+      deleteDue(house, id);
+    }
     return;
   }
-  if (deleteDueBtn) {
-    deleteDue(house, deleteDueBtn.dataset.id);
+
+  if (kind === 'payment') {
+    if (action === 'edit') {
+      const payment = house.payments.find(p => String(p.id) === String(id));
+      if (payment) startEditPayment(house, payment);
+    } else if (action === 'delete') {
+      deletePayment(house, id);
+    }
     return;
   }
-  if (editPayment) {
-    const payment = house.payments.find(p => p.id === editPayment.dataset.id);
-    if (payment) startEditPayment(house, payment);
-    return;
-  }
-  if (deletePaymentBtn) {
-    deletePayment(house, deletePaymentBtn.dataset.id);
-    return;
-  }
-  if (editPriorBalance) {
-    const item = (house.priorBalances || []).find(b => b.id === editPriorBalance.dataset.id);
-    if (item) startEditPriorBalance(house, item);
-    return;
-  }
-  if (deletePriorBalanceBtn) {
-    deletePriorBalance(house, deletePriorBalanceBtn.dataset.id);
+
+  if (kind === 'prior') {
+    if (action === 'edit') {
+      const item = (house.priorBalances || []).find(b => String(b.id) === String(id));
+      if (item) startEditPriorBalance(house, item);
+    } else if (action === 'delete') {
+      deletePriorBalance(house, id);
+    }
   }
 }
 
@@ -419,8 +416,9 @@ function startNewHouseForm() {
 
 function selectHouse(houseId) {
   state.houseFormMode = 'edit';
-  state.selectedHouseId = houseId;
-  if (houseId) sessionStorage.setItem('app:selectedHouseId', houseId);
+  const id = houseId != null ? String(houseId) : null;
+  state.selectedHouseId = id;
+  if (id) sessionStorage.setItem('app:selectedHouseId', id);
   render();
 }
 
@@ -832,10 +830,6 @@ els.duePeriod?.addEventListener('change', () => {
   const isNew = els.duePeriod.value === '__new__';
   els.duePeriodNewWrap?.classList.toggle('hidden', !isNew);
 });
-els.paymentCarryToggle?.addEventListener('click', () => {
-  els.paymentCarryWrap?.classList.remove('hidden');
-  els.paymentCarryToggle?.classList.add('hidden');
-});
 els.openDueFormSheet?.addEventListener('click', () => openFormSheet('dueFormPane'));
 els.closeDueFormSheet?.addEventListener('click', () => closeFormSheet('dueFormPane'));
 els.dueFormPaneBackdrop?.addEventListener('click', () => closeFormSheet('dueFormPane'));
@@ -870,10 +864,17 @@ els.priorBalanceForm?.addEventListener('submit', async e => {
     const priorBalance = createLocalPriorBalance(fd);
     priorBalance.fiscalPeriodId = periodId;
     if (editId) priorBalance.id = editId;
+    const duesBefore = house.dues?.length || 0;
     if (state.supabase && state.user) {
       await savePriorBalanceToSupabase(house, priorBalance);
       resetPriorBalanceForm(house);
-      await loadFromSupabase();
+      if (Number.isFinite(Number(house.id))) {
+        await reloadHouseFromSupabase(house.id);
+        const houseAfter = activeHouse();
+        if (duesBefore > 0 && (houseAfter?.dues?.length || 0) === 0) {
+          toastError('Attenzione: i dovuti non risultano più visibili per questo immobile. Verifica di aver selezionato "Condominio Anziani" dal menu immobili.');
+        }
+      }
     } else if (editId) {
       const existing = (house.priorBalances || []).find(b => b.id === editId);
       if (existing) Object.assign(existing, priorBalance);
@@ -958,7 +959,6 @@ els.paymentPeriod?.addEventListener('change', () => {
   const house = activeHouse();
   if (!house) return;
   syncPaymentInstallmentSelect(house);
-  syncPaymentCarryFromSelect(house);
 });
 els.situazionePeriod?.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
 els.situazionePdfBtn?.addEventListener('click', async () => {
@@ -1185,9 +1185,7 @@ async function offerCarryoverDue(house, newPeriodId) {
   }
 }
 
-els.duesTable?.addEventListener('click', handleRecordAction);
-els.paymentsTable?.addEventListener('click', handleRecordAction);
-els.movements?.addEventListener('click', handleRecordAction);
+els.main?.addEventListener('click', handleRecordAction);
 
 els.documentImportFile?.addEventListener('change', e => handleDocumentFiles(e.target.files));
 els.documentImportConfirm?.addEventListener('click', confirmDocumentImport);
@@ -1205,16 +1203,31 @@ els.bankImportBatches?.addEventListener('click', async e => {
   if (!house || !Number.isFinite(Number(house.id))) return;
   const batchId = btn.dataset.batch;
   if (!batchId) return;
-  const count = house.bankMovements.filter(m => m.importBatchId === batchId).length;
+  const batchMovements = house.bankMovements.filter(m => m.importBatchId === batchId);
+  const preview = previewBankImportDelete(house, batchMovements);
+  if (!preview.deletableMovements) {
+    toastError(preview.protectedMovements
+      ? 'Tutti i movimenti di questo import sono collegati a un dovuto: nulla da eliminare.'
+      : 'Nessun movimento da eliminare.');
+    return;
+  }
+  const payNote = preview.deletablePayments
+    ? ` e ${preview.deletablePayments} versament${preview.deletablePayments === 1 ? 'o' : 'i'} non collegat${preview.deletablePayments === 1 ? 'o' : 'i'} a un dovuto`
+    : '';
+  const keepNote = preview.protectedMovements
+    ? `\n\n${preview.protectedMovements} moviment${preview.protectedMovements === 1 ? 'o' : 'i'} già associat${preview.protectedMovements === 1 ? 'o' : 'i'} a un dovuto verranno mantenut${preview.protectedMovements === 1 ? 'o' : 'i'}.`
+    : '';
   if (!await confirmDialog(
-    `Eliminare questo import (${count} movimenti banca e i versamenti collegati)? L'operazione non è reversibile.`,
+    `Eliminare ${preview.deletableMovements} moviment${preview.deletableMovements === 1 ? 'o' : 'i'} banca non associat${preview.deletableMovements === 1 ? 'o' : 'i'} a un dovuto${payNote}?${keepNote}`,
     { title: 'Elimina import', confirmLabel: 'Elimina', danger: true }
   )) return;
   try {
-    await deleteBankImportBatch(house, batchId);
+    const result = await deleteBankImportBatch(house, batchId);
     await loadFromSupabase();
     render();
-    showToast('Import eliminato.');
+    showToast(result.skippedMovements
+      ? `Eliminati ${result.deletedMovements} movimenti. ${result.skippedMovements} collegati a un dovuto mantenuti.`
+      : `Eliminati ${result.deletedMovements} movimenti banca${result.deletedPayments ? ` e ${result.deletedPayments} versamenti` : ''}.`);
   } catch (err) {
     toastError(err.message || 'Errore eliminazione import');
   }
@@ -1223,19 +1236,42 @@ els.bankImportBatches?.addEventListener('click', async e => {
 els.bankImportDeleteAll?.addEventListener('click', async () => {
   const house = ensureHouse();
   if (!house || !Number.isFinite(Number(house.id))) return;
-  const count = house.bankMovements.length;
-  if (!count) return;
+  const count = house.bankMovements?.length || 0;
+  if (!count) {
+    toastError('Nessun movimento banca da eliminare.');
+    return;
+  }
+  const preview = previewBankImportDelete(house, house.bankMovements);
+  if (!preview.deletableMovements) {
+    toastError(preview.protectedMovements
+      ? 'Tutti i movimenti banca sono collegati a un dovuto: nulla da eliminare.'
+      : 'Nessun movimento da eliminare.');
+    return;
+  }
+  const payNote = preview.deletablePayments
+    ? ` e ${preview.deletablePayments} versament${preview.deletablePayments === 1 ? 'o' : 'i'} non collegat${preview.deletablePayments === 1 ? 'o' : 'i'} a un dovuto`
+    : '';
+  const keepNote = preview.protectedMovements
+    ? `\n\n${preview.protectedMovements} moviment${preview.protectedMovements === 1 ? 'o' : 'i'} già associat${preview.protectedMovements === 1 ? 'o' : 'i'} a un dovuto (rate/versamenti) verranno mantenut${preview.protectedMovements === 1 ? 'o' : 'i'}.`
+    : '';
   if (!await confirmDialog(
-    `Eliminare TUTTI gli import banca (${count} movimenti) e i versamenti collegati? I dovuti e i versamenti inseriti manualmente non verranno toccati.`,
-    { title: 'Elimina tutti gli import', confirmLabel: 'Elimina tutto', danger: true }
+    `Eliminare ${preview.deletableMovements} moviment${preview.deletableMovements === 1 ? 'o' : 'i'} banca non associat${preview.deletableMovements === 1 ? 'o' : 'i'} a un dovuto${payNote}?${keepNote}`,
+    { title: 'Elimina import non associati', confirmLabel: 'Elimina', danger: true }
   )) return;
+  const btn = els.bankImportDeleteAll;
+  if (btn) btn.disabled = true;
   try {
-    await deleteAllBankImports(house);
+    const result = await deleteAllBankImports(house);
     await loadFromSupabase();
     render();
-    showToast('Tutti gli import banca sono stati eliminati.');
+    showToast(result.skippedMovements
+      ? `Eliminati ${result.deletedMovements} movimenti. ${result.skippedMovements} collegati a un dovuto mantenuti.`
+      : result.deletedMovements
+        ? `Eliminati ${result.deletedMovements} movimenti banca${result.deletedPayments ? ` e ${result.deletedPayments} versamenti` : ''}.`
+        : 'Nessun movimento eliminabile.');
   } catch (err) {
     toastError(err.message || 'Errore eliminazione import');
+    render();
   }
 });
 
@@ -1260,6 +1296,7 @@ els.unlinkedMovements?.addEventListener('click', async e => {
 });
 
 async function initApp() {
+  sanitizeLocationUrl();
   auth.loadStoredConfig();
   setTheme(state.theme);
   auth.setAuthUI(false);

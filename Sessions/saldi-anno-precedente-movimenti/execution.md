@@ -26,6 +26,11 @@
 ## Deviations from plan
 
 - Operatore ha chiarito: saldo si **somma al totale da pagare** ma **non modifica** preventivo/consuntivo iniziale; UI/PDF evidenziano **Extra da pagare** vs **Sconto / credito riportato**.
+- Post Devil's Advocate: fix credenziali in URL (`js/url-sanitize.js`, routing hash, sanitizer inline `index.html`); listener `priorBalancesTable` per edit/delete.
+
+## Security note
+
+La password esposta in URL di produzione va **cambiata** su Supabase dopo il deploy del fix.
 
 ## Manual verification performed
 

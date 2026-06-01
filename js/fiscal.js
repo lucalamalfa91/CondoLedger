@@ -66,38 +66,26 @@ export function getNextPeriod(house, periodId) {
   return sorted[idx + 1];
 }
 
-/** Versamenti nell'esercizio successivo che saldano il consuntivo di periodId. */
+/** Versamenti sul dovuto di riporto (preventivo) nell'esercizio successivo. */
 export function sumConsuntivoSettlementFromNextPeriod(house, periodId) {
   const next = getNextPeriod(house, periodId);
   if (!next) return 0;
-
-  const used = new Set();
-  let sum = 0;
-
-  for (const p of house.payments) {
-    if (String(p.fiscalPeriodId) !== String(next.id)) continue;
-    if (!p.carryFromPeriodId || String(p.carryFromPeriodId) !== String(periodId)) continue;
-    used.add(p.id);
-    sum += Number(p.amount || 0);
-  }
 
   const carryDue = house.dues.find(d =>
     String(d.fiscalPeriodId) === String(next.id) &&
     d.carryFromPeriodId &&
     String(d.carryFromPeriodId) === String(periodId)
   );
-  if (carryDue) {
-    const prefix = `${carryDue.id}:`;
-    for (const p of house.payments) {
-      if (used.has(p.id)) continue;
-      if (String(p.fiscalPeriodId) !== String(next.id)) continue;
-      const key = p.installmentKey || '';
-      if (!key.startsWith(prefix)) continue;
-      used.add(p.id);
-      sum += Number(p.amount || 0);
-    }
-  }
+  if (!carryDue) return 0;
 
+  const prefix = `${carryDue.id}:`;
+  let sum = 0;
+  for (const p of house.payments) {
+    if (String(p.fiscalPeriodId) !== String(next.id)) continue;
+    const key = p.installmentKey || '';
+    if (!key.startsWith(prefix)) continue;
+    sum += Number(p.amount || 0);
+  }
   return sum;
 }
 

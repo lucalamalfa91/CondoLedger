@@ -17,8 +17,8 @@ export function priorBalancePresentation(amount) {
   return { kind: 'zero', label: '—', badgeCls: '', amountCls: '' };
 }
 
-export function computeTotalToPay(preventivoBase, priorAmount) {
-  return Math.round((Number(preventivoBase || 0) + Number(priorAmount || 0)) * 100) / 100;
+export function computeTotalToPay(baseAmount, priorAmount) {
+  return Math.round((Number(baseAmount || 0) + Number(priorAmount || 0)) * 100) / 100;
 }
 
 export function buildSituazioneReport(house, fiscalPeriodId) {
@@ -37,8 +37,18 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
 
   const carryDues = preventivoDues.filter(d => d.carryFromPeriodId);
   const priorBalance = getPriorBalanceForPeriod(house, fiscalPeriodId);
+  const priorAmount = priorBalance ? Number(priorBalance.amount) : 0;
   const preventivoBase = totalsRow?.preventivo ?? 0;
-  const totalToPay = priorBalance ? computeTotalToPay(preventivoBase, priorBalance.amount) : null;
+  const consuntivoBase = totalsRow?.consuntivo ?? 0;
+  const paidTotal = totalsRow?.paid ?? sumPaid(house, fiscalPeriodId);
+  const totalToPayPreventivo = priorBalance ? computeTotalToPay(preventivoBase, priorAmount) : null;
+  const totalToPayConsuntivo = priorBalance ? computeTotalToPay(consuntivoBase, priorAmount) : null;
+  const balanceVsTotalPreventivo = totalToPayPreventivo != null
+    ? Math.round((paidTotal - totalToPayPreventivo) * 100) / 100
+    : null;
+  const balanceVsTotalConsuntivo = totalToPayConsuntivo != null
+    ? Math.round((paidTotal - totalToPayConsuntivo) * 100) / 100
+    : null;
   const priorBalanceWarning = priorBalance && carryDues.length
     ? 'Attenzione: sono presenti sia un saldo precedente dedicato sia riporti su preventivo per questo esercizio.'
     : null;
@@ -52,13 +62,18 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
     preventivoDues,
     carryDues,
     priorBalance,
+    priorAmount,
     preventivoBase,
-    totalToPay,
+    consuntivoBase,
+    totalToPayPreventivo,
+    totalToPayConsuntivo,
+    balanceVsTotalPreventivo,
+    balanceVsTotalConsuntivo,
     priorBalanceWarning,
     slotsTotalDue,
     slotsTotalPaid,
     slotsBalance: slotsTotalPaid - slotsTotalDue,
-    paidTotal: totalsRow?.paid ?? sumPaid(house, fiscalPeriodId),
+    paidTotal,
     unlinkedPayments,
     periodPayments
   };

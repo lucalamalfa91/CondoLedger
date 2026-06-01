@@ -2,6 +2,7 @@ import { STORAGE_KEY } from './config.js';
 import { loadFromSupabase } from './api.js';
 import { state } from './state.js';
 import { toastError } from './toast.js';
+import { clearUrlSearch, sanitizeLocationUrl } from './url-sanitize.js';
 
 async function loadHouseData() {
   try {
@@ -36,8 +37,8 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
   }
 
   function clearAuthParamsFromUrl() {
-    if (!window.location.hash && !window.location.search) return;
-    history.replaceState(null, '', window.location.pathname);
+    sanitizeLocationUrl();
+    clearUrlSearch();
   }
 
   function validatePasswordPair(password, confirm) {
@@ -157,6 +158,7 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
       state.user = data.user;
       saveStoredConfig();
       els.loginPassword.value = '';
+      clearAuthParamsFromUrl();
       setStatus(state.user.email);
       setAuthUI(true);
       setView('panoramica');

@@ -24,7 +24,9 @@ export const state = {
 };
 
 export function activeHouse() {
-  return state.data.houses.find(h => h.id === state.selectedHouseId) || null;
+  const sid = state.selectedHouseId != null ? String(state.selectedHouseId) : null;
+  if (!sid) return null;
+  return state.data.houses.find(h => String(h.id) === sid) || null;
 }
 
 export function createLocalHouse() {

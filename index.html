@@ -8,6 +8,22 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/app.css" />
+  <script>
+    (function () {
+      try {
+        var u = new URL(location.href);
+        var keys = ['email', 'password', 'passwordConfirm', 'passwd', 'pwd'];
+        var dirty = false;
+        keys.forEach(function (k) {
+          if (u.searchParams.has(k)) { u.searchParams.delete(k); dirty = true; }
+        });
+        if (dirty) {
+          var q = u.searchParams.toString();
+          history.replaceState(null, '', u.pathname + (q ? '?' + q : '') + u.hash);
+        }
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
 </head>
 <body>
   <a class="skip-link" href="#mainContent">Vai al contenuto</a>
@@ -21,7 +37,7 @@
           <div class="login-subtitle">Accedi per gestire i tuoi immobili</div>
         </div>
       </div>
-      <form id="loginForm" class="login-form" method="post" action="">
+      <form id="loginForm" class="login-form" method="post" action="#" novalidate>
         <div id="loginError" class="login-error hidden" role="alert"></div>
         <div>
           <label for="loginEmail">Email</label>
@@ -208,7 +224,7 @@
             <aside class="split-form-pane versamenti-form-pane card stack" id="paymentFormPane">
               <section id="paymentGuidePanel" class="payment-guide-panel" aria-live="polite"></section>
               <div class="panel-head form-sheet-head">
-                <div><h2>Nuovo versamento</h2><p class="subtle">Registra un pagamento o un riporto (importo negativo).</p></div>
+                <div><h2>Nuovo versamento</h2><p class="subtle">Registra un pagamento verso una rata dell'esercizio.</p></div>
                 <button class="icon-btn form-sheet-close hidden" type="button" id="closePaymentFormSheet" aria-label="Chiudi modulo">×</button>
               </div>
               <form id="paymentForm" class="stack">
@@ -217,16 +233,10 @@
                   <div><label for="paymentInstallment">Rata</label><select id="paymentInstallment" name="installmentKey" required></select></div>
                 </div>
                 <div class="field-grid">
-                  <div><label for="paymentAmount">Importo</label><input id="paymentAmount" name="amount" type="number" step="0.01" required /><p class="hint">Negativo per eccedenza / riporto.</p></div>
+                  <div><label for="paymentAmount">Importo</label><input id="paymentAmount" name="amount" type="number" step="0.01" required /><p class="hint">Negativo solo per eccedenza versata.</p></div>
                   <div><label for="paymentDate">Data versamento</label><input id="paymentDate" name="date" type="date" /></div>
                 </div>
                 <div><label for="paymentMethod">Metodo</label><input id="paymentMethod" name="method" type="text" placeholder="Bonifico, contanti..." /></div>
-                <button class="btn btn-secondary btn-sm payment-carry-toggle" type="button" id="paymentCarryToggle">Mostra saldo consuntivo precedente</button>
-                <div class="payment-carry-wrap hidden" id="paymentCarryWrap">
-                  <label for="paymentCarryFrom">Saldare consuntivo di</label>
-                  <select id="paymentCarryFrom" name="carryFromPeriodId"><option value="">— Nessuno (versamento ordinario) —</option></select>
-                  <p class="hint">Usa solo se questo versamento chiude il consuntivo dell'esercizio precedente.</p>
-                </div>
                 <input id="paymentEditId" name="editId" type="hidden" />
                 <div class="form-actions">
                   <button class="btn btn-primary" id="paymentSubmitBtn" type="submit">Salva versamento</button>
@@ -348,7 +358,7 @@
                 <button class="btn btn-primary" id="bankImportConfirm" type="button">Conferma import selezionati</button>
                 <div class="panel-head"><div><h3>Import salvati</h3></div></div>
                 <div class="data-table-wrap" id="bankImportBatches"></div>
-                <button class="btn btn-danger" id="bankImportDeleteAll" type="button">Elimina tutti gli import banca</button>
+                <button class="btn btn-danger" id="bankImportDeleteAll" type="button">Elimina import non associati a un dovuto</button>
               </div>
               <div class="split-content-pane import-stack">
                 <div class="panel-head"><div><h3>Anteprima movimenti banca</h3></div></div>

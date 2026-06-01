@@ -67,16 +67,29 @@ function paymentPdfRows(house, payments) {
   });
 }
 
-function priorBalanceSummaryRows(report) {
+function priorBalanceSummaryRows(report, mode = 'both') {
   if (!report.priorBalance) return [];
   const pres = priorBalancePresentation(report.priorBalance.amount);
-  const rows = [];
-  if ((report.preventivoBase ?? 0) > 0.005) {
-    rows.push([cell('Preventivo iniziale (voci)'), cell(pdfFmt(report.preventivoBase))]);
+  const rows = [[cell(`Saldo precedente (${pres.label})`), cell(pdfFmt(report.priorBalance.amount))]];
+
+  if (mode === 'both' && (report.preventivoBase ?? 0) > 0.005) {
+    rows.unshift([cell('Preventivo iniziale (voci)'), cell(pdfFmt(report.preventivoBase))]);
   }
-  rows.push([cell(`Saldo precedente (${pres.label})`), cell(pdfFmt(report.priorBalance.amount))]);
-  if (report.totalToPay != null) {
-    rows.push([cell('Totale da pagare'), cell(pdfFmt(report.totalToPay))]);
+  if (mode === 'both' && (report.consuntivoBase ?? 0) > 0.005) {
+    const idx = mode === 'both' && (report.preventivoBase ?? 0) > 0.005 ? 1 : 0;
+    rows.splice(idx, 0, [cell('Consuntivo iniziale (voci)'), cell(pdfFmt(report.consuntivoBase))]);
+  }
+
+  if ((mode === 'both' || mode === 'preventivo') && report.totalToPayPreventivo != null && (report.preventivoBase ?? 0) > 0.005) {
+    rows.push([cell('Totale da pagare (preventivo)'), cell(pdfFmt(report.totalToPayPreventivo))]);
+  }
+  if ((mode === 'both' || mode === 'consuntivo') && report.totalToPayConsuntivo != null && (report.consuntivoBase ?? 0) > 0.005) {
+    rows.push([cell('Totale da pagare (consuntivo)'), cell(pdfFmt(report.totalToPayConsuntivo))]);
+  }
+  if (report.totalToPayPreventivo != null
+    && (report.preventivoBase ?? 0) <= 0.005
+    && (report.consuntivoBase ?? 0) <= 0.005) {
+    rows.push([cell('Totale da pagare'), cell(pdfFmt(report.totalToPayPreventivo))]);
   }
   return rows;
 }
@@ -101,7 +114,7 @@ function renderPriorBalancePdfSection(doc, autoTable, house, report, startY) {
   y = doc.lastAutoTable.finalY + 4;
   doc.setFontSize(8);
   doc.text(
-    cell('Voce di apertura esercizio: non modifica il preventivo iniziale; si somma al totale da pagare.'),
+    cell('Voce di apertura esercizio: non modifica le voci iniziali; si somma al totale da pagare su preventivo e consuntivo.'),
     14,
     y + 2,
     { maxWidth: 180 }
@@ -116,21 +129,13 @@ function renderPreventivoPdf(doc, autoTable, report, totalsRow) {
   const slotsStatus = situazioneStatusLabel(report.slotsBalance ?? 0);
 
   const summaryBody = [
-    [cell('Preventivo iniziale (totale voci)'), cell(pdfFmt(totalsRow?.preventivo ?? 0))]
-  ];
-  if (report.priorBalance) {
-    const pres = priorBalancePresentation(report.priorBalance.amount);
-    summaryBody.push([cell(`Saldo precedente (${pres.label})`), cell(pdfFmt(report.priorBalance.amount))]);
-    if (report.totalToPay != null) {
-      summaryBody.push([cell('Totale da pagare'), cell(pdfFmt(report.totalToPay))]);
-    }
-  }
-  summaryBody.push(
+    [cell('Preventivo iniziale (totale voci)'), cell(pdfFmt(totalsRow?.preventivo ?? 0))],
+    ...priorBalanceSummaryRows(report, 'preventivo'),
     [cell('Totale versato'), cell(pdfFmt(totalsRow?.paid ?? 0))],
     [cell('Saldo su rate preventivo'), cell(pdfFmt(report.slotsBalance))],
     [cell('Saldo su preventivo (versato - preventivo)'), cell(`${pdfFmt(totalsRow?.balancePreventivo ?? 0)} - ${prevStatus.text}`)],
     [cell('Saldo rate (versato - dovuto rate)'), cell(`${pdfFmt(report.slotsBalance)} - ${slotsStatus.text}`)]
-  );
+  ];
 
   autoTable(doc, {
     startY: y,
@@ -162,7 +167,7 @@ function renderPreventivoPdf(doc, autoTable, report, totalsRow) {
           cell(pay.method || '-'),
           '',
           cell(pdfFmt(pay.amount)),
-          cell(pay.isCarryForward ? 'Riporto' : '')
+          cell('')
         ]);
       }
     }
@@ -227,13 +232,17 @@ function renderPreventivoPdf(doc, autoTable, report, totalsRow) {
 function renderConsuntivoPdf(doc, autoTable, report, totalsRow) {
   const house = report.house;
   let y = renderPdfHeader(doc, house, report.period, 'Situazione consuntiva - spese condominiali');
-  const consStatus = situazioneStatusLabel(totalsRow?.balanceConsuntivo ?? 0);
+  const consBal = report.priorBalance && report.balanceVsTotalConsuntivo != null
+    ? report.balanceVsTotalConsuntivo
+    : (totalsRow?.balanceConsuntivo ?? 0);
+  const consStatus = situazioneStatusLabel(consBal);
 
   const summaryBody = [
-    [cell('Consuntivo (totale voci)'), cell(pdfFmt(totalsRow?.consuntivo ?? 0))],
-    ...priorBalanceSummaryRows(report),
+    [cell('Consuntivo iniziale (totale voci)'), cell(pdfFmt(totalsRow?.consuntivo ?? 0))],
+    ...priorBalanceSummaryRows(report, 'consuntivo'),
     [cell('Totale versato'), cell(pdfFmt(totalsRow?.paid ?? 0))],
-    [cell('Saldo consuntivo (versato - consuntivo)'), cell(`${pdfFmt(totalsRow?.balanceConsuntivo ?? 0)} - ${consStatus.text}`)]
+    [cell(report.priorBalance ? 'Saldo (versato - totale da pagare)' : 'Saldo consuntivo (versato - consuntivo)'),
+      cell(`${pdfFmt(consBal)} - ${consStatus.text}`)]
   ];
 
   autoTable(doc, {
@@ -259,11 +268,10 @@ function renderConsuntivoPdf(doc, autoTable, report, totalsRow) {
     });
     y = doc.lastAutoTable.finalY + 4;
     doc.setFontSize(9);
-    doc.text(
-      cell(`Totale consuntivo: ${pdfFmt(report.consuntivoTotal)} | Versato esercizio: ${pdfFmt(report.paidTotal)} | Saldo: ${pdfFmt(totalsRow?.balanceConsuntivo ?? 0)}`),
-      14,
-      y + 4
-    );
+    const consFoot = report.priorBalance && report.totalToPayConsuntivo != null
+      ? `Totale consuntivo (voci): ${pdfFmt(report.consuntivoTotal)} | Totale da pagare: ${pdfFmt(report.totalToPayConsuntivo)} | Versato: ${pdfFmt(report.paidTotal)} | Saldo: ${pdfFmt(consBal)}`
+      : `Totale consuntivo: ${pdfFmt(report.consuntivoTotal)} | Versato esercizio: ${pdfFmt(report.paidTotal)} | Saldo: ${pdfFmt(totalsRow?.balanceConsuntivo ?? 0)}`;
+    doc.text(cell(consFoot), 14, y + 4);
     y += 14;
   }
 
@@ -297,7 +305,7 @@ function renderConsuntivoPdf(doc, autoTable, report, totalsRow) {
 
   doc.setFontSize(8);
   doc.text(
-    cell('Report consuntivo: saldo = versato - consuntivo. I versamenti restano sulle rate preventivo; contano anche sul consuntivo dell\'esercizio.'),
+    cell('Report consuntivo: con saldo precedente, saldo = versato - totale da pagare (consuntivo + saldo prec.).'),
     14,
     Math.min(y + 4, 285),
     { maxWidth: 180 }

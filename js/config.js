@@ -2,7 +2,7 @@ export const STORAGE_KEY = 'spese-condominiali-supabase-config';
 export const DEFAULT_SUPABASE_URL = 'https://cwvwfrrknmjwdpcnqvhv.supabase.co';
 export const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3dndmcnJrbm1qd2RwY25xdmh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5NzgxOTYsImV4cCI6MjA5NTU1NDE5Nn0.KrNu8Wb-rjTaG9p6IV8FL3fLpjbd_NrxVPGqVKjbxAA';
 
-export const JSON_SCHEMA_VERSION = 4;
+export const JSON_SCHEMA_VERSION = 5;
 
 export const MATCH_THRESHOLD_SUGGEST = 0.88;
 export const MATCH_THRESHOLD_MIN = 0.50;
@@ -43,6 +43,7 @@ export const viewMeta = {
       versamenti: ['Versamenti', 'Pagamenti registrati'],
       'import-doc': ['Import doc.', 'Documento amministratore'],
       'import-banca': ['Import banca', 'Estratto conto Banca Intesa'],
+      'saldi-precedenti': ['Saldi precedenti', 'Apertura esercizio'],
       situazione: ['Situazione', 'Saldi per esercizio']
     }
   },

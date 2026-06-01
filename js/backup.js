@@ -34,6 +34,12 @@ export function exportBackup(data) {
         carryFromPeriodId: p.carryFromPeriodId || null,
         isCarryForward: Boolean(p.isCarryForward),
         fiscalPeriodLabel: resolvePeriodLabel(house, p.fiscalPeriodId)
+      })),
+      priorBalances: (house.priorBalances || []).map(b => ({
+        amount: b.amount,
+        description: b.description || '',
+        fiscalPeriodLabel: resolvePeriodLabel(house, b.fiscalPeriodId),
+        sourcePeriodLabel: b.sourcePeriodId ? resolvePeriodLabel(house, b.sourcePeriodId) : null
       }))
     }))
   };
@@ -47,10 +53,23 @@ function resolvePeriodLabel(house, periodId) {
 export function parseBackup(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Formato backup non valido');
   if (raw.schemaVersion === JSON_SCHEMA_VERSION) return raw;
-  if (raw.schemaVersion === 3) return migrateV3ToV4(raw);
-  if (raw.schemaVersion === 2) return migrateV3ToV4(migrateV2ToV3(raw));
-  if (!raw.schemaVersion && Array.isArray(raw.houses)) return migrateLegacyV1(raw);
+  if (raw.schemaVersion === 4) return migrateV4ToV5(raw);
+  if (raw.schemaVersion === 3) return migrateV4ToV5(migrateV3ToV4(raw));
+  if (raw.schemaVersion === 2) return migrateV4ToV5(migrateV3ToV4(migrateV2ToV3(raw)));
+  if (!raw.schemaVersion && Array.isArray(raw.houses)) return migrateV4ToV5(migrateLegacyV1(raw));
   throw new Error(`Versione backup non supportata: ${raw.schemaVersion ?? 'sconosciuta'}`);
+}
+
+function migrateV4ToV5(raw) {
+  return {
+    ...raw,
+    schemaVersion: JSON_SCHEMA_VERSION,
+    migratedFrom: raw.migratedFrom ? `${raw.migratedFrom}+v5` : 'v5',
+    houses: (raw.houses || []).map(h => ({
+      ...h,
+      priorBalances: h.priorBalances || []
+    }))
+  };
 }
 
 function migrateV3ToV4(raw) {

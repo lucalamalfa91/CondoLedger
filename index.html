@@ -153,6 +153,7 @@
         <nav class="sub-nav" role="tablist" aria-label="Sezioni movimenti">
           <button class="sub-nav-btn active" type="button" role="tab" data-view="movimenti" data-subview="dovuti" aria-selected="true">Dovuti</button>
           <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="versamenti" aria-selected="false">Versamenti</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="saldi-precedenti" aria-selected="false">Saldi prec.</button>
           <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="import-doc" aria-selected="false">Import doc.</button>
           <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="import-banca" aria-selected="false">Import banca</button>
           <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="situazione" aria-selected="false">Situazione</button>
@@ -244,6 +245,48 @@
               </div>
               <div class="payments-summary" id="paymentsSummary" aria-live="polite"></div>
               <div class="data-table-wrap versamenti-table-scroll" id="paymentsTable"></div>
+            </section>
+          </div>
+        </div>
+        <div class="subview" data-subview-panel="saldi-precedenti" role="tabpanel">
+          <div class="form-sheet-backdrop hidden" id="priorBalanceFormPaneBackdrop" aria-hidden="true"></div>
+          <div class="split-layout split-layout--list-first">
+            <aside class="split-form-pane card stack" id="priorBalanceFormPane">
+              <div class="panel-head form-sheet-head">
+                <div><h2>Saldo anno precedente</h2><p class="subtle">Apertura esercizio — non è un dovuto né un versamento.</p></div>
+                <button class="icon-btn form-sheet-close hidden" type="button" id="closePriorBalanceFormSheet" aria-label="Chiudi modulo">×</button>
+              </div>
+              <form id="priorBalanceForm" class="stack">
+                <div class="field-grid">
+                  <div>
+                    <label for="priorBalancePeriod">Esercizio fiscale</label>
+                    <select id="priorBalancePeriod" name="fiscalPeriodId" required></select>
+                    <p class="hint">Esercizio a cui si applica il saldo di apertura.</p>
+                  </div>
+                  <div>
+                    <label for="priorBalanceSourcePeriod">Da esercizio (opzionale)</label>
+                    <select id="priorBalanceSourcePeriod" name="sourcePeriodId"><option value="">— Non indicato —</option></select>
+                  </div>
+                  <div>
+                    <label for="priorBalanceAmount">Importo</label>
+                    <input id="priorBalanceAmount" name="amount" type="number" step="0.01" required />
+                    <p class="hint">Positivo = extra da pagare; negativo = sconto / credito riportato.</p>
+                  </div>
+                </div>
+                <div><label for="priorBalanceDescription">Descrizione</label><input id="priorBalanceDescription" name="description" type="text" placeholder="Saldo precedente, credito riportato..." /></div>
+                <input id="priorBalanceEditId" name="editId" type="hidden" />
+                <div class="form-actions">
+                  <button class="btn btn-primary" id="priorBalanceSubmitBtn" type="submit">Salva saldo</button>
+                  <button class="btn btn-secondary hidden" id="priorBalanceFormCancel" type="button">Annulla modifica</button>
+                </div>
+              </form>
+            </aside>
+            <section class="split-content-pane card stack data-panel">
+              <div class="panel-head">
+                <div><h2>Saldi anno precedente</h2><p class="subtle">Un saldo per esercizio. Compare in Situazione e PDF, separato da dovuti e versamenti.</p></div>
+                <button class="btn btn-primary form-sheet-open-btn" type="button" id="openPriorBalanceFormSheet">+ Saldo precedente</button>
+              </div>
+              <div class="data-table-wrap" id="priorBalancesTable"></div>
             </section>
           </div>
         </div>

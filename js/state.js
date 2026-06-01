@@ -38,6 +38,7 @@ export function createLocalHouse() {
     fiscalPeriods: [],
     dues: [],
     payments: [],
+    priorBalances: [],
     bankMovements: []
   };
 }
@@ -46,7 +47,7 @@ function uid(prefix) {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export function mapHouseFromDb(house, dues, payments, periods, movements) {
+export function mapHouseFromDb(house, dues, payments, periods, movements, priorBalances) {
   return {
     id: String(house.id),
     name: house.name,
@@ -82,6 +83,13 @@ export function mapHouseFromDb(house, dues, payments, periods, movements) {
       carryFromPeriodId: p.carry_from_period_id ? String(p.carry_from_period_id) : null,
       isCarryForward: Boolean(p.is_carry_forward),
       bankMovementId: p.bank_movement_id ? String(p.bank_movement_id) : null
+    })),
+    priorBalances: (priorBalances || []).map(b => ({
+      id: String(b.id),
+      fiscalPeriodId: String(b.fiscal_period_id),
+      sourcePeriodId: b.source_period_id ? String(b.source_period_id) : null,
+      amount: Number(b.amount),
+      description: b.description || ''
     })),
     bankMovements: (movements || []).map(m => ({
       id: String(m.id),

@@ -218,6 +218,9 @@
     .situazione-section { min-width: 0; }
     .situazione-section-title { font-size: var(--text-sm); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--color-text-muted); margin: 0 0 var(--space-3); }
     .situazione-section .table-scroll, .situazione-section .data-table-wrap { max-height: min(45vh, 400px); min-height: 10rem; }
+    .prior-balance-box { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-4); background: color-mix(in srgb, var(--color-surface) 92%, var(--color-accent) 8%); }
+    .prior-balance-box .prior-balance-total-row th, .prior-balance-box .prior-balance-total-row td { border-top: 2px solid var(--color-border); padding-top: var(--space-3); }
+    .prior-balance-box .hint.warn { color: var(--color-warning); }
     .house-import-parties {
       margin-top: var(--space-2);
       padding: var(--space-4);

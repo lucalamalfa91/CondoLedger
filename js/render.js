@@ -8,7 +8,8 @@ import {
   periodSummary,
   totals,
   findPeriodByDate,
-  defaultFiscalLabel
+  defaultFiscalLabel,
+  getPreviousPeriod
 } from './fiscal.js';
 import {
   SPLIT_MODES,
@@ -27,6 +28,9 @@ import {
   hasConsuntivoReport,
   hasPaymentsOnlyReport,
   hasPreventivoReport,
+  hasPriorBalanceReport,
+  priorBalancePresentation,
+  priorBalanceSourceLabel,
   resolveSituazionePdfKind,
   situazioneStatusLabel
 } from './situazione-report.js';
@@ -320,8 +324,43 @@ export function createRenderer(els) {
     }
   }
 
+  function syncPriorBalancePeriodSelect(house, preferredPeriodId = null, preferredSourceId = null) {
+    if (!els.priorBalancePeriod) return;
+    const sel = preferredPeriodId || els.priorBalancePeriod.value;
+    els.priorBalancePeriod.innerHTML = house.fiscalPeriods.length
+      ? periodOptions(house, sel)
+      : '<option value="">— Crea un esercizio fiscale —</option>';
+    if (sel && house.fiscalPeriods.some(p => p.id === sel)) {
+      els.priorBalancePeriod.value = sel;
+    }
+    syncPriorBalanceSourceSelect(house, preferredSourceId);
+  }
+
+  function syncPriorBalanceSourceSelect(house, preferredSourceId = null) {
+    if (!els.priorBalanceSourcePeriod) return;
+    const periodId = els.priorBalancePeriod?.value || '';
+    const current = preferredSourceId || els.priorBalanceSourcePeriod.value || '';
+    const prev = periodId ? getPreviousPeriod(house, periodId) : null;
+    const defaultSource = prev?.id || current;
+    const sorted = [...house.fiscalPeriods].sort((a, b) =>
+      String(a.startDate).localeCompare(String(b.startDate))
+    );
+    const periodIdx = sorted.findIndex(p => String(p.id) === String(periodId));
+    const candidates = periodIdx > 0 ? sorted.slice(0, periodIdx) : sorted.filter(p => String(p.id) !== String(periodId));
+    const opts = candidates.map(p =>
+      `<option value="${p.id}" ${p.id === defaultSource ? 'selected' : ''}>${p.label}</option>`
+    ).join('');
+    els.priorBalanceSourcePeriod.innerHTML = '<option value="">— Non indicato —</option>' + opts;
+    if (current && candidates.some(p => p.id === current)) {
+      els.priorBalanceSourcePeriod.value = current;
+    } else if (defaultSource && candidates.some(p => p.id === defaultSource)) {
+      els.priorBalanceSourcePeriod.value = defaultSource;
+    }
+  }
+
   function renderPeriodSelects(house) {
     syncDuePeriodSelect(house);
+    syncPriorBalancePeriodSelect(house);
     if (els.dueSplitMode && !els.dueEditId?.value) els.dueSplitMode.value = 'monthly';
     if (els.dueKind && !els.dueEditId?.value) els.dueKind.value = 'preventivo';
     syncDueKindFields();
@@ -503,6 +542,29 @@ export function createRenderer(els) {
     els.paymentsTable.innerHTML = dataListHtml(tableHtml, cardsHtml);
   }
 
+  function renderPriorBalances(house) {
+    if (!els.priorBalancesTable) return;
+    const items = [...(house.priorBalances || [])].sort((a, b) =>
+      periodLabel(house, b.fiscalPeriodId).localeCompare(periodLabel(house, a.fiscalPeriodId))
+    );
+    if (!items.length) {
+      els.priorBalancesTable.innerHTML = emptyListHtml('Nessun saldo precedente registrato.');
+      return;
+    }
+    const rows = items.map(item => {
+      const pres = priorBalancePresentation(item.amount);
+      const ex = periodLabel(house, item.fiscalPeriodId);
+      const src = priorBalanceSourceLabel(house, item);
+      const srcNote = src !== '—' ? ` <span class="muted">(da ${src})</span>` : '';
+      const tableRow = `<tr><td>${ex}</td><td><span class="badge ${pres.badgeCls}">${pres.label}</span>${srcNote}</td><td>${item.description || '—'}</td><td class="amount ${pres.amountCls}">${fmt(item.amount)}</td><td>${rowActions('prior-balance', item.id)}</td></tr>`;
+      const card = `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${ex} · ${pres.label}${srcNote}</div><div class="data-card-meta">${item.description || '—'}</div></div><div class="data-card-amount amount ${pres.amountCls}">${fmt(item.amount)}</div></div><div class="data-card-actions">${rowActions('prior-balance', item.id)}</div></article>`;
+      return { tableRow, card };
+    });
+    const tableHtml = `<table><thead><tr><th>Esercizio</th><th>Tipo</th><th>Descrizione</th><th>Importo</th><th></th></tr></thead><tbody>${rows.map(r => r.tableRow).join('')}</tbody></table>`;
+    const cardsHtml = rows.map(r => r.card).join('');
+    els.priorBalancesTable.innerHTML = dataListHtml(tableHtml, cardsHtml);
+  }
+
   function renderDashboardPayments(house) {
     if (!els.dashboardPayments) return;
     const periodId = els.periodFilter?.value;
@@ -539,15 +601,42 @@ export function createRenderer(els) {
       ? `${cons.text} (lordo ${fmt(totalsRow.balanceConsuntivoRaw)})`
       : cons.text;
     const chips = [
-      ['Preventivo', fmt(totalsRow?.preventivo ?? 0), 'Totale voci'],
+      ['Preventivo', fmt(totalsRow?.preventivo ?? 0), 'Totale voci (iniziale)'],
       ['Consuntivo', fmt(totalsRow?.consuntivo ?? 0), 'Addebiti consuntivi'],
       ['Versato', fmt(totalsRow?.paid ?? 0), `${report.periodPayments.length} movimenti`],
       ['Saldo consuntivo', fmt(consBal), consFoot, cons.cls],
       ['Saldo rate prev.', fmt(report.slotsBalance), 'Versato − rate', report.slotsBalance >= 0 ? 'positive' : 'negative']
     ];
+    if (report.priorBalance) {
+      const pres = priorBalancePresentation(report.priorBalance.amount);
+      chips.push(['Saldo precedente', fmt(report.priorBalance.amount), pres.label, pres.amountCls]);
+      if (report.totalToPay != null && (report.preventivoBase ?? 0) > 0.005) {
+        chips.push(['Totale da pagare', fmt(report.totalToPay), 'Preventivo + saldo prec.', '']);
+      }
+    }
     return chips.map(([label, value, foot, status]) =>
       `<div class="metric-chip"><span class="muted">${label}</span><strong class="${status || ''}">${value}</strong><span class="hint">${foot}</span></div>`
     ).join('');
+  }
+
+  function renderPriorBalanceSection(house, report) {
+    if (!report.priorBalance) return '';
+    const pb = report.priorBalance;
+    const pres = priorBalancePresentation(pb.amount);
+    const src = priorBalanceSourceLabel(house, pb);
+    const base = report.preventivoBase ?? 0;
+    const totalHint = base > 0.005
+      ? `Preventivo iniziale ${fmt(base)} ${pb.amount >= 0 ? '+' : '−'} saldo precedente`
+      : 'Saldo di apertura esercizio';
+    const totalRow = report.totalToPay != null
+      ? `<tr class="prior-balance-total-row"><th colspan="3">Totale da pagare</th><td class="amount"><strong>${fmt(report.totalToPay)}</strong><div class="hint">${totalHint}</div></td></tr>`
+      : '';
+    const baseRow = base > 0.005
+      ? `<tr><th colspan="3">Preventivo iniziale (voci)</th><td class="amount">${fmt(base)}</td></tr>`
+      : '';
+    const warning = report.priorBalanceWarning
+      ? `<p class="hint warn">${report.priorBalanceWarning}</p>` : '';
+    return `<div class="situazione-section prior-balance-box"><h3 class="situazione-section-title">Saldi anno precedente</h3><p class="hint subtle">Voce di apertura esercizio: non modifica l&apos;importo preventivo iniziale; si somma al totale da pagare.</p>${warning}<div class="data-table-wrap"><table><thead><tr><th>Tipo</th><th>Da esercizio</th><th>Descrizione</th><th>Importo</th></tr></thead><tbody><tr><td><span class="badge ${pres.badgeCls}">${pres.label}</span></td><td>${src}</td><td>${pb.description || 'Saldo precedente'}</td><td class="amount ${pres.amountCls}">${fmt(pb.amount)}</td></tr></tbody><tfoot>${baseRow}${totalRow}</tfoot></table></div></div>`;
   }
 
   function renderRateTable(slots) {
@@ -623,9 +712,10 @@ export function createRenderer(els) {
     const report = buildSituazioneReport(house, periodId);
     const hasCons = hasConsuntivoReport(report);
     const hasPrev = hasPreventivoReport(report);
+    const hasPrior = hasPriorBalanceReport(report);
     const both = hasCons && hasPrev;
     els.situazionePdfKind.classList.toggle('hidden', !both);
-    els.situazionePdfBtn?.toggleAttribute('disabled', !hasCons && !hasPrev);
+    els.situazionePdfBtn?.toggleAttribute('disabled', !hasCons && !hasPrev && !hasPrior);
 
     const resolved = resolveSituazionePdfKind(report, els.situazionePdfKind.value);
     els.situazionePdfKind.value = resolved || defaultSituazionePdfKind(report) || 'consuntivo';
@@ -655,7 +745,8 @@ export function createRenderer(els) {
     const totalsRow = report.totalsRow;
     syncSituazionePdfKind(house, periodId);
     const paymentsOnly = hasPaymentsOnlyReport(report);
-    if (!hasConsuntivoReport(report) && !hasPreventivoReport(report) && !paymentsOnly) {
+    const hasPrior = hasPriorBalanceReport(report);
+    if (!hasConsuntivoReport(report) && !hasPreventivoReport(report) && !paymentsOnly && !hasPrior) {
       if (els.situazioneSummary) els.situazioneSummary.innerHTML = '';
       els.situazioneSections.innerHTML = '<div class="empty">Nessun preventivo/consuntivo per questo esercizio.</div>';
       return;
@@ -665,6 +756,7 @@ export function createRenderer(els) {
       els.situazioneSummary.innerHTML = renderSituazioneSummaryChips(house, totalsRow, report);
     }
     els.situazioneSections.innerHTML = [
+      renderPriorBalanceSection(house, report),
       renderRateTable(report.slots),
       renderConsuntivoSection(report, totalsRow),
       renderConsuntivoPaymentsSection(house, report),
@@ -1235,6 +1327,7 @@ export function createRenderer(els) {
     safe('postImportBanner', () => renderPostImportBanner());
     safe('dues', () => renderDues(house));
     safe('payments', () => renderPayments(house));
+    safe('priorBalances', () => renderPriorBalances(house));
     safe('dashboardPayments', () => renderDashboardPayments(house));
     safe('situazione', () => renderSituazione(house));
     safe('movements', () => renderMovements(house));
@@ -1256,6 +1349,8 @@ export function createRenderer(els) {
     syncPaymentPeriodSelect,
     syncPaymentCarryFromSelect,
     syncPaymentInstallmentSelect,
+    syncPriorBalancePeriodSelect,
+    syncPriorBalanceSourceSelect,
     syncDueKindFields,
     syncDuePeriodSelect,
     applyPaymentSmartAmount,
@@ -1378,6 +1473,16 @@ export function collectDom() {
     paymentFilterYear: document.getElementById('paymentFilterYear'),
     paymentFilterMonth: document.getElementById('paymentFilterMonth'),
     paymentsSummary: document.getElementById('paymentsSummary'),
+    priorBalanceForm: document.getElementById('priorBalanceForm'),
+    priorBalancePeriod: document.getElementById('priorBalancePeriod'),
+    priorBalanceSourcePeriod: document.getElementById('priorBalanceSourcePeriod'),
+    priorBalanceEditId: document.getElementById('priorBalanceEditId'),
+    priorBalanceSubmitBtn: document.getElementById('priorBalanceSubmitBtn'),
+    priorBalanceFormCancel: document.getElementById('priorBalanceFormCancel'),
+    priorBalancesTable: document.getElementById('priorBalancesTable'),
+    openPriorBalanceFormSheet: document.getElementById('openPriorBalanceFormSheet'),
+    closePriorBalanceFormSheet: document.getElementById('closePriorBalanceFormSheet'),
+    priorBalanceFormPaneBackdrop: document.getElementById('priorBalanceFormPaneBackdrop'),
     dashboardPayments: document.getElementById('dashboardPayments'),
     situazionePeriod: document.getElementById('situazionePeriod'),
     situazioneSummary: document.getElementById('situazioneSummary'),

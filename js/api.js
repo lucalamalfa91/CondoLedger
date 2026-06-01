@@ -36,13 +36,14 @@ export async function loadFromSupabase() {
   const mapped = [];
   for (const house of houses || []) {
     const hid = house.id;
-    const [{ data: periods }, { data: dues }, { data: payments }, { data: movements }] = await Promise.all([
+    const [{ data: periods }, { data: dues }, { data: payments }, { data: movements }, { data: priorBalances }] = await Promise.all([
       state.supabase.from('fiscal_periods').select('*').eq('house_id', hid).order('start_date', { ascending: false }),
       state.supabase.from('dues').select('*').eq('house_id', hid),
       state.supabase.from('payments').select('*').eq('house_id', hid).order('date', { ascending: false }),
-      state.supabase.from('bank_movements').select('*').eq('house_id', hid).order('movement_date', { ascending: false })
+      state.supabase.from('bank_movements').select('*').eq('house_id', hid).order('movement_date', { ascending: false }),
+      state.supabase.from('prior_balances').select('*').eq('house_id', hid)
     ]);
-    mapped.push(mapHouseFromDb(house, dues, payments, periods, movements));
+    mapped.push(mapHouseFromDb(house, dues, payments, periods, movements, priorBalances));
   }
 
   const previousId = state.selectedHouseId || sessionStorage.getItem('app:selectedHouseId');
@@ -170,6 +171,56 @@ export async function deleteDueFromSupabase(house, dueId) {
   const { error } = await state.supabase.from('dues')
     .delete()
     .eq('id', Number(dueId))
+    .eq('house_id', Number(house.id));
+  if (error) throw error;
+}
+
+export async function savePriorBalanceToSupabase(house, priorBalance) {
+  await ensureAuthenticated();
+  let periodId = priorBalance.fiscalPeriodId;
+  if (!periodId && priorBalance.fiscalPeriodLabel) {
+    const { period } = await ensureFiscalPeriodByLabel(house, priorBalance.fiscalPeriodLabel);
+    periodId = period.id;
+  }
+  if (!periodId) throw new Error('Seleziona l\'esercizio fiscale del saldo precedente.');
+  const payload = {
+    house_id: Number(house.id),
+    fiscal_period_id: Number(periodId),
+    source_period_id: priorBalance.sourcePeriodId ? Number(priorBalance.sourcePeriodId) : null,
+    amount: priorBalance.amount,
+    description: priorBalance.description || null
+  };
+  if (Number.isFinite(Number(priorBalance.id))) {
+    const { error } = await state.supabase.from('prior_balances').update({
+      fiscal_period_id: payload.fiscal_period_id,
+      source_period_id: payload.source_period_id,
+      amount: payload.amount,
+      description: payload.description
+    }).eq('id', Number(priorBalance.id)).eq('house_id', Number(house.id));
+    if (error) throw error;
+    return;
+  }
+  const existing = (house.priorBalances || []).find(b => String(b.fiscalPeriodId) === String(periodId));
+  if (existing && Number.isFinite(Number(existing.id))) {
+    const { error } = await state.supabase.from('prior_balances').update({
+      source_period_id: payload.source_period_id,
+      amount: payload.amount,
+      description: payload.description
+    }).eq('id', Number(existing.id)).eq('house_id', Number(house.id));
+    if (error) throw error;
+    priorBalance.id = existing.id;
+    return;
+  }
+  const { data, error } = await state.supabase.from('prior_balances').insert(payload).select('id').single();
+  if (error) throw error;
+  if (data?.id) priorBalance.id = String(data.id);
+}
+
+export async function deletePriorBalanceFromSupabase(house, priorBalanceId) {
+  await ensureAuthenticated();
+  const { error } = await state.supabase.from('prior_balances')
+    .delete()
+    .eq('id', Number(priorBalanceId))
     .eq('house_id', Number(house.id));
   if (error) throw error;
 }
@@ -440,6 +491,17 @@ export function createLocalPayment(formData, fiscalPeriodId, installmentKey) {
   };
 }
 
+export function createLocalPriorBalance(formData) {
+  const sourcePeriodId = String(formData.get('sourcePeriodId') || '').trim() || null;
+  return {
+    id: uid('prior'),
+    fiscalPeriodId: String(formData.get('fiscalPeriodId') || '').trim(),
+    sourcePeriodId,
+    amount: Number(formData.get('amount')),
+    description: String(formData.get('description') || '').trim()
+  };
+}
+
 export async function syncBackupToSupabase(backup) {
   await ensureAuthenticated();
 
@@ -454,6 +516,7 @@ export async function syncBackupToSupabase(backup) {
       fiscalPeriods: [],
       dues: [],
       payments: [],
+      priorBalances: [],
       bankMovements: []
     };
     await saveHouseToSupabase(house);
@@ -500,6 +563,29 @@ export async function syncBackupToSupabase(backup) {
         installment_key: payment.installmentKey || null,
         carry_from_period_id: payment.carryFromPeriodId ? Number(payment.carryFromPeriodId) : null,
         is_carry_forward: Boolean(payment.isCarryForward)
+      });
+    }
+
+    for (const prior of houseData.priorBalances || []) {
+      let period = await resolvePeriod(prior);
+      if (!period && prior.fiscalPeriodLabel) {
+        const { period: p } = await ensureFiscalPeriodByLabel(house, prior.fiscalPeriodLabel);
+        period = p;
+      }
+      if (!period) continue;
+      let sourcePeriodId = null;
+      if (prior.sourcePeriodLabel) {
+        const src = await resolvePeriod({ fiscalPeriodLabel: prior.sourcePeriodLabel });
+        sourcePeriodId = src?.id ?? null;
+      } else if (prior.sourcePeriodId) {
+        sourcePeriodId = Number(prior.sourcePeriodId);
+      }
+      await state.supabase.from('prior_balances').insert({
+        house_id: Number(house.id),
+        fiscal_period_id: Number(period.id),
+        source_period_id: sourcePeriodId,
+        amount: prior.amount,
+        description: prior.description || null
       });
     }
   }

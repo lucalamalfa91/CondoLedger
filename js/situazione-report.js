@@ -1,6 +1,26 @@
 import { periodLabel, periodSummary, sumPaid } from './fiscal.js';
 import { inferInstallmentKey, installmentSummaryForPeriod } from './installments.js';
 
+export function getPriorBalanceForPeriod(house, fiscalPeriodId) {
+  return (house.priorBalances || []).find(b => String(b.fiscalPeriodId) === String(fiscalPeriodId)) ?? null;
+}
+
+/** Positivo = extra da pagare; negativo = sconto/credito riportato. */
+export function priorBalancePresentation(amount) {
+  const n = Number(amount || 0);
+  if (n > 0.005) {
+    return { kind: 'extra', label: 'Extra da pagare', badgeCls: 'warn', amountCls: 'negative' };
+  }
+  if (n < -0.005) {
+    return { kind: 'credit', label: 'Sconto / credito riportato', badgeCls: 'success', amountCls: 'positive' };
+  }
+  return { kind: 'zero', label: '—', badgeCls: '', amountCls: '' };
+}
+
+export function computeTotalToPay(preventivoBase, priorAmount) {
+  return Math.round((Number(preventivoBase || 0) + Number(priorAmount || 0)) * 100) / 100;
+}
+
 export function buildSituazioneReport(house, fiscalPeriodId) {
   const period = house.fiscalPeriods.find(p => p.id === fiscalPeriodId);
   const totalsRow = periodSummary(house).find(p => p.id === fiscalPeriodId) || null;
@@ -16,6 +36,12 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
   });
 
   const carryDues = preventivoDues.filter(d => d.carryFromPeriodId);
+  const priorBalance = getPriorBalanceForPeriod(house, fiscalPeriodId);
+  const preventivoBase = totalsRow?.preventivo ?? 0;
+  const totalToPay = priorBalance ? computeTotalToPay(preventivoBase, priorBalance.amount) : null;
+  const priorBalanceWarning = priorBalance && carryDues.length
+    ? 'Attenzione: sono presenti sia un saldo precedente dedicato sia riporti su preventivo per questo esercizio.'
+    : null;
 
   return {
     period,
@@ -25,6 +51,10 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
     consuntivoTotal,
     preventivoDues,
     carryDues,
+    priorBalance,
+    preventivoBase,
+    totalToPay,
+    priorBalanceWarning,
     slotsTotalDue,
     slotsTotalPaid,
     slotsBalance: slotsTotalPaid - slotsTotalDue,
@@ -45,12 +75,21 @@ export function carryFromLabel(house, due) {
   return periodLabel(house, due.carryFromPeriodId);
 }
 
+export function priorBalanceSourceLabel(house, priorBalance) {
+  if (!priorBalance?.sourcePeriodId) return '—';
+  return periodLabel(house, priorBalance.sourcePeriodId);
+}
+
 export function hasConsuntivoReport(report) {
   return Boolean(report?.consuntivoDues?.length || report?.consuntivoTotal);
 }
 
 export function hasPreventivoReport(report) {
   return Boolean(report?.slots?.length || report?.preventivoDues?.length);
+}
+
+export function hasPriorBalanceReport(report) {
+  return Boolean(report?.priorBalance);
 }
 
 export function hasPaymentsOnlyReport(report) {
@@ -61,14 +100,16 @@ export function hasPaymentsOnlyReport(report) {
 export function defaultSituazionePdfKind(report) {
   if (hasConsuntivoReport(report)) return 'consuntivo';
   if (hasPreventivoReport(report)) return 'preventivo';
+  if (hasPriorBalanceReport(report)) return 'preventivo';
   return null;
 }
 
 export function resolveSituazionePdfKind(report, requestedKind) {
   const hasCons = hasConsuntivoReport(report);
   const hasPrev = hasPreventivoReport(report);
-  if (!hasCons && !hasPrev) return null;
+  const hasPrior = hasPriorBalanceReport(report);
+  if (!hasCons && !hasPrev && !hasPrior) return null;
   if (requestedKind === 'consuntivo' && hasCons) return 'consuntivo';
-  if (requestedKind === 'preventivo' && hasPrev) return 'preventivo';
+  if (requestedKind === 'preventivo' && (hasPrev || hasPrior)) return 'preventivo';
   return defaultSituazionePdfKind(report);
 }

@@ -2,12 +2,14 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   createLocalDue,
   createLocalPayment,
+  createLocalPriorBalance,
   createSupabaseClient,
   deleteAllBankImports,
   deleteBankImportBatch,
   deleteDueFromSupabase,
   deleteHouseRemote,
   deletePaymentFromSupabase,
+  deletePriorBalanceFromSupabase,
   ensureFiscalPeriod,
   ensureFiscalPeriodByLabel,
   linkBankMovement,
@@ -16,6 +18,7 @@ import {
   saveDueToSupabase,
   saveHouseToSupabase,
   savePaymentToSupabase,
+  savePriorBalanceToSupabase,
   saveUnlinkedBankMovements,
   syncBackupToSupabase
 } from './api.js';
@@ -62,7 +65,8 @@ function setTheme(theme) {
 
 const {
   setView, render: baseRender, syncPaymentPeriodSelect, syncPaymentCarryFromSelect,
-  syncPaymentInstallmentSelect, syncDueKindFields, syncDuePeriodSelect, applyPaymentSmartAmount
+  syncPaymentInstallmentSelect, syncDueKindFields, syncDuePeriodSelect, applyPaymentSmartAmount,
+  syncPriorBalancePeriodSelect, syncPriorBalanceSourceSelect
 } = createRenderer(els);
 let renderedHouseId = null;
 function render(...args) {
@@ -70,6 +74,7 @@ function render(...args) {
   if (house?.id !== renderedHouseId) {
     resetDueForm();
     resetPaymentForm(house);
+    resetPriorBalanceForm(house);
     renderedHouseId = house?.id ?? null;
   }
   baseRender(...args);
@@ -228,6 +233,14 @@ function resetPaymentForm(house) {
   if (house) syncPaymentPeriodSelect(house);
 }
 
+function resetPriorBalanceForm(house) {
+  els.priorBalanceForm?.reset();
+  if (els.priorBalanceEditId) els.priorBalanceEditId.value = '';
+  if (els.priorBalanceSubmitBtn) els.priorBalanceSubmitBtn.textContent = 'Salva saldo';
+  els.priorBalanceFormCancel?.classList.add('hidden');
+  if (house) syncPriorBalancePeriodSelect(house);
+}
+
 function openFormSheet(paneId) {
   const pane = document.getElementById(paneId);
   const backdrop = document.getElementById(`${paneId}Backdrop`);
@@ -249,6 +262,7 @@ function closeFormSheet(paneId) {
 function closeAllFormSheets() {
   closeFormSheet('dueFormPane');
   closeFormSheet('paymentFormPane');
+  closeFormSheet('priorBalanceFormPane');
 }
 
 function startEditDue(house, due) {
@@ -293,6 +307,36 @@ function startEditPayment(house, payment) {
   else els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+function startEditPriorBalance(house, priorBalance) {
+  syncPriorBalancePeriodSelect(house, priorBalance.fiscalPeriodId, priorBalance.sourcePeriodId);
+  if (els.priorBalanceAmount) els.priorBalanceAmount.value = String(priorBalance.amount);
+  if (els.priorBalanceDescription) els.priorBalanceDescription.value = priorBalance.description || '';
+  if (els.priorBalanceEditId) els.priorBalanceEditId.value = priorBalance.id;
+  if (els.priorBalanceSubmitBtn) els.priorBalanceSubmitBtn.textContent = 'Aggiorna saldo';
+  els.priorBalanceFormCancel?.classList.remove('hidden');
+  navigate('movimenti', 'saldi-precedenti');
+  if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('priorBalanceFormPane');
+  else els.priorBalanceForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function deletePriorBalance(house, priorBalanceId) {
+  const item = (house.priorBalances || []).find(b => b.id === priorBalanceId);
+  if (!item || !await confirmDialog('Eliminare questo saldo precedente?', { title: 'Elimina saldo', confirmLabel: 'Elimina', danger: true })) return;
+  try {
+    if (state.supabase && state.user && Number.isFinite(Number(priorBalanceId))) {
+      await deletePriorBalanceFromSupabase(house, priorBalanceId);
+      await loadFromSupabase();
+    } else {
+      house.priorBalances = (house.priorBalances || []).filter(b => b.id !== priorBalanceId);
+    }
+    if (els.priorBalanceEditId?.value === priorBalanceId) resetPriorBalanceForm(activeHouse());
+    render();
+    showToast('Saldo precedente eliminato.');
+  } catch (err) {
+    toastError(err.message);
+  }
+}
+
 async function deleteDue(house, dueId) {
   const due = house.dues.find(d => d.id === dueId);
   if (!due || !await confirmDialog('Eliminare questo dovuto?', { title: 'Elimina dovuto', confirmLabel: 'Elimina', danger: true })) return;
@@ -334,6 +378,8 @@ function handleRecordAction(e) {
   const deleteDueBtn = e.target.closest('.delete-due');
   const editPayment = e.target.closest('.edit-payment');
   const deletePaymentBtn = e.target.closest('.delete-payment');
+  const editPriorBalance = e.target.closest('.edit-prior-balance');
+  const deletePriorBalanceBtn = e.target.closest('.delete-prior-balance');
   const house = ensureHouse();
   if (!house) return;
 
@@ -353,6 +399,15 @@ function handleRecordAction(e) {
   }
   if (deletePaymentBtn) {
     deletePayment(house, deletePaymentBtn.dataset.id);
+    return;
+  }
+  if (editPriorBalance) {
+    const item = (house.priorBalances || []).find(b => b.id === editPriorBalance.dataset.id);
+    if (item) startEditPriorBalance(house, item);
+    return;
+  }
+  if (deletePriorBalanceBtn) {
+    deletePriorBalance(house, deletePriorBalanceBtn.dataset.id);
   }
 }
 
@@ -787,6 +842,59 @@ els.dueFormPaneBackdrop?.addEventListener('click', () => closeFormSheet('dueForm
 els.openPaymentFormSheet?.addEventListener('click', () => openFormSheet('paymentFormPane'));
 els.closePaymentFormSheet?.addEventListener('click', () => closeFormSheet('paymentFormPane'));
 els.paymentFormPaneBackdrop?.addEventListener('click', () => closeFormSheet('paymentFormPane'));
+els.openPriorBalanceFormSheet?.addEventListener('click', () => openFormSheet('priorBalanceFormPane'));
+els.closePriorBalanceFormSheet?.addEventListener('click', () => closeFormSheet('priorBalanceFormPane'));
+els.priorBalanceFormPaneBackdrop?.addEventListener('click', () => closeFormSheet('priorBalanceFormPane'));
+els.priorBalancePeriod?.addEventListener('change', () => {
+  const house = activeHouse();
+  if (house) syncPriorBalanceSourceSelect(house);
+});
+els.priorBalanceForm?.addEventListener('submit', async e => {
+  e.preventDefault();
+  const house = ensureHouse();
+  if (!house) return;
+  try {
+    await ensureHousePersisted(house);
+    const fd = new FormData(els.priorBalanceForm);
+    const editId = String(fd.get('editId') || els.priorBalanceEditId?.value || '').trim();
+    const periodId = String(fd.get('fiscalPeriodId') || els.priorBalancePeriod?.value || '').trim();
+    if (!periodId) {
+      toastError('Seleziona l\'esercizio fiscale.');
+      return;
+    }
+    const amount = Number(fd.get('amount'));
+    if (!Number.isFinite(amount)) {
+      toastError('Inserisci un importo valido.');
+      return;
+    }
+    const priorBalance = createLocalPriorBalance(fd);
+    priorBalance.fiscalPeriodId = periodId;
+    if (editId) priorBalance.id = editId;
+    if (state.supabase && state.user) {
+      await savePriorBalanceToSupabase(house, priorBalance);
+      resetPriorBalanceForm(house);
+      await loadFromSupabase();
+    } else if (editId) {
+      const existing = (house.priorBalances || []).find(b => b.id === editId);
+      if (existing) Object.assign(existing, priorBalance);
+    } else {
+      if (!house.priorBalances) house.priorBalances = [];
+      const dup = house.priorBalances.find(b => b.fiscalPeriodId === periodId);
+      if (dup) Object.assign(dup, priorBalance, { id: dup.id });
+      else house.priorBalances.push({ ...priorBalance, id: uid('prior') });
+    }
+    render();
+    closeFormSheet('priorBalanceFormPane');
+    showToast(editId ? 'Saldo precedente aggiornato.' : 'Saldo precedente salvato.');
+  } catch (err) {
+    toastError(err.message);
+  }
+});
+els.priorBalanceFormCancel?.addEventListener('click', () => {
+  resetPriorBalanceForm(activeHouse());
+  closeFormSheet('priorBalanceFormPane');
+  render();
+});
 els.paymentInstallment?.addEventListener('change', () => {
   const house = activeHouse();
   if (house) applyPaymentSmartAmount(house);

@@ -1,6 +1,8 @@
 import {
   buildSituazioneReport,
   carryFromLabel,
+  priorBalancePresentation,
+  priorBalanceSourceLabel,
   resolveSituazionePdfKind,
   situazioneStatusLabel
 } from './situazione-report.js';
@@ -65,27 +67,82 @@ function paymentPdfRows(house, payments) {
   });
 }
 
+function priorBalanceSummaryRows(report) {
+  if (!report.priorBalance) return [];
+  const pres = priorBalancePresentation(report.priorBalance.amount);
+  const rows = [];
+  if ((report.preventivoBase ?? 0) > 0.005) {
+    rows.push([cell('Preventivo iniziale (voci)'), cell(pdfFmt(report.preventivoBase))]);
+  }
+  rows.push([cell(`Saldo precedente (${pres.label})`), cell(pdfFmt(report.priorBalance.amount))]);
+  if (report.totalToPay != null) {
+    rows.push([cell('Totale da pagare'), cell(pdfFmt(report.totalToPay))]);
+  }
+  return rows;
+}
+
+function renderPriorBalancePdfSection(doc, autoTable, house, report, startY) {
+  if (!report.priorBalance) return startY;
+  const pb = report.priorBalance;
+  const pres = priorBalancePresentation(pb.amount);
+  let y = addSectionTitle(doc, startY, 'Saldi anno precedente');
+  autoTable(doc, {
+    startY: y,
+    head: [['Tipo', 'Da esercizio', 'Descrizione', 'Importo']].map(row => row.map(cell)),
+    body: [[
+      cell(pres.label),
+      cell(priorBalanceSourceLabel(house, pb)),
+      cell(pb.description || 'Saldo precedente'),
+      cell(pdfFmt(pb.amount))
+    ]],
+    ...PDF_TABLE,
+    headStyles: { ...PDF_TABLE.headStyles, fillColor: [70, 110, 60] }
+  });
+  y = doc.lastAutoTable.finalY + 4;
+  doc.setFontSize(8);
+  doc.text(
+    cell('Voce di apertura esercizio: non modifica il preventivo iniziale; si somma al totale da pagare.'),
+    14,
+    y + 2,
+    { maxWidth: 180 }
+  );
+  return y + 10;
+}
+
 function renderPreventivoPdf(doc, autoTable, report, totalsRow) {
   const house = report.house;
   let y = renderPdfHeader(doc, house, report.period, 'Situazione preventiva - spese condominiali');
   const prevStatus = situazioneStatusLabel(totalsRow?.balancePreventivo ?? 0);
   const slotsStatus = situazioneStatusLabel(report.slotsBalance ?? 0);
 
+  const summaryBody = [
+    [cell('Preventivo iniziale (totale voci)'), cell(pdfFmt(totalsRow?.preventivo ?? 0))]
+  ];
+  if (report.priorBalance) {
+    const pres = priorBalancePresentation(report.priorBalance.amount);
+    summaryBody.push([cell(`Saldo precedente (${pres.label})`), cell(pdfFmt(report.priorBalance.amount))]);
+    if (report.totalToPay != null) {
+      summaryBody.push([cell('Totale da pagare'), cell(pdfFmt(report.totalToPay))]);
+    }
+  }
+  summaryBody.push(
+    [cell('Totale versato'), cell(pdfFmt(totalsRow?.paid ?? 0))],
+    [cell('Saldo su rate preventivo'), cell(pdfFmt(report.slotsBalance))],
+    [cell('Saldo su preventivo (versato - preventivo)'), cell(`${pdfFmt(totalsRow?.balancePreventivo ?? 0)} - ${prevStatus.text}`)],
+    [cell('Saldo rate (versato - dovuto rate)'), cell(`${pdfFmt(report.slotsBalance)} - ${slotsStatus.text}`)]
+  );
+
   autoTable(doc, {
     startY: y,
     theme: 'plain',
-    body: [
-      [cell('Preventivo (totale voci)'), cell(pdfFmt(totalsRow?.preventivo ?? 0))],
-      [cell('Totale versato'), cell(pdfFmt(totalsRow?.paid ?? 0))],
-      [cell('Saldo su rate preventivo'), cell(pdfFmt(report.slotsBalance))],
-      [cell('Saldo su preventivo (versato - preventivo)'), cell(`${pdfFmt(totalsRow?.balancePreventivo ?? 0)} - ${prevStatus.text}`)],
-      [cell('Saldo rate (versato - dovuto rate)'), cell(`${pdfFmt(report.slotsBalance)} - ${slotsStatus.text}`)]
-    ],
+    body: summaryBody,
     styles: { ...PDF_TABLE.styles, fontSize: 9 },
     headStyles: PDF_TABLE.headStyles,
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 95 }, 1: { cellWidth: 75 } }
   });
   y = doc.lastAutoTable.finalY + 10;
+
+  y = renderPriorBalancePdfSection(doc, autoTable, house, report, y);
 
   const { slots } = report;
   if (slots.length) {
@@ -172,18 +229,23 @@ function renderConsuntivoPdf(doc, autoTable, report, totalsRow) {
   let y = renderPdfHeader(doc, house, report.period, 'Situazione consuntiva - spese condominiali');
   const consStatus = situazioneStatusLabel(totalsRow?.balanceConsuntivo ?? 0);
 
+  const summaryBody = [
+    [cell('Consuntivo (totale voci)'), cell(pdfFmt(totalsRow?.consuntivo ?? 0))],
+    ...priorBalanceSummaryRows(report),
+    [cell('Totale versato'), cell(pdfFmt(totalsRow?.paid ?? 0))],
+    [cell('Saldo consuntivo (versato - consuntivo)'), cell(`${pdfFmt(totalsRow?.balanceConsuntivo ?? 0)} - ${consStatus.text}`)]
+  ];
+
   autoTable(doc, {
     startY: y,
     theme: 'plain',
-    body: [
-      [cell('Consuntivo (totale voci)'), cell(pdfFmt(totalsRow?.consuntivo ?? 0))],
-      [cell('Totale versato'), cell(pdfFmt(totalsRow?.paid ?? 0))],
-      [cell('Saldo consuntivo (versato - consuntivo)'), cell(`${pdfFmt(totalsRow?.balanceConsuntivo ?? 0)} - ${consStatus.text}`)]
-    ],
+    body: summaryBody,
     styles: { ...PDF_TABLE.styles, fontSize: 9 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 95 }, 1: { cellWidth: 75 } }
   });
   y = doc.lastAutoTable.finalY + 10;
+
+  y = renderPriorBalancePdfSection(doc, autoTable, house, report, y);
 
   const { consuntivoDues } = report;
   if (consuntivoDues.length) {
@@ -249,7 +311,7 @@ export async function exportSituazionePdf(house, fiscalPeriodId, requestedKind) 
   if (!period) throw new Error('Seleziona un esercizio fiscale.');
 
   const kind = resolveSituazionePdfKind(report, requestedKind);
-  if (!kind) throw new Error('Nessun preventivo o consuntivo per questo esercizio.');
+  if (!kind) throw new Error('Nessun preventivo, consuntivo o saldo precedente per questo esercizio.');
 
   const { jsPDF, autoTable } = await loadPdfLibs();
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });

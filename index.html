@@ -21,7 +21,7 @@
           <div class="login-subtitle">Accedi per gestire i tuoi immobili</div>
         </div>
       </div>
-      <form id="loginForm" class="login-form">
+      <form id="loginForm" class="login-form" method="post" action="">
         <div id="loginError" class="login-error hidden" role="alert"></div>
         <div>
           <label for="loginEmail">Email</label>
@@ -49,7 +49,7 @@
           <div class="login-subtitle" id="recoverySubtitle">Scegli una password sicura per il tuo account</div>
         </div>
       </div>
-      <form id="recoveryForm" class="login-form">
+      <form id="recoveryForm" class="login-form" method="post" action="">
         <div id="recoveryError" class="login-error hidden" role="alert"></div>
         <div id="recoverySuccess" class="login-success hidden" role="status"></div>
         <div>
@@ -402,7 +402,7 @@
           <div class="stack-single">
             <div class="card stack">
               <div class="panel-head"><div><h2>Cambia password</h2><p class="subtle">Aggiorna la password del tuo account.</p></div></div>
-              <form id="accountPasswordForm" class="stack">
+              <form id="accountPasswordForm" class="stack" method="post" action="">
                 <div id="accountPasswordError" class="login-error hidden" role="alert"></div>
                 <div id="accountPasswordSuccess" class="login-success hidden" role="status"></div>
                 <div>

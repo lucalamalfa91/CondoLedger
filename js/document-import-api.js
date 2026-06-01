@@ -131,7 +131,6 @@ export async function extractFromDocument(houseId, files, importParties = null) 
     }
     throw new Error(msg);
   }
-  const hints = inferDocumentHintsFromFiles(sorted);
   return applyDocumentHints(normalizeExtraction(body), hints);
 }
 

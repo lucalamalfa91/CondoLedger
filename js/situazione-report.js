@@ -5,6 +5,11 @@ export function getPriorBalanceForPeriod(house, fiscalPeriodId) {
   return (house.priorBalances || []).find(b => String(b.fiscalPeriodId) === String(fiscalPeriodId)) ?? null;
 }
 
+/** Dovuto (rata) generato per un saldo anno precedente a debito, se presente. */
+export function getDueForPriorBalance(house, priorBalanceId) {
+  return house.dues.find(d => String(d.priorBalanceId) === String(priorBalanceId)) ?? null;
+}
+
 /** Positivo = extra da pagare; negativo = sconto/credito riportato. */
 export function priorBalancePresentation(amount) {
   const n = Number(amount || 0);

@@ -13,6 +13,15 @@ export function isConsuntivoDue(due) {
   return due.dueKind === 'consuntivo';
 }
 
+/**
+ * Preventivo "vero" da sommare negli aggregati (Situazione/Panoramica).
+ * Esclude i dovuti generati da un saldo anno precedente: quell'importo è già
+ * conteggiato come saldo precedente, sommarlo anche qui lo conterebbe due volte.
+ */
+export function isAggregatedPreventivoDue(due) {
+  return isPreventivoDue(due) && !due.priorBalanceId;
+}
+
 export function fiscalLabel(startYear, startMonth) {
   if (startMonth === 1) return String(startYear);
   return `${startYear}/${startYear + 1}`;
@@ -136,6 +145,19 @@ function emptyPeriodRow(p) {
   };
 }
 
+/** Id dei dovuti generati da un saldo anno precedente (rata unica collegata). */
+function priorLinkedDueIds(dues) {
+  return new Set(dues.filter(d => d.priorBalanceId).map(d => String(d.id)));
+}
+
+/** Il versamento copre un dovuto collegato a un saldo anno precedente (non il preventivo/consuntivo). */
+function isPaymentForPriorLinkedDue(payment, linkedIds) {
+  const key = payment.installmentKey || '';
+  const sep = key.indexOf(':');
+  const dueId = sep >= 0 ? key.slice(0, sep) : null;
+  return Boolean(dueId && linkedIds.has(dueId));
+}
+
 export function periodSummary(house) {
   const map = new Map();
   for (const p of house.fiscalPeriods) {
@@ -148,14 +170,20 @@ export function periodSummary(house) {
       preventivo: 0,
       consuntivo: 0,
       due: 0,
-      paid: 0
+      paid: 0,
+      priorLinkedPaid: 0
     };
     const amount = Number(item.amount || 0);
-    if (isConsuntivoDue(item)) c.consuntivo += amount;
-    else c.preventivo += amount;
-    c.due += amount;
+    if (isConsuntivoDue(item)) {
+      c.consuntivo += amount;
+      c.due += amount;
+    } else if (isAggregatedPreventivoDue(item)) {
+      c.preventivo += amount;
+      c.due += amount;
+    }
     map.set(item.fiscalPeriodId, c);
   }
+  const linkedIds = priorLinkedDueIds(house.dues);
   for (const item of house.payments) {
     const c = map.get(item.fiscalPeriodId) || {
       id: item.fiscalPeriodId,
@@ -163,18 +191,25 @@ export function periodSummary(house) {
       preventivo: 0,
       consuntivo: 0,
       due: 0,
-      paid: 0
+      paid: 0,
+      priorLinkedPaid: 0
     };
-    c.paid += Number(item.amount || 0);
+    const amount = Number(item.amount || 0);
+    c.paid += amount;
+    if (isPaymentForPriorLinkedDue(item, linkedIds)) c.priorLinkedPaid = (c.priorLinkedPaid || 0) + amount;
     map.set(item.fiscalPeriodId, c);
   }
   return [...map.values()]
     .map(item => {
-      const balanceConsuntivoRaw = item.paid - item.consuntivo;
+      // I versamenti a copertura di un saldo anno precedente non vanno sottratti dal
+      // saldo preventivo/consuntivo dell'esercizio: quel debito non è conteggiato lì
+      // (vedi isAggregatedPreventivoDue) ma in situazione-report.js tramite priorAmount.
+      const paidForBalance = item.paid - (item.priorLinkedPaid || 0);
+      const balanceConsuntivoRaw = paidForBalance - item.consuntivo;
       const settlementFromNext = sumConsuntivoSettlementFromNextPeriod(house, item.id);
       const { balance: balanceConsuntivo, settled: consuntivoSettledInNext } =
         applyConsuntivoSettlement(balanceConsuntivoRaw, settlementFromNext);
-      const balancePreventivo = item.paid - item.preventivo;
+      const balancePreventivo = paidForBalance - item.preventivo;
       return {
         ...item,
         balanceConsuntivoRaw,
@@ -196,7 +231,7 @@ export function sumConsuntivoDue(house, periodId) {
 
 export function sumPreventivoDue(house, periodId) {
   return house.dues
-    .filter(d => d.fiscalPeriodId === periodId && isPreventivoDue(d))
+    .filter(d => d.fiscalPeriodId === periodId && isAggregatedPreventivoDue(d))
     .reduce((s, d) => s + Number(d.amount || 0), 0);
 }
 
@@ -227,15 +262,19 @@ export function consuntivoBalance(house, periodId) {
 export function totals(house, periodId = null) {
   const dues = periodId ? house.dues.filter(d => d.fiscalPeriodId === periodId) : house.dues;
   const payments = periodId ? house.payments.filter(p => p.fiscalPeriodId === periodId) : house.payments;
-  const preventivo = dues.filter(isPreventivoDue).reduce((s, d) => s + Number(d.amount || 0), 0);
+  const preventivo = dues.filter(isAggregatedPreventivoDue).reduce((s, d) => s + Number(d.amount || 0), 0);
   const consuntivo = dues.filter(isConsuntivoDue).reduce((s, d) => s + Number(d.amount || 0), 0);
   const paid = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
   const periods = periodId
     ? periodSummary(house).filter(p => p.id === periodId)
     : periodSummary(house);
   const balanceConsuntivo = periods.reduce((s, p) => s + p.balanceConsuntivo, 0);
+  const linkedIds = priorLinkedDueIds(dues);
+  const priorLinkedPaid = payments.reduce(
+    (s, p) => s + (isPaymentForPriorLinkedDue(p, linkedIds) ? Number(p.amount || 0) : 0), 0
+  );
   const balancePreventivo = periodId
-    ? paid - preventivo
+    ? (paid - priorLinkedPaid) - preventivo
     : periods.reduce((s, p) => s + p.balancePreventivo, 0);
   return {
     preventivo,

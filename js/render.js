@@ -1,6 +1,7 @@
 import { ensureResoconto, resocontoHtml } from './document-import-resoconto.js';
 import { partyDisplayName } from './house-import-parties.js';
 import { resolveView, viewHeading, viewMeta } from './config.js';
+import { hasCarryDueTargetingPeriod } from './carryover.js';
 import {
   DUE_KINDS,
   consuntivoBalanceFootnote,
@@ -17,6 +18,8 @@ import {
   findInstallment,
   inferInstallmentKey,
   installmentShortLabel,
+  installmentSummaryForPeriod,
+  listInstallmentsForDue,
   listInstallmentsForPeriod,
   listAllInstallments,
   paymentsSummaryForList
@@ -29,6 +32,7 @@ import {
   hasPaymentsOnlyReport,
   hasPreventivoReport,
   hasPriorBalanceReport,
+  getDueForPriorBalance,
   priorBalancePresentation,
   priorBalanceSourceLabel,
   resolveSituazionePdfKind,
@@ -56,9 +60,9 @@ const MONTH_FILTER_LABELS = [
   ['10', 'Ottobre'], ['11', 'Novembre'], ['12', 'Dicembre']
 ];
 
-function rowActions(kind, id) {
+function rowActions(kind, id, extraHtml = '') {
   const safeId = String(id ?? '').replace(/"/g, '&quot;');
-  return `<div class="row-actions"><button type="button" class="btn btn-secondary" data-record-action="edit" data-record-kind="${kind}" data-id="${safeId}">Modifica</button><button type="button" class="btn btn-secondary" data-record-action="delete" data-record-kind="${kind}" data-id="${safeId}">Elimina</button></div>`;
+  return `<div class="row-actions">${extraHtml}<button type="button" class="btn btn-secondary" data-record-action="edit" data-record-kind="${kind}" data-id="${safeId}">Modifica</button><button type="button" class="btn btn-secondary" data-record-action="delete" data-record-kind="${kind}" data-id="${safeId}">Elimina</button></div>`;
 }
 
 export function createRenderer(els) {
@@ -542,10 +546,16 @@ export function createRenderer(els) {
       const kind = DUE_KINDS[item.dueKind || 'preventivo']?.label || item.dueKind;
       const splitLabel = item.dueKind === 'consuntivo' ? '—' : (SPLIT_MODES[item.splitMode]?.label || (item.splitMode === 'custom' ? 'Custom' : 'Mensile'));
       const carry = item.carryFromPeriodId ? ' <span class="badge warn">Riporto</span>' : '';
+      const priorLink = item.priorBalanceId ? ' <span class="badge">Saldo precedente</span>' : '';
       const amtCls = Number(item.amount) < 0 ? 'negative' : '';
       const ex = periodLabel(house, item.fiscalPeriodId);
-      const tableRow = `<tr><td>${ex}</td><td>${kind}${carry}</td><td>${item.description || '—'}</td><td>${splitLabel}</td><td class="amount ${amtCls}">${fmt(item.amount)}</td><td>${rowActions('due', item.id)}</td></tr>`;
-      const card = `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${ex} · ${kind}${carry}</div><div class="data-card-meta">${item.description || '—'} · ${splitLabel}</div></div><div class="data-card-amount amount ${amtCls}">${fmt(item.amount)}</div></div><div class="data-card-actions">${rowActions('due', item.id)}</div></article>`;
+      // Generata automaticamente da un "Saldo anno precedente": si modifica/elimina solo da lì,
+      // per non spezzare il collegamento (prior_balance_id) o orfanare i versamenti collegati.
+      const actionsHtml = item.priorBalanceId
+        ? '<div class="row-actions"><span class="hint">Gestito da "Saldi anno precedente"</span></div>'
+        : rowActions('due', item.id);
+      const tableRow = `<tr><td>${ex}</td><td>${kind}${carry}${priorLink}</td><td>${item.description || '—'}</td><td>${splitLabel}</td><td class="amount ${amtCls}">${fmt(item.amount)}</td><td>${actionsHtml}</td></tr>`;
+      const card = `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${ex} · ${kind}${carry}${priorLink}</div><div class="data-card-meta">${item.description || '—'} · ${splitLabel}</div></div><div class="data-card-amount amount ${amtCls}">${fmt(item.amount)}</div></div><div class="data-card-actions">${actionsHtml}</div></article>`;
       return { tableRow, card };
     });
     const tableHtml = `<table><thead><tr><th>Esercizio</th><th>Tipo</th><th>Descrizione</th><th>Ripartizione</th><th>Importo</th><th></th></tr></thead><tbody>${rows.map(r => r.tableRow).join('')}</tbody></table>`;
@@ -608,18 +618,39 @@ export function createRenderer(els) {
       els.priorBalancesTable.innerHTML = emptyListHtml('Nessun saldo precedente registrato.');
       return;
     }
+    const conflicted = items.filter(item => hasCarryDueTargetingPeriod(house, item.fiscalPeriodId));
+    const conflictBanner = conflicted.length
+      ? `<p class="hint warn">Attenzione: per ${conflicted.map(i => periodLabel(house, i.fiscalPeriodId)).join(', ')} esiste sia un saldo precedente dedicato sia un riporto automatico sul preventivo — rischio di contare il conguaglio due volte.</p>`
+      : '';
     const rows = items.map(item => {
       const pres = priorBalancePresentation(item.amount);
       const ex = periodLabel(house, item.fiscalPeriodId);
       const src = priorBalanceSourceLabel(house, item);
       const srcNote = src !== '—' ? ` <span class="muted">(da ${src})</span>` : '';
-      const tableRow = `<tr><td>${ex}</td><td><span class="badge ${pres.badgeCls}">${pres.label}</span>${srcNote}</td><td>${item.description || '—'}</td><td class="amount ${pres.amountCls}">${fmt(item.amount)}</td><td>${rowActions('prior', item.id)}</td></tr>`;
-      const card = `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${ex} · ${pres.label}${srcNote}</div><div class="data-card-meta">${item.description || '—'}</div></div><div class="data-card-amount amount ${pres.amountCls}">${fmt(item.amount)}</div></div><div class="data-card-actions">${rowActions('prior', item.id)}</div></article>`;
+      const linkedDue = getDueForPriorBalance(house, item.id);
+      let payNote = '';
+      let payBtn = '';
+      if (linkedDue) {
+        const slot = listInstallmentsForDue(house, linkedDue)[0];
+        if (slot) {
+          const paid = house.payments
+            .filter(p => (p.installmentKey || '') === slot.key)
+            .reduce((s, p) => s + Number(p.amount || 0), 0);
+          const residuo = Math.round((slot.amountDue - paid) * 100) / 100;
+          const settled = residuo <= 0.005;
+          payNote = ` <span class="muted">Versato ${fmt(paid)} · Residuo <span class="${settled ? 'positive' : 'negative'}">${fmt(residuo)}</span></span>`;
+          if (!settled) {
+            payBtn = `<button type="button" class="btn btn-secondary" data-record-action="pay-prior" data-record-kind="prior" data-id="${item.id}">Registra versamento</button>`;
+          }
+        }
+      }
+      const tableRow = `<tr><td>${ex}</td><td><span class="badge ${pres.badgeCls}">${pres.label}</span>${srcNote}</td><td>${item.description || '—'}${payNote}</td><td class="amount ${pres.amountCls}">${fmt(item.amount)}</td><td>${rowActions('prior', item.id, payBtn)}</td></tr>`;
+      const card = `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${ex} · ${pres.label}${srcNote}</div><div class="data-card-meta">${item.description || '—'}${payNote}</div></div><div class="data-card-amount amount ${pres.amountCls}">${fmt(item.amount)}</div></div><div class="data-card-actions">${rowActions('prior', item.id, payBtn)}</div></article>`;
       return { tableRow, card };
     });
     const tableHtml = `<table><thead><tr><th>Esercizio</th><th>Tipo</th><th>Descrizione</th><th>Importo</th><th></th></tr></thead><tbody>${rows.map(r => r.tableRow).join('')}</tbody></table>`;
     const cardsHtml = rows.map(r => r.card).join('');
-    els.priorBalancesTable.innerHTML = dataListHtml(tableHtml, cardsHtml);
+    els.priorBalancesTable.innerHTML = conflictBanner + dataListHtml(tableHtml, cardsHtml);
   }
 
   function renderDashboardPayments(house) {

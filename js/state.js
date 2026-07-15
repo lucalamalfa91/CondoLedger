@@ -73,6 +73,7 @@ export function mapHouseFromDb(house, dues, payments, periods, movements, priorB
       splitAmounts: Array.isArray(d.split_amounts) ? d.split_amounts : null,
       dueKind: d.due_kind || 'preventivo',
       carryFromPeriodId: d.carry_from_period_id ? String(d.carry_from_period_id) : null,
+      priorBalanceId: d.prior_balance_id ? String(d.prior_balance_id) : null,
       date: d.created_at?.slice(0, 10) || today
     })),
     payments: (payments || []).map(p => ({

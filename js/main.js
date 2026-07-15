@@ -26,7 +26,8 @@ import {
 import { createAuthHandlers } from './auth.js';
 import { exportBackup, parseBackup } from './backup.js';
 import { resolveView, viewMeta } from './config.js';
-import { suggestCarryover } from './carryover.js';
+import { hasCarryDueTargetingPeriod, hasPriorBalanceForPeriod, suggestCarryover } from './carryover.js';
+import { getDueForPriorBalance } from './situazione-report.js';
 import { periodLabel } from './fiscal.js';
 import { findInstallmentForDate } from './installments.js';
 import { exportSituazionePdf } from './pdf-situazione.js';
@@ -302,6 +303,17 @@ function startEditPayment(house, payment) {
   else els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+function startPayPriorBalance(house, priorBalance) {
+  const due = getDueForPriorBalance(house, priorBalance.id);
+  if (!due) return;
+  resetPaymentForm(house);
+  if (els.paymentPeriod) els.paymentPeriod.value = priorBalance.fiscalPeriodId;
+  syncPaymentInstallmentSelect(house, `${due.id}:0`);
+  navigate('movimenti', 'versamenti');
+  if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('paymentFormPane');
+  else els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function startEditPriorBalance(house, priorBalance) {
   navigate('movimenti', 'saldi-precedenti');
   syncPriorBalancePeriodSelect(house, priorBalance.fiscalPeriodId, priorBalance.sourcePeriodId);
@@ -317,7 +329,13 @@ function startEditPriorBalance(house, priorBalance) {
 
 async function deletePriorBalance(house, priorBalanceId) {
   const item = (house.priorBalances || []).find(b => String(b.id) === String(priorBalanceId));
-  if (!item || !await confirmDialog('Eliminare questo saldo precedente?', { title: 'Elimina saldo', confirmLabel: 'Elimina', danger: true })) return;
+  if (!item) return;
+  const linkedDue = getDueForPriorBalance(house, priorBalanceId);
+  const hasPayments = linkedDue && house.payments.some(p => (p.installmentKey || '').startsWith(`${linkedDue.id}:`));
+  const msg = hasPayments
+    ? 'Questo saldo precedente ha già versamenti registrati a copertura. Eliminandolo, i versamenti resteranno ma non saranno più collegati a nessuna rata.\n\nEliminare comunque?'
+    : 'Eliminare questo saldo precedente?';
+  if (!await confirmDialog(msg, { title: 'Elimina saldo', confirmLabel: 'Elimina', danger: true })) return;
   try {
     if (state.supabase && state.user && Number.isFinite(Number(priorBalanceId))) {
       await deletePriorBalanceFromSupabase(house, priorBalanceId);
@@ -405,6 +423,9 @@ function handleRecordAction(e) {
       if (item) startEditPriorBalance(house, item);
     } else if (action === 'delete') {
       deletePriorBalance(house, id);
+    } else if (action === 'pay-prior') {
+      const item = (house.priorBalances || []).find(b => String(b.id) === String(id));
+      if (item) startPayPriorBalance(house, item);
     }
     return;
   }
@@ -612,8 +633,17 @@ async function confirmDocumentImport() {
   const { period, isNew } = await ensureFiscalPeriodByLabel(house, fiscalLabel);
   const r = preview.resoconto;
   if (r?.applyCarryover && !r.carryFromPeriodId) {
-    const prev = getPreviousPeriod(house, period.id);
-    if (prev) r.carryFromPeriodId = prev.id;
+    if (hasPriorBalanceForPeriod(house, period.id)) {
+      const proceed = await confirmDialog(
+        'Attenzione: per questo esercizio esiste già un saldo precedente dedicato. Applicare anche il riporto dall\'import rischia di contare il conguaglio due volte.\n\nApplicare comunque il riporto?',
+        { title: 'Saldo già presente' }
+      );
+      if (!proceed) r.applyCarryover = false;
+    }
+    if (r.applyCarryover) {
+      const prev = getPreviousPeriod(house, period.id);
+      if (prev) r.carryFromPeriodId = prev.id;
+    }
   }
   if (!isNew && !state.documentImportDuplicateAction) {
     if (!await confirmDialog(
@@ -869,6 +899,13 @@ els.priorBalanceForm?.addEventListener('submit', async e => {
     if (!Number.isFinite(amount)) {
       toastError('Inserisci un importo valido.');
       return;
+    }
+    if (!editId && hasCarryDueTargetingPeriod(house, periodId)) {
+      const proceed = await confirmDialog(
+        'Attenzione: per questo esercizio esiste già un riporto automatico sul preventivo. Se procedi rischi di contare il conguaglio due volte.\n\nSalvare comunque il saldo precedente?',
+        { title: 'Riporto già presente', confirmLabel: 'Salva comunque' }
+      );
+      if (!proceed) return;
     }
     const priorBalance = {
       id: editId || uid('prior'),

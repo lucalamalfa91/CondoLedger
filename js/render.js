@@ -741,24 +741,47 @@ export function createRenderer(els) {
     const src = computePriorYearSourceSummary(house, pb, periodId);
     if (!src) return '';
 
+    const pres = priorBalancePresentation(pb.amount);
+    const paid = report.priorBalancePaid ?? 0;
+    const residuo = Math.round((Number(pb.amount) - paid) * 100) / 100;
+    const showResiduo = Number(pb.amount) > 0.005;
+
     const bodyRows = [];
+    bodyRows.push(`<tr class="prior-balance-total-row"><th>${pres.label}</th><td class="amount ${pres.amountCls}"><strong>${fmt(pb.amount)}</strong></td></tr>`);
+    if (showResiduo) {
+      bodyRows.push(`<tr><td>Versato a copertura</td><td class="amount">${fmt(paid)}</td></tr>`);
+      bodyRows.push(`<tr><td>Residuo</td><td class="amount ${residuo <= 0.005 ? 'positive' : 'negative'}">${fmt(residuo)}</td></tr>`);
+    }
     if (src.consuntivo != null) {
       bodyRows.push(`<tr><td>Consuntivo · ${src.sourceLabel}</td><td class="amount">${fmt(src.consuntivo)}</td></tr>`);
+      bodyRows.push(`<tr><td>${src.saldoLabel} · ${src.sourceLabel}</td><td class="amount ${src.saldoCls}">${fmt(src.saldo)}${src.footnote ? `<div class="hint">${src.footnote}</div>` : ''}</td></tr>`);
     }
-    bodyRows.push(`<tr class="prior-balance-total-row"><th>${src.saldoLabel}</th><td class="amount ${src.saldoCls}"><strong>${fmt(src.saldo)}</strong>${src.footnote ? `<div class="hint">${src.footnote}</div>` : ''}</td></tr>`);
 
-    const warning = report.priorBalanceWarning
+    // Convenzioni segno opposte: prior_balances.amount positivo = debito, src.saldo negativo = debito.
+    const srcAsRecordedSign = -Number(src.saldo);
+    const mismatch = src.consuntivo != null && Math.abs(Number(pb.amount) - srcAsRecordedSign) > 0.5;
+    const mismatchWarning = mismatch
+      ? `<p class="hint warn">Attenzione: il saldo registrato (${fmt(pb.amount)}) non coincide con il saldo effettivo di chiusura di ${src.sourceLabel} (${fmt(srcAsRecordedSign)}). Verifica se il saldo anno precedente va aggiornato.</p>`
+      : '';
+    const conflictWarning = report.priorBalanceWarning
       ? `<p class="hint warn">${report.priorBalanceWarning}</p>` : '';
-    const intro = src.consuntivo != null
-      ? `<p class="hint subtle">Esercizio di origine ${src.sourceLabel}: consuntivo e ${src.saldoLabel.toLowerCase()} riportati sull'esercizio corrente.</p>`
-      : `<p class="hint subtle">${src.footnote || 'Saldo riportato da esercizio precedente.'}</p>`;
-    const tableBody = `<div class="prior-balance-box">${intro}${warning}<div class="data-table-wrap"><table><thead><tr><th>Voce</th><th>Importo</th></tr></thead><tbody>${bodyRows.join('')}</tbody></table></div></div>`;
+    const intro = `<p class="hint subtle">Saldo registrato per l'esercizio corrente${src.sourceLabel !== '—' ? ` · esercizio di origine ${src.sourceLabel}` : ''}.</p>`;
+
+    const paymentsRows = (report.priorBalancePayments || [])
+      .slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+      .map(p => `<tr><td>${p.date || '—'}</td><td>${p.method || '—'}</td><td class="amount">${fmt(p.amount)}</td></tr>`)
+      .join('');
+    const paymentsTable = paymentsRows
+      ? `<div class="data-table-wrap"><table><thead><tr><th>Data vers.</th><th>Metodo</th><th>Importo</th></tr></thead><tbody>${paymentsRows}</tbody><tfoot><tr><th colspan="2">Totale versato</th><td class="amount">${fmt(paid)}</td></tr></tfoot></table></div>`
+      : '';
+
+    const tableBody = `<div class="prior-balance-box">${intro}${conflictWarning}${mismatchWarning}<div class="data-table-wrap"><table><thead><tr><th>Voce</th><th>Importo</th></tr></thead><tbody>${bodyRows.join('')}</tbody></table></div>${paymentsTable}</div>`;
 
     return situazioneCollapsibleSection({
       id: `situazione-prior-${periodId || 'x'}`,
       title: 'Saldi anno precedente',
-      summaryTotal: fmt(src.saldo),
-      summaryHint: src.sourceLabel !== '—' ? `${src.sourceLabel} · ${src.saldoLabel}` : src.saldoLabel,
+      summaryTotal: fmt(pb.amount),
+      summaryHint: showResiduo ? `Residuo ${fmt(residuo)}` : pres.label,
       bodyHtml: tableBody
     });
   }
@@ -820,8 +843,10 @@ export function createRenderer(els) {
   }
 
   function renderPeriodPaymentsSection(house, report, title = 'Versamenti esercizio', periodId = '') {
-    if (!report.periodPayments.length) return '';
-    const rows = [...report.periodPayments]
+    const payments = report.exercisePayments || report.periodPayments;
+    if (!payments.length) return '';
+    const total = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const rows = [...payments]
       .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
       .map(p => {
         const key = p.installmentKey || inferInstallmentKey(house, p);
@@ -829,19 +854,21 @@ export function createRenderer(els) {
         const cls = Number(p.amount) >= 0 ? 'positive' : 'negative';
         return `<tr><td>${p.date || '—'}</td><td>${p.method || '—'}</td><td>${rata}</td><td class="amount ${cls}">${fmt(p.amount)}</td></tr>`;
       }).join('');
-    const tableHtml = `<div class="data-table-wrap"><table><thead><tr><th>Data vers.</th><th>Metodo</th><th>Rata preventivo</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="3">Totale versato</th><td class="amount">${fmt(report.paidTotal)}</td></tr></tfoot></table></div>`;
+    const tableHtml = `<div class="data-table-wrap"><table><thead><tr><th>Data vers.</th><th>Metodo</th><th>Rata preventivo</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="3">Totale versato</th><td class="amount">${fmt(total)}</td></tr></tfoot></table></div>`;
     return situazioneCollapsibleSection({
       id: `situazione-payments-${periodId || 'x'}`,
       title,
-      summaryTotal: fmt(report.paidTotal),
-      summaryHint: `${report.periodPayments.length} movimenti`,
+      summaryTotal: fmt(total),
+      summaryHint: `${payments.length} movimenti`,
       bodyHtml: tableHtml
     });
   }
 
   function renderConsuntivoPaymentsSection(house, report, periodId) {
-    if (!report.consuntivoDues.length || !report.periodPayments.length) return '';
-    const rows = [...report.periodPayments]
+    const payments = report.exercisePayments || report.periodPayments;
+    if (!report.consuntivoDues.length || !payments.length) return '';
+    const total = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const rows = [...payments]
       .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
       .map(p => {
         const key = p.installmentKey || inferInstallmentKey(house, p);
@@ -849,12 +876,12 @@ export function createRenderer(els) {
         const cls = Number(p.amount) >= 0 ? 'positive' : 'negative';
         return `<tr><td>${p.date || '—'}</td><td>${p.method || '—'}</td><td>${rata}</td><td class="amount ${cls}">${fmt(p.amount)}</td></tr>`;
       }).join('');
-    const tableHtml = `<p class="hint subtle">Contano sul consuntivo dell'esercizio; la rata preventivo resta invariata.</p><div class="data-table-wrap"><table><thead><tr><th>Data vers.</th><th>Metodo</th><th>Rata preventivo</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="3">Totale versato</th><td class="amount">${fmt(report.paidTotal)}</td></tr></tfoot></table></div>`;
+    const tableHtml = `<p class="hint subtle">Contano sul consuntivo dell'esercizio; la rata preventivo resta invariata.</p><div class="data-table-wrap"><table><thead><tr><th>Data vers.</th><th>Metodo</th><th>Rata preventivo</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="3">Totale versato</th><td class="amount">${fmt(total)}</td></tr></tfoot></table></div>`;
     return situazioneCollapsibleSection({
       id: `situazione-cons-payments-${periodId || 'x'}`,
       title: 'Versamenti esercizio',
-      summaryTotal: fmt(report.paidTotal),
-      summaryHint: `${report.periodPayments.length} movimenti`,
+      summaryTotal: fmt(total),
+      summaryHint: `${payments.length} movimenti`,
       bodyHtml: tableHtml
     });
   }

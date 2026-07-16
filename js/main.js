@@ -68,7 +68,7 @@ function setTheme(theme) {
 const {
   setView, render: baseRender, syncPaymentPeriodSelect,
   syncPaymentInstallmentSelect, syncDueKindFields, syncDuePeriodSelect, applyPaymentSmartAmount,
-  syncPaymentTargetFields, syncPaymentPriorBalanceInfo,
+  syncPaymentTargetFields, syncPaymentPriorBalanceInfo, renderDueSplitAmountsFields,
   syncPriorBalancePeriodSelect, syncPriorBalanceSourceSelect
 } = createRenderer(els);
 let renderedHouseId = null;
@@ -235,6 +235,7 @@ function resetDueForm() {
   if (els.dueEditId) els.dueEditId.value = '';
   if (els.dueSubmitBtn) els.dueSubmitBtn.textContent = 'Salva dovuto';
   els.dueFormCancel?.classList.add('hidden');
+  renderDueSplitAmountsFields(null);
 }
 
 function resetPaymentForm(house) {
@@ -293,6 +294,7 @@ function startEditDue(house, due) {
   if (els.dueEditId) els.dueEditId.value = due.id;
   if (els.dueSubmitBtn) els.dueSubmitBtn.textContent = 'Aggiorna dovuto';
   els.dueFormCancel?.classList.remove('hidden');
+  renderDueSplitAmountsFields(due);
   navigate('registra', 'dovuti');
   if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('dueFormPane');
   else els.dueForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -754,12 +756,16 @@ async function confirmBankImport() {
         row.manualPeriodId = row.suggestedFiscalPeriodId;
       }
     }
+    const importedCount = state.bankImportPreview.filter(row => row.selected && !row.ineligible).length;
     await saveBankImport(house, batchId, state.bankImportPreview);
     await saveUnlinkedBankMovements(house, batchId, state.bankImportPreview);
     state.bankImportPreview = [];
     await loadFromSupabase();
+    const houseAfter = activeHouse();
+    state.postImportPaymentHint = houseAfter ? computeNextPaymentGuide(houseAfter) : true;
     render();
-    showToast('Import banca completato.');
+    showToast(`Import banca completato: ${importedCount} versamenti registrati.`);
+    navigate('registra', 'versamenti');
   } catch (err) {
     toastError(err.message || 'Errore import');
   }
@@ -1155,7 +1161,16 @@ els.dueForm.addEventListener('submit', async e => {
     if (editId) {
       due.id = editId;
       const existingDue = house.dues.find(d => d.id === editId);
-      if (existingDue?.splitAmounts) due.splitAmounts = existingDue.splitAmounts;
+      if (existingDue?.splitAmounts) {
+        const edited = [...(els.dueSplitAmountsFields?.querySelectorAll('[data-split-amount-row]') || [])];
+        due.splitAmounts = edited.length === existingDue.splitAmounts.length
+          ? existingDue.splitAmounts.map((row, i) => {
+            const input = edited[i]?.querySelector('[data-split-amount-value]');
+            const amount = Number(input?.value);
+            return Number.isFinite(amount) ? { ...row, amount } : row;
+          })
+          : existingDue.splitAmounts;
+      }
     }
     let newPeriodId = null;
     if (state.supabase && state.user) {

@@ -289,7 +289,7 @@ function startEditDue(house, due) {
   if (els.dueEditId) els.dueEditId.value = due.id;
   if (els.dueSubmitBtn) els.dueSubmitBtn.textContent = 'Aggiorna dovuto';
   els.dueFormCancel?.classList.remove('hidden');
-  navigate('movimenti', 'dovuti');
+  navigate('registra', 'dovuti');
   if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('dueFormPane');
   else els.dueForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -304,13 +304,13 @@ function startEditPayment(house, payment) {
   syncPaymentPeriodSelect(house);
   if (payment.fiscalPeriodId) els.paymentPeriod.value = payment.fiscalPeriodId;
   syncPaymentInstallmentSelect(house, payment.installmentKey || null);
-  navigate('movimenti', 'versamenti');
+  navigate('registra', 'versamenti');
   if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('paymentFormPane');
   else els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function startEditPriorBalance(house, priorBalance) {
-  navigate('movimenti', 'saldi-precedenti');
+  navigate('registra', 'apertura-esercizio');
   syncPriorBalancePeriodSelect(house, priorBalance.fiscalPeriodId, priorBalance.sourcePeriodId);
   if (els.priorBalanceAmount) els.priorBalanceAmount.value = String(priorBalance.amount);
   if (els.priorBalanceDescription) els.priorBalanceDescription.value = priorBalance.description || '';
@@ -431,17 +431,17 @@ function selectHouse(houseId) {
   render();
 }
 
-async function createHouseFromForm() {
+async function createAndSaveHouse({ name, location = '', notes = '', fiscalStartMonth = 6, importParties = [] }) {
   const house = createLocalHouse();
-  house.name = els.houseForm.name.value.trim() || house.name;
-  house.location = els.houseForm.location.value.trim();
-  house.notes = els.houseForm.notes.value.trim();
-  house.fiscalStartMonth = Number(els.fiscalStartMonth?.value || 6);
-  house.importParties = collectImportPartiesFromDom(els.houseImportParties);
+  house.name = name || house.name;
+  house.location = location;
+  house.notes = notes;
+  house.fiscalStartMonth = fiscalStartMonth;
+  house.importParties = importParties;
   const partyWarnings = validateParties(house.importParties);
   if (partyWarnings.length) {
     toastError(partyWarnings[0]);
-    return;
+    return null;
   }
   state.data.houses.push(house);
   state.selectedHouseId = house.id;
@@ -450,13 +450,25 @@ async function createHouseFromForm() {
     await saveHouseToSupabase(house);
     await loadFromSupabase();
     render();
+    return house;
   } catch (err) {
     state.data.houses = state.data.houses.filter(h => h.id !== house.id);
     state.selectedHouseId = state.data.houses[0]?.id || null;
     state.houseFormMode = state.data.houses.length ? 'edit' : 'new';
     toastError(err.message || 'Errore salvataggio casa');
     render();
+    return null;
   }
+}
+
+async function createHouseFromForm() {
+  await createAndSaveHouse({
+    name: els.houseForm.name.value.trim(),
+    location: els.houseForm.location.value.trim(),
+    notes: els.houseForm.notes.value.trim(),
+    fiscalStartMonth: Number(els.fiscalStartMonth?.value || 6),
+    importParties: collectImportPartiesFromDom(els.houseImportParties)
+  });
 }
 
 function askDuplicateImportChoice(dup) {
@@ -533,7 +545,7 @@ async function runDocumentExtraction(house, files) {
 
   ensureResoconto(preview, house);
   state.documentImportPreview = preview;
-  navigate('movimenti', 'import-doc');
+  navigate('importa', 'import-doc');
   return true;
 }
 
@@ -654,7 +666,7 @@ async function confirmDocumentImport() {
     state.postImportPaymentHint = houseAfter ? computeNextPaymentGuide(houseAfter) : true;
     render();
     showToast('Import documento completato.');
-    navigate('movimenti', 'versamenti');
+    navigate('registra', 'versamenti');
   } catch (err) {
     toastError(err.message || 'Errore salvataggio import');
   }
@@ -668,7 +680,7 @@ function cancelDocumentImport() {
 
 function goManualDueEntry() {
   cancelDocumentImport();
-  navigate('movimenti', 'dovuti');
+  navigate('registra', 'dovuti');
   if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('dueFormPane');
   else els.dueForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -687,7 +699,7 @@ async function handleBankFile(file) {
       manualPeriodId: row.suggestedFiscalPeriodId || null
     }));
     render();
-    navigate('movimenti', 'import-banca');
+    navigate('importa', 'import-banca');
   } catch (err) {
     toastError(err.message || 'Errore lettura file Excel');
   }
@@ -819,9 +831,6 @@ els.headerAddHouseBtn?.addEventListener('click', startNewHouseForm);
 els.addHouseSettingsBtn?.addEventListener('click', startNewHouseForm);
 window.addEventListener('app:start-new-house', startNewHouseForm);
 window.addEventListener('app:retry-load-house-data', () => auth.retryLoadHouseData());
-els.houseSelect?.addEventListener('change', e => {
-  if (e.target.value) selectHouse(e.target.value);
-});
 els.housesManageList?.addEventListener('click', e => {
   const btn = e.target.closest('.house-btn[data-house-id]');
   if (!btn) return;
@@ -941,7 +950,7 @@ document.addEventListener('click', e => {
     if (code) navigator.clipboard?.writeText(code).then(() => showToast('Causale copiata.')).catch(() => toastError('Copia non riuscita.'));
   }
   if (e.target.id === 'postImportRegisterPay') {
-    navigate('movimenti', 'versamenti');
+    navigate('registra', 'versamenti');
     applyPaymentGuideToForm();
     openFormSheet('paymentFormPane');
     state.postImportPaymentHint = null;
@@ -962,24 +971,13 @@ onboardingNext?.addEventListener('click', async () => {
     const name = document.getElementById('onbHouseName')?.value?.trim();
     if (!name) { toastError('Inserisci un nome per l’immobile.'); return; }
     const month = Number(document.getElementById('onbFiscalMonth')?.value || 6);
-    const house = createLocalHouse();
-    house.name = name;
-    house.fiscalStartMonth = month;
-    state.data.houses.push(house);
-    state.selectedHouseId = house.id;
-    try {
-      if (state.supabase && state.user) await saveHouseToSupabase(house);
-      await loadFromSupabase();
-      render();
-      showToast('Immobile creato.');
-    } catch (err) {
-      toastError(err.message || 'Errore salvataggio');
-      return;
-    }
+    const house = await createAndSaveHouse({ name, fiscalStartMonth: month });
+    if (!house) return;
+    showToast('Immobile creato.');
   }
   if (onboardingStep >= 2) {
     finishOnboarding();
-    navigate('movimenti', 'import-doc');
+    navigate('importa', 'import-doc');
     return;
   }
   onboardingStep += 1;
@@ -1232,6 +1230,15 @@ async function offerCarryoverDue(house, newPeriodId) {
     toastError(err.message);
   }
 }
+
+els.dueSuggestCarryoverBtn?.addEventListener('click', async () => {
+  const house = ensureHouse();
+  if (!house) return;
+  const sorted = [...house.fiscalPeriods].sort((a, b) => String(b.startDate).localeCompare(String(a.startDate)));
+  const target = sorted.find(p => suggestCarryover(house, p.id));
+  if (!target) { toastError('Nessun riporto suggerito al momento: serve un consuntivo con saldo non ancora riportato sull\'esercizio successivo.'); return; }
+  await offerCarryoverDue(house, target.id);
+});
 
 els.main?.addEventListener('click', handleRecordAction);
 

@@ -193,7 +193,7 @@ Carica il preventivo o il consuntivo che ricevi dall'amministratore (PDF, Word o
 
 ### Percorso nell'app
 
-**Movimenti → Import → Importa documento amministratore**
+**Importa → Da documento**
 
 ### Passi tipici
 

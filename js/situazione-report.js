@@ -37,8 +37,9 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
   const slotsTotalPaid = slots.reduce((s, x) => s + x.paid, 0);
 
   const periodPayments = house.payments.filter(p => p.fiscalPeriodId === fiscalPeriodId);
-  const unlinkedPayments = periodPayments.filter(p => {
-    if (p.priorBalanceId) return false;
+  const priorBalancePayments = periodPayments.filter(p => p.priorBalanceId);
+  const exercisePayments = periodPayments.filter(p => !p.priorBalanceId);
+  const unlinkedPayments = exercisePayments.filter(p => {
     const key = p.installmentKey || inferInstallmentKey(house, p);
     return !key;
   });
@@ -46,6 +47,7 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
   const carryDues = preventivoDues.filter(d => d.carryFromPeriodId);
   const priorBalance = getPriorBalanceForPeriod(house, fiscalPeriodId);
   const priorAmount = priorBalance ? Number(priorBalance.amount) : 0;
+  const priorBalancePaid = priorBalancePayments.reduce((s, p) => s + Number(p.amount || 0), 0);
   const preventivoBase = totalsRow?.preventivo ?? 0;
   const consuntivoBase = totalsRow?.consuntivo ?? 0;
   const paidTotal = totalsRow?.paid ?? sumPaid(house, fiscalPeriodId);
@@ -71,6 +73,8 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
     carryDues,
     priorBalance,
     priorAmount,
+    priorBalancePayments,
+    priorBalancePaid,
     preventivoBase,
     consuntivoBase,
     totalToPayPreventivo,
@@ -83,7 +87,8 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
     slotsBalance: slotsTotalPaid - slotsTotalDue,
     paidTotal,
     unlinkedPayments,
-    periodPayments
+    periodPayments,
+    exercisePayments
   };
 }
 

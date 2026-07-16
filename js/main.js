@@ -97,6 +97,13 @@ function finishOnboarding() {
   onboardingDialog?.close();
 }
 
+onboardingDialog?.addEventListener('close', () => {
+  localStorage.setItem(ONBOARDING_STORAGE_KEY, '1');
+});
+document.getElementById('onboardingForm')?.addEventListener('submit', e => {
+  e.preventDefault();
+});
+
 function maybeShowOnboarding() {
   if (!state.user || !onboardingDialog || localStorage.getItem(ONBOARDING_STORAGE_KEY)) return;
   if (state.data.houses.length > 0 && state.data.houses.some(h => h.dues?.length)) return;
@@ -502,10 +509,7 @@ async function runDocumentExtraction(house, files) {
   if (preview.autoFilterFailed && hasConfiguredParties(house) && files.length > 0) {
     let merged = emptyExtraction('Estrazione mirata per pagina');
     for (let i = 0; i < files.length; i++) {
-      if (els.documentImportStatus) {
-        els.documentImportStatus.textContent =
-          `Estrazione mirata pagina ${i + 1}/${files.length}…`;
-      }
+      state.documentImportProgressText = `Estrazione mirata pagina ${i + 1}/${files.length}…`;
       render();
       try {
         const part = await extractFromDocument(house.id, [files[i]], parties);
@@ -544,6 +548,7 @@ async function handleDocumentFiles(fileList) {
   if (!files.length) return;
   state.documentImportLastFiles = files;
   state.documentImportBusy = true;
+  state.documentImportProgressText = null;
   render();
   try {
     await runDocumentExtraction(house, files);
@@ -551,6 +556,7 @@ async function handleDocumentFiles(fileList) {
     toastError(err.message || 'Errore estrazione documento');
   } finally {
     state.documentImportBusy = false;
+    state.documentImportProgressText = null;
     if (els.documentImportFile) els.documentImportFile.value = '';
     render();
   }
@@ -762,8 +768,12 @@ function closeAllOverlays() {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
-  closeAllOverlays();
+  if (e.key === 'Escape') { closeAllOverlays(); return; }
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const label = e.target.closest('label.btn[for]');
+  if (!label) return;
+  e.preventDefault();
+  document.getElementById(label.getAttribute('for'))?.click();
 });
 
 function wireNavigation() {
@@ -808,6 +818,7 @@ els.accountPasswordForm.addEventListener('submit', auth.updatePasswordFromAccoun
 els.headerAddHouseBtn?.addEventListener('click', startNewHouseForm);
 els.addHouseSettingsBtn?.addEventListener('click', startNewHouseForm);
 window.addEventListener('app:start-new-house', startNewHouseForm);
+window.addEventListener('app:retry-load-house-data', () => auth.retryLoadHouseData());
 els.houseSelect?.addEventListener('change', e => {
   if (e.target.value) selectHouse(e.target.value);
 });
@@ -877,6 +888,16 @@ els.priorBalanceForm?.addEventListener('submit', async e => {
       amount,
       description: String(els.priorBalanceDescription?.value ?? fd.get('description') ?? '').trim()
     };
+    if (!editId) {
+      const existingBalance = (house.priorBalances || []).find(b => String(b.fiscalPeriodId) === String(periodId));
+      if (existingBalance) {
+        const overwrite = await confirmDialog(
+          'Esiste già un saldo precedente per questo esercizio. Salvando, il valore attuale verrà sovrascritto.',
+          { title: 'Sovrascrivere il saldo esistente?', confirmLabel: 'Sovrascrivi', danger: true }
+        );
+        if (!overwrite) return;
+      }
+    }
     const duesBefore = house.dues?.length || 0;
     if (state.supabase && state.user) {
       await savePriorBalanceToSupabase(house, priorBalance);
@@ -885,7 +906,7 @@ els.priorBalanceForm?.addEventListener('submit', async e => {
         await reloadHouseFromSupabase(house.id);
         const houseAfter = activeHouse();
         if (duesBefore > 0 && (houseAfter?.dues?.length || 0) === 0) {
-          toastError('Attenzione: i dovuti non risultano più visibili per questo immobile. Verifica di aver selezionato "Condominio Anziani" dal menu immobili.');
+          toastError(`Attenzione: i dovuti non risultano più visibili per questo immobile. Verifica di aver selezionato "${house.name}" dal menu immobili.`);
         }
       }
     } else if (editId) {
@@ -1064,6 +1085,16 @@ els.dueForm.addEventListener('submit', async e => {
     const fd = new FormData(els.dueForm);
     const editId = String(fd.get('editId') || els.dueEditId?.value || '').trim();
     const due = createLocalDue(fd);
+    if (due.splitMode === 'custom') {
+      const cleaned = Array.isArray(due.splitCustom)
+        ? [...new Set(due.splitCustom)].filter(n => Number.isInteger(n) && n >= 0 && n < 12)
+        : [];
+      if (!cleaned.length) {
+        toastError('Inserisci almeno un mese valido (0-11) per la ripartizione personalizzata.');
+        return;
+      }
+      due.splitCustom = cleaned;
+    }
     const periodSel = els.duePeriod?.value;
     if (periodSel && periodSel !== '__new__') {
       due.fiscalPeriodId = periodSel;
@@ -1075,7 +1106,11 @@ els.dueForm.addEventListener('submit', async e => {
         return;
       }
     }
-    if (editId) due.id = editId;
+    if (editId) {
+      due.id = editId;
+      const existingDue = house.dues.find(d => d.id === editId);
+      if (existingDue?.splitAmounts) due.splitAmounts = existingDue.splitAmounts;
+    }
     let newPeriodId = null;
     if (state.supabase && state.user) {
       if (due.fiscalPeriodLabel) {

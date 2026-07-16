@@ -1085,7 +1085,7 @@ export function createRenderer(els) {
     }
     if (els.documentImportStatus) {
       els.documentImportStatus.textContent = busy
-        ? 'Elaborazione documento in corso…'
+        ? (state.documentImportProgressText || 'Elaborazione documento in corso…')
         : preview
           ? preview.filterMode === 'auto'
             ? `Anteprima: ${preview.sourceLabel}. Verifica il resoconto e conferma.`
@@ -1410,9 +1410,11 @@ export function createRenderer(els) {
       els.unlinkedMovements.innerHTML = '<div class="empty">Nessun movimento in attesa di associazione.</div>';
       return;
     }
-    const opts = house.fiscalPeriods.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
+    const optsFor = suggestedId => `<option value="">— Seleziona esercizio —</option>` + house.fiscalPeriods.map(p =>
+      `<option value="${p.id}"${suggestedId && String(suggestedId) === String(p.id) ? ' selected' : ''}>${p.label}</option>`
+    ).join('');
     els.unlinkedMovements.innerHTML = `<table><thead><tr><th>Data</th><th>Dettaglio</th><th>Importo</th><th>Esercizio</th><th></th></tr></thead><tbody>${rows.map(r =>
-      `<tr><td>${r.movementDate}</td><td>${r.operation}<div class="hint">${r.details}</div></td><td class="amount">${fmt(r.amount)}</td><td><select class="link-period" data-id="${r.id}">${opts}</select></td><td><button class="btn btn-secondary link-btn" data-id="${r.id}">Associa</button></td></tr>`
+      `<tr><td>${r.movementDate}</td><td>${r.operation}<div class="hint">${r.details}</div></td><td class="amount">${fmt(r.amount)}</td><td><select class="link-period" data-id="${r.id}">${optsFor(r.suggestedFiscalPeriodId)}</select></td><td><button class="btn btn-secondary link-btn" data-id="${r.id}">Associa</button></td></tr>`
     ).join('')}</tbody></table>`;
   }
 
@@ -1420,7 +1422,9 @@ export function createRenderer(els) {
     els.currentHouseTitle.textContent = 'Nessuna casa selezionata';
     els.currentHouseMeta.textContent = 'Aggiungi un immobile con il pulsante accanto al menu o da Impostazioni → Immobili.';
     if (els.panoramicaKpis) {
-      els.panoramicaKpis.innerHTML = '<div class="empty">Nessun immobile registrato.<br/><button type="button" class="btn btn-primary" id="emptyAddHouseBtn" style="margin-top:1rem;">Aggiungi immobile</button></div>';
+      els.panoramicaKpis.innerHTML = state.houseDataLoadError
+        ? `<div class="empty empty--error"><strong>Errore di caricamento dei dati.</strong><br/>${state.houseDataLoadError}<br/><button type="button" class="btn btn-primary" id="retryLoadHouseDataBtn" style="margin-top:1rem;">Riprova</button></div>`
+        : '<div class="empty">Nessun immobile registrato.<br/><button type="button" class="btn btn-primary" id="emptyAddHouseBtn" style="margin-top:1rem;">Aggiungi immobile</button></div>';
     }
     if (els.panoramicaPeriodLinks) els.panoramicaPeriodLinks.innerHTML = '';
     if (els.metrics) els.metrics.innerHTML = '';
@@ -1445,6 +1449,9 @@ export function createRenderer(els) {
     els.panoramicaKpis?.querySelector('#emptyAddHouseBtn')?.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('app:start-new-house'));
     });
+    els.panoramicaKpis?.querySelector('#retryLoadHouseDataBtn')?.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('app:retry-load-house-data'));
+    });
     els.metrics?.querySelector('#emptyAddHouseBtn')?.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('app:start-new-house'));
     });
@@ -1452,6 +1459,7 @@ export function createRenderer(els) {
 
   function render(authRenderAccount) {
     if (!state.selectedHouseId && state.data.houses[0]) state.selectedHouseId = state.data.houses[0].id;
+    if (!state.data.houses.length) state.houseFormMode = 'new';
     renderHouseList();
     if (state.houseFormMode === 'new') {
       renderNewHouseForm();

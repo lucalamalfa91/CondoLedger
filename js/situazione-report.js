@@ -218,7 +218,12 @@ export function computePriorYearSourceSummary(house, priorBalance, currentPeriod
     };
   }
 
-  const saldo = sourceRow.balanceConsuntivo ?? 0;
+  // L'esercizio di origine può avere a sua volta un proprio saldo anno precedente
+  // (riportato da un esercizio ancora precedente): va incluso, altrimenti il saldo
+  // qui mostrato non coincide con quello visibile aprendo direttamente quell'esercizio.
+  const sourceReport = buildSituazioneReport(house, sourcePeriodId);
+  const sourceTotals = computeSituazioneTotals(sourceReport, sourceRow);
+  const saldo = sourceTotals.saldo ?? sourceRow.balanceConsuntivo ?? 0;
   let saldoLabel = 'Pareggio';
   let saldoCls = 'warn';
   if (sourceRow.consuntivoSettledInNext) {
@@ -232,7 +237,7 @@ export function computePriorYearSourceSummary(house, priorBalance, currentPeriod
     saldoCls = 'negative';
   }
 
-  let footnote = 'Versato − consuntivo';
+  let footnote = sourceReport.priorBalance ? sourceTotals.saldoHint : 'Versato − consuntivo';
   if (sourceRow.consuntivoSettledInNext) {
     footnote = consuntivoBalanceFootnote(house, sourceRow);
   } else if (Math.abs((sourceRow.balanceConsuntivoRaw ?? saldo) - saldo) > 0.005) {

@@ -63,28 +63,12 @@ function rowActions(kind, id) {
 
 export function createRenderer(els) {
   function defaultSubview(view) {
-    if (view === 'movimenti') {
-      return sessionStorage.getItem('movimenti-tab') || viewMeta.movimenti.defaultSubview;
-    }
     return viewMeta[view]?.defaultSubview ?? null;
   }
 
   function syncNavActive(view, subview) {
     els.navButtons.forEach(btn => {
-      const btnView = btn.dataset.view;
-      const mobileSub = btn.dataset.navMobileSubview;
-      let active;
-      if (btn.closest('.bottom-nav')) {
-        if (mobileSub) {
-          active = view === btnView && subview === mobileSub;
-        } else if (btnView === 'movimenti') {
-          active = view === 'movimenti' && subview !== 'situazione';
-        } else {
-          active = view === btnView;
-        }
-      } else {
-        active = btnView === view;
-      }
+      const active = btn.dataset.view === view;
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-current', active ? 'page' : 'false');
     });
@@ -127,7 +111,6 @@ export function createRenderer(els) {
     }
     state.currentView = view;
     state.currentSubview = subview;
-    if (view === 'movimenti' && subview) sessionStorage.setItem('movimenti-tab', subview);
 
     syncNavActive(view, subview);
     els.viewPanels.forEach(panel => panel.classList.toggle('active', panel.dataset.viewPanel === view));
@@ -137,24 +120,14 @@ export function createRenderer(els) {
     els.main?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function renderHouseSelect() {
-    if (!els.houseSelect) return;
+  function renderHouseCurrentName() {
+    if (!els.houseCurrentName) return;
     if (state.houseFormMode === 'new') {
-      els.houseSelect.disabled = true;
-      els.houseSelect.innerHTML = '<option value="">Nuova casa…</option>';
+      els.houseCurrentName.textContent = 'Nuova casa…';
       return;
     }
-    const current = state.selectedHouseId || '';
-    if (!state.data.houses.length) {
-      els.houseSelect.innerHTML = '<option value="">Nessun immobile</option>';
-      els.houseSelect.disabled = true;
-      return;
-    }
-    els.houseSelect.disabled = false;
-    els.houseSelect.innerHTML = state.data.houses.map(h =>
-      `<option value="${h.id}" ${h.id === current ? 'selected' : ''}>${h.name}</option>`
-    ).join('');
-    if (current) els.houseSelect.value = current;
+    const current = state.data.houses.find(h => h.id === state.selectedHouseId);
+    els.houseCurrentName.textContent = current ? current.name : 'Nessun immobile';
   }
 
   function renderHousesManageList() {
@@ -359,7 +332,7 @@ export function createRenderer(els) {
   }
 
   function renderHouseList() {
-    renderHouseSelect();
+    renderHouseCurrentName();
     renderHousesManageList();
   }
 
@@ -476,7 +449,7 @@ export function createRenderer(els) {
             ? ` data-situazione-period="${String(data.focusPeriodId).replace(/"/g, '&quot;')}"`
             : '';
           const linkBtn = card.linkSubview
-            ? `<button type="button" class="kpi-card-link" data-nav-target="movimenti" data-nav-subview="${card.linkSubview}"${periodAttr} aria-label="Apri dettaglio in Situazione">Dettaglio →</button>`
+            ? `<button type="button" class="kpi-card-link" data-nav-target="${card.linkView}" data-nav-subview="${card.linkSubview}"${periodAttr} aria-label="Apri dettaglio in Situazione">Dettaglio →</button>`
             : '';
           return `<article class="kpi-card kpi-card--${card.tone || 'neutral'}${card.primary ? ' kpi-card--primary' : ''}">
             <div class="kpi-card-label">${card.label}</div>
@@ -496,7 +469,7 @@ export function createRenderer(els) {
           <h3 class="panoramica-links-title">Collegamenti rapidi — altri esercizi</h3>
           <ul class="panoramica-period-list">
             ${data.periodLinks.map(link => `<li>
-              <button type="button" class="panoramica-period-row" data-nav-target="movimenti" data-nav-subview="situazione" data-situazione-period="${String(link.periodId).replace(/"/g, '&quot;')}">
+              <button type="button" class="panoramica-period-row" data-nav-target="situazione" data-nav-subview="rendiconto" data-situazione-period="${String(link.periodId).replace(/"/g, '&quot;')}">
                 <span><strong>${link.label}</strong> <span class="badge ${link.statusCls}">${link.statusLabel}</span></span>
                 <span class="amount ${link.saldoCls}">${link.saldo}</span>
               </button>
@@ -975,9 +948,10 @@ export function createRenderer(els) {
       els.movements.innerHTML = '<div class="empty">Nessun movimento registrato per questa casa.</div>';
       return;
     }
-    els.movements.innerHTML = `<table><thead><tr><th>Tipo</th><th>Esercizio</th><th>Data</th><th>Dettaglio</th><th>Importo</th><th></th></tr></thead><tbody>${items.map(item =>
-      `<tr><td>${item.type}</td><td>${periodLabel(house, item.fiscalPeriodId)}</td><td>${item.date || '—'}</td><td>${item.detail || '—'}</td><td class="amount ${item.type === 'Versamento' ? 'positive' : ''}">${fmt(item.amount)}</td><td>${rowActions(item.kind, item.id)}</td></tr>`
-    ).join('')}</tbody></table>`;
+    els.movements.innerHTML = `<table><thead><tr><th>Tipo</th><th>Esercizio</th><th>Data</th><th>Dettaglio</th><th>Importo</th><th></th></tr></thead><tbody>${items.map(item => {
+      const safeId = String(item.id ?? '').replace(/"/g, '&quot;');
+      return `<tr><td>${item.type}</td><td>${periodLabel(house, item.fiscalPeriodId)}</td><td>${item.date || '—'}</td><td>${item.detail || '—'}</td><td class="amount ${item.type === 'Versamento' ? 'positive' : ''}">${fmt(item.amount)}</td><td><button type="button" class="btn btn-secondary" data-record-action="edit" data-record-kind="${item.kind}" data-id="${safeId}">Modifica in Registra →</button></td></tr>`;
+    }).join('')}</tbody></table>`;
   }
 
   function renderHouseImportParties(house) {
@@ -1534,7 +1508,7 @@ export function collectDom() {
     userChip: document.getElementById('userMenuBtn'),
     userMenuBtn: document.getElementById('userMenuBtn'),
     userMenu: document.getElementById('userMenu'),
-    houseSelect: document.getElementById('houseSelect'),
+    houseCurrentName: document.getElementById('houseCurrentName'),
     headerAddHouseBtn: document.getElementById('headerAddHouseBtn'),
     housesManageList: document.getElementById('housesManageList'),
     addHouseSettingsBtn: document.getElementById('addHouseSettingsBtn'),
@@ -1600,6 +1574,7 @@ export function collectDom() {
     houseDrawerList: document.getElementById('houseDrawerList'),
     openHouseDrawerBtn: document.getElementById('openHouseDrawerBtn'),
     openDueFormSheet: document.getElementById('openDueFormSheet'),
+    dueSuggestCarryoverBtn: document.getElementById('dueSuggestCarryoverBtn'),
     closeDueFormSheet: document.getElementById('closeDueFormSheet'),
     dueFormPaneBackdrop: document.getElementById('dueFormPaneBackdrop'),
     openPaymentFormSheet: document.getElementById('openPaymentFormSheet'),

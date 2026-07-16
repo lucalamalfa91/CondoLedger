@@ -132,19 +132,17 @@ export function computeSituazioneTotals(report, totalsRow) {
     saldoHint = '';
   }
 
-  let saldoLabel = 'Saldo';
-  let saldoTone = '';
+  let saldoLabel = 'Pareggio';
+  let saldoTone = 'warn';
   if (totalsRow?.consuntivoSettledInNext) {
-    saldoLabel = 'Saldo';
+    saldoLabel = 'Saldato';
     saldoTone = 'success';
   } else if (saldo > 0.005) {
-    saldoLabel = 'Saldo positivo';
+    saldoLabel = 'Eccedenza';
     saldoTone = 'positive';
   } else if (saldo < -0.005) {
-    saldoLabel = 'Saldo negativo';
+    saldoLabel = 'In debito';
     saldoTone = 'negative';
-  } else {
-    saldoTone = 'warn';
   }
 
   return {

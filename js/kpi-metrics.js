@@ -1,6 +1,5 @@
-import { findPeriodByDate, periodSummary, totals } from './fiscal.js';
+import { findPeriodByDate, periodSummary } from './fiscal.js';
 import { buildSituazioneReport, computeSituazioneTotals } from './situazione-report.js';
-import { installmentSummaryForPeriod } from './installments.js';
 import { today } from './utils.js';
 
 function resolveScopePeriodId(house, filterPeriodId) {
@@ -16,18 +15,6 @@ function resolveScopePeriodId(house, filterPeriodId) {
 function formatEuro(n) {
   if (n == null || Number.isNaN(Number(n))) return '—';
   return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(Number(n));
-}
-
-function nextUpcomingSlot(house, periodId) {
-  const inst = installmentSummaryForPeriod(house, periodId);
-  const upcoming = [];
-  for (const slot of inst.slots) {
-    const gap = slot.amountDue - slot.paid;
-    if (gap <= 0.01) continue;
-    if (slot.periodEnd >= today) upcoming.push({ slot, gap });
-  }
-  upcoming.sort((a, b) => a.slot.periodEnd.localeCompare(b.slot.periodEnd));
-  return upcoming[0] || null;
 }
 
 export function resolveToPayInfo(report, totalsRow) {
@@ -71,18 +58,10 @@ export function computePanoramicaKpis(house, filterPeriodId = null) {
   if (focusPeriodId) {
     const report = buildSituazioneReport(house, focusPeriodId);
     const t = computeSituazioneTotals(report, report.totalsRow);
-    const settledNote = periodRow?.consuntivoSettledInNext ? 'Saldato in esercizio successivo' : t.saldoHint;
 
-    cards.push({
-      id: 'saldo',
-      label: t.saldoLabel,
-      value: formatEuro(t.saldo),
-      hint: settledNote,
-      tone: periodRow?.consuntivoSettledInNext ? 'success' : t.saldoTone,
-      linkSubview: 'situazione',
-      primary: true
-    });
-
+    // Saldo e prossima rata sono già mostrati nell'hero "Sei in regola": qui
+    // solo indicatori complementari (dettaglio preventivo/consuntivo/pagamenti),
+    // per evitare di ripetere due volte gli stessi numeri in Panoramica.
     if (t.preventivo > 0.005 || !t.hasCons) {
       cards.push({
         id: 'preventivo',
@@ -90,7 +69,8 @@ export function computePanoramicaKpis(house, filterPeriodId = null) {
         value: formatEuro(t.preventivo),
         hint: 'Voci preventivo esercizio',
         tone: 'neutral',
-        linkSubview: 'situazione'
+        linkView: 'situazione',
+        linkSubview: 'rendiconto'
       });
     }
 
@@ -101,7 +81,8 @@ export function computePanoramicaKpis(house, filterPeriodId = null) {
         value: formatEuro(t.consuntivo),
         hint: t.hasPrior ? 'Voci consuntivo (prima del saldo prec.)' : 'Addebiti consuntivi',
         tone: 'neutral',
-        linkSubview: 'situazione'
+        linkView: 'situazione',
+        linkSubview: 'rendiconto'
       });
     }
 
@@ -112,7 +93,8 @@ export function computePanoramicaKpis(house, filterPeriodId = null) {
         value: formatEuro(t.daPagare),
         hint: t.hasPrior ? 'Consuntivo + saldo precedente' : 'Totale dovuto',
         tone: 'warn',
-        linkSubview: 'situazione'
+        linkView: 'situazione',
+        linkSubview: 'rendiconto'
       });
     }
 
@@ -122,20 +104,9 @@ export function computePanoramicaKpis(house, filterPeriodId = null) {
       value: formatEuro(t.pagato),
       hint: `${report.periodPayments.length} versamenti`,
       tone: 'positive',
+      linkView: 'registra',
       linkSubview: 'versamenti'
     });
-
-    const next = nextUpcomingSlot(house, focusPeriodId);
-    if (next) {
-      cards.push({
-        id: 'prossima-rata',
-        label: 'Prossima rata',
-        value: formatEuro(next.gap),
-        hint: next.slot.label,
-        tone: 'warn',
-        linkSubview: 'situazione'
-      });
-    }
   }
 
   const periodLinks = summary

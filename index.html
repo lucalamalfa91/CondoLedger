@@ -227,7 +227,13 @@
               <form id="paymentForm" class="stack">
                 <div class="field-grid">
                   <div><label for="paymentPeriod">Esercizio fiscale</label><select id="paymentPeriod" name="fiscalPeriodId" required></select></div>
+                  <div><label for="paymentTarget">Cosa versi?</label><select id="paymentTarget" name="paymentTarget"><option value="rata">Rata preventivo</option><option value="prior">Saldo anno precedente</option></select></div>
+                </div>
+                <div class="field-grid" id="paymentInstallmentField">
                   <div><label for="paymentInstallment">Rata</label><select id="paymentInstallment" name="installmentKey" required></select></div>
+                </div>
+                <div class="field-grid hidden" id="paymentPriorBalanceField">
+                  <div><p class="hint" id="paymentPriorBalanceInfo"></p><input id="paymentPriorBalanceId" name="priorBalanceId" type="hidden" /></div>
                 </div>
                 <div class="field-grid">
                   <div><label for="paymentAmount">Importo</label><input id="paymentAmount" name="amount" type="number" step="0.01" required /><p class="hint">Negativo solo per eccedenza versata.</p></div>

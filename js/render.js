@@ -1,6 +1,7 @@
 import { ensureResoconto, resocontoHtml } from './document-import-resoconto.js';
 import { partyDisplayName } from './house-import-parties.js';
 import { resolveView, viewHeading, viewMeta } from './config.js';
+import { hasCarryDueTargetingPeriod } from './carryover.js';
 import {
   DUE_KINDS,
   consuntivoBalanceFootnote,
@@ -17,6 +18,7 @@ import {
   findInstallment,
   inferInstallmentKey,
   installmentShortLabel,
+  installmentSummaryForPeriod,
   listInstallmentsForPeriod,
   listAllInstallments,
   paymentsSummaryForList
@@ -29,6 +31,8 @@ import {
   hasPaymentsOnlyReport,
   hasPreventivoReport,
   hasPriorBalanceReport,
+  getPriorBalanceForPeriod,
+  sumPaidForPriorBalance,
   priorBalancePresentation,
   priorBalanceSourceLabel,
   resolveSituazionePdfKind,
@@ -56,9 +60,9 @@ const MONTH_FILTER_LABELS = [
   ['10', 'Ottobre'], ['11', 'Novembre'], ['12', 'Dicembre']
 ];
 
-function rowActions(kind, id) {
+function rowActions(kind, id, extraHtml = '') {
   const safeId = String(id ?? '').replace(/"/g, '&quot;');
-  return `<div class="row-actions"><button type="button" class="btn btn-secondary" data-record-action="edit" data-record-kind="${kind}" data-id="${safeId}">Modifica</button><button type="button" class="btn btn-secondary" data-record-action="delete" data-record-kind="${kind}" data-id="${safeId}">Elimina</button></div>`;
+  return `<div class="row-actions">${extraHtml}<button type="button" class="btn btn-secondary" data-record-action="edit" data-record-kind="${kind}" data-id="${safeId}">Modifica</button><button type="button" class="btn btn-secondary" data-record-action="delete" data-record-kind="${kind}" data-id="${safeId}">Elimina</button></div>`;
 }
 
 export function createRenderer(els) {
@@ -214,6 +218,7 @@ export function createRenderer(els) {
     els.paymentPeriod.innerHTML = html;
     if (existingId) els.paymentPeriod.value = existingId;
     syncPaymentInstallmentSelect(house);
+    syncPaymentPriorBalanceInfo(house);
   }
 
   function syncPaymentInstallmentSelect(house, preferredKey = null) {
@@ -246,6 +251,33 @@ export function createRenderer(els) {
     if (!row) return;
     const gap = Math.round((row.amountDue - row.paid) * 100) / 100;
     if (gap > 0.01) els.paymentAmount.value = String(gap);
+  }
+
+  function syncPaymentTargetFields() {
+    const isPrior = els.paymentTarget?.value === 'prior';
+    els.paymentInstallmentField?.classList.toggle('hidden', isPrior);
+    els.paymentPriorBalanceField?.classList.toggle('hidden', !isPrior);
+    if (els.paymentInstallment) els.paymentInstallment.required = !isPrior;
+  }
+
+  function syncPaymentPriorBalanceInfo(house) {
+    if (!els.paymentPriorBalanceInfo || !els.paymentPriorBalanceId) return;
+    const periodId = els.paymentPeriod?.value;
+    const balance = periodId ? getPriorBalanceForPeriod(house, periodId) : null;
+    const isDebt = balance && Number(balance.amount) > 0.005;
+    if (!isDebt) {
+      els.paymentPriorBalanceId.value = '';
+      els.paymentPriorBalanceInfo.textContent = 'Nessun saldo anno precedente a debito per questo esercizio.';
+      return;
+    }
+    const paid = sumPaidForPriorBalance(house, balance.id);
+    const residuo = Math.round((Number(balance.amount) - paid) * 100) / 100;
+    els.paymentPriorBalanceId.value = balance.id;
+    els.paymentPriorBalanceInfo.textContent = `Saldo anno precedente ${periodLabel(house, periodId)} — residuo ${fmt(residuo)}`;
+    const isPriorMode = els.paymentTarget?.value === 'prior';
+    if (isPriorMode && els.paymentAmount && !els.paymentEditId?.value && residuo > 0.01) {
+      els.paymentAmount.value = String(residuo);
+    }
   }
 
   function renderPaymentFilterOptions(house) {
@@ -544,8 +576,9 @@ export function createRenderer(els) {
       const carry = item.carryFromPeriodId ? ' <span class="badge warn">Riporto</span>' : '';
       const amtCls = Number(item.amount) < 0 ? 'negative' : '';
       const ex = periodLabel(house, item.fiscalPeriodId);
-      const tableRow = `<tr><td>${ex}</td><td>${kind}${carry}</td><td>${item.description || '—'}</td><td>${splitLabel}</td><td class="amount ${amtCls}">${fmt(item.amount)}</td><td>${rowActions('due', item.id)}</td></tr>`;
-      const card = `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${ex} · ${kind}${carry}</div><div class="data-card-meta">${item.description || '—'} · ${splitLabel}</div></div><div class="data-card-amount amount ${amtCls}">${fmt(item.amount)}</div></div><div class="data-card-actions">${rowActions('due', item.id)}</div></article>`;
+      const actionsHtml = rowActions('due', item.id);
+      const tableRow = `<tr><td>${ex}</td><td>${kind}${carry}</td><td>${item.description || '—'}</td><td>${splitLabel}</td><td class="amount ${amtCls}">${fmt(item.amount)}</td><td>${actionsHtml}</td></tr>`;
+      const card = `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${ex} · ${kind}${carry}</div><div class="data-card-meta">${item.description || '—'} · ${splitLabel}</div></div><div class="data-card-amount amount ${amtCls}">${fmt(item.amount)}</div></div><div class="data-card-actions">${actionsHtml}</div></article>`;
       return { tableRow, card };
     });
     const tableHtml = `<table><thead><tr><th>Esercizio</th><th>Tipo</th><th>Descrizione</th><th>Ripartizione</th><th>Importo</th><th></th></tr></thead><tbody>${rows.map(r => r.tableRow).join('')}</tbody></table>`;
@@ -554,12 +587,17 @@ export function createRenderer(els) {
   }
 
   function paymentRowMeta(house, item) {
-    const key = item.installmentKey || inferInstallmentKey(house, item);
-    const rata = installmentShortLabel(house, key);
-    const inferred = !item.installmentKey && key;
     const amt = Number(item.amount || 0);
     const amtCls = amt >= 0 ? 'positive' : 'negative';
-    const rataCell = inferred ? `${rata} <span class="hint">(stimata)</span>` : rata;
+    let rataCell;
+    if (item.priorBalanceId) {
+      rataCell = `<span class="badge">Saldo anno precedente</span>`;
+    } else {
+      const key = item.installmentKey || inferInstallmentKey(house, item);
+      const rata = installmentShortLabel(house, key);
+      const inferred = !item.installmentKey && key;
+      rataCell = inferred ? `${rata} <span class="hint">(stimata)</span>` : rata;
+    }
     return { ex: periodLabel(house, item.fiscalPeriodId), rataCell, date: item.date || '—', method: item.method || '—', amt, amtCls, id: item.id };
   }
 
@@ -608,18 +646,33 @@ export function createRenderer(els) {
       els.priorBalancesTable.innerHTML = emptyListHtml('Nessun saldo precedente registrato.');
       return;
     }
+    const conflicted = items.filter(item => hasCarryDueTargetingPeriod(house, item.fiscalPeriodId));
+    const conflictBanner = conflicted.length
+      ? `<p class="hint warn">Attenzione: per ${conflicted.map(i => periodLabel(house, i.fiscalPeriodId)).join(', ')} esiste sia un saldo precedente dedicato sia un riporto automatico sul preventivo — rischio di contare il conguaglio due volte.</p>`
+      : '';
     const rows = items.map(item => {
       const pres = priorBalancePresentation(item.amount);
       const ex = periodLabel(house, item.fiscalPeriodId);
       const src = priorBalanceSourceLabel(house, item);
       const srcNote = src !== '—' ? ` <span class="muted">(da ${src})</span>` : '';
-      const tableRow = `<tr><td>${ex}</td><td><span class="badge ${pres.badgeCls}">${pres.label}</span>${srcNote}</td><td>${item.description || '—'}</td><td class="amount ${pres.amountCls}">${fmt(item.amount)}</td><td>${rowActions('prior', item.id)}</td></tr>`;
-      const card = `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${ex} · ${pres.label}${srcNote}</div><div class="data-card-meta">${item.description || '—'}</div></div><div class="data-card-amount amount ${pres.amountCls}">${fmt(item.amount)}</div></div><div class="data-card-actions">${rowActions('prior', item.id)}</div></article>`;
+      let payNote = '';
+      let payBtn = '';
+      if (Number(item.amount) > 0.005) {
+        const paid = sumPaidForPriorBalance(house, item.id);
+        const residuo = Math.round((Number(item.amount) - paid) * 100) / 100;
+        const settled = residuo <= 0.005;
+        payNote = ` <span class="muted">Versato ${fmt(paid)} · Residuo <span class="${settled ? 'positive' : 'negative'}">${fmt(residuo)}</span></span>`;
+        if (!settled) {
+          payBtn = `<button type="button" class="btn btn-secondary" data-record-action="pay-prior" data-record-kind="prior" data-id="${item.id}">Registra versamento</button>`;
+        }
+      }
+      const tableRow = `<tr><td>${ex}</td><td><span class="badge ${pres.badgeCls}">${pres.label}</span>${srcNote}</td><td>${item.description || '—'}${payNote}</td><td class="amount ${pres.amountCls}">${fmt(item.amount)}</td><td>${rowActions('prior', item.id, payBtn)}</td></tr>`;
+      const card = `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${ex} · ${pres.label}${srcNote}</div><div class="data-card-meta">${item.description || '—'}${payNote}</div></div><div class="data-card-amount amount ${pres.amountCls}">${fmt(item.amount)}</div></div><div class="data-card-actions">${rowActions('prior', item.id, payBtn)}</div></article>`;
       return { tableRow, card };
     });
     const tableHtml = `<table><thead><tr><th>Esercizio</th><th>Tipo</th><th>Descrizione</th><th>Importo</th><th></th></tr></thead><tbody>${rows.map(r => r.tableRow).join('')}</tbody></table>`;
     const cardsHtml = rows.map(r => r.card).join('');
-    els.priorBalancesTable.innerHTML = dataListHtml(tableHtml, cardsHtml);
+    els.priorBalancesTable.innerHTML = conflictBanner + dataListHtml(tableHtml, cardsHtml);
   }
 
   function renderDashboardPayments(house) {
@@ -1496,6 +1549,8 @@ export function createRenderer(els) {
     renderUnlinkedMovements,
     syncPaymentPeriodSelect,
     syncPaymentInstallmentSelect,
+    syncPaymentTargetFields,
+    syncPaymentPriorBalanceInfo,
     syncPriorBalancePeriodSelect,
     syncPriorBalanceSourceSelect,
     syncDueKindFields,
@@ -1612,12 +1667,18 @@ export function collectDom() {
     dueFormCancel: document.getElementById('dueFormCancel'),
     duesTable: document.getElementById('duesTable'),
     paymentPeriod: document.getElementById('paymentPeriod'),
+    paymentAmount: document.getElementById('paymentAmount'),
     paymentDate: document.getElementById('paymentDate'),
     paymentEditId: document.getElementById('paymentEditId'),
     paymentSubmitBtn: document.getElementById('paymentSubmitBtn'),
     paymentFormCancel: document.getElementById('paymentFormCancel'),
     paymentsTable: document.getElementById('paymentsTable'),
     paymentInstallment: document.getElementById('paymentInstallment'),
+    paymentTarget: document.getElementById('paymentTarget'),
+    paymentInstallmentField: document.getElementById('paymentInstallmentField'),
+    paymentPriorBalanceField: document.getElementById('paymentPriorBalanceField'),
+    paymentPriorBalanceInfo: document.getElementById('paymentPriorBalanceInfo'),
+    paymentPriorBalanceId: document.getElementById('paymentPriorBalanceId'),
     paymentFilterYear: document.getElementById('paymentFilterYear'),
     paymentFilterMonth: document.getElementById('paymentFilterMonth'),
     paymentsSummary: document.getElementById('paymentsSummary'),

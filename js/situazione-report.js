@@ -5,6 +5,13 @@ export function getPriorBalanceForPeriod(house, fiscalPeriodId) {
   return (house.priorBalances || []).find(b => String(b.fiscalPeriodId) === String(fiscalPeriodId)) ?? null;
 }
 
+/** Somma dei versamenti registrati direttamente a copertura di un saldo anno precedente. */
+export function sumPaidForPriorBalance(house, priorBalanceId) {
+  return (house.payments || [])
+    .filter(p => String(p.priorBalanceId) === String(priorBalanceId))
+    .reduce((s, p) => s + Number(p.amount || 0), 0);
+}
+
 /** Positivo = extra da pagare; negativo = sconto/credito riportato. */
 export function priorBalancePresentation(amount) {
   const n = Number(amount || 0);
@@ -31,6 +38,7 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
 
   const periodPayments = house.payments.filter(p => p.fiscalPeriodId === fiscalPeriodId);
   const unlinkedPayments = periodPayments.filter(p => {
+    if (p.priorBalanceId) return false;
     const key = p.installmentKey || inferInstallmentKey(house, p);
     return !key;
   });

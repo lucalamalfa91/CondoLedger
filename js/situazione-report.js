@@ -5,6 +5,13 @@ export function getPriorBalanceForPeriod(house, fiscalPeriodId) {
   return (house.priorBalances || []).find(b => String(b.fiscalPeriodId) === String(fiscalPeriodId)) ?? null;
 }
 
+/** Somma dei versamenti registrati direttamente a copertura di un saldo anno precedente. */
+export function sumPaidForPriorBalance(house, priorBalanceId) {
+  return (house.payments || [])
+    .filter(p => String(p.priorBalanceId) === String(priorBalanceId))
+    .reduce((s, p) => s + Number(p.amount || 0), 0);
+}
+
 /** Positivo = extra da pagare; negativo = sconto/credito riportato. */
 export function priorBalancePresentation(amount) {
   const n = Number(amount || 0);
@@ -30,7 +37,9 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
   const slotsTotalPaid = slots.reduce((s, x) => s + x.paid, 0);
 
   const periodPayments = house.payments.filter(p => p.fiscalPeriodId === fiscalPeriodId);
-  const unlinkedPayments = periodPayments.filter(p => {
+  const priorBalancePayments = periodPayments.filter(p => p.priorBalanceId);
+  const exercisePayments = periodPayments.filter(p => !p.priorBalanceId);
+  const unlinkedPayments = exercisePayments.filter(p => {
     const key = p.installmentKey || inferInstallmentKey(house, p);
     return !key;
   });
@@ -38,6 +47,7 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
   const carryDues = preventivoDues.filter(d => d.carryFromPeriodId);
   const priorBalance = getPriorBalanceForPeriod(house, fiscalPeriodId);
   const priorAmount = priorBalance ? Number(priorBalance.amount) : 0;
+  const priorBalancePaid = priorBalancePayments.reduce((s, p) => s + Number(p.amount || 0), 0);
   const preventivoBase = totalsRow?.preventivo ?? 0;
   const consuntivoBase = totalsRow?.consuntivo ?? 0;
   const paidTotal = totalsRow?.paid ?? sumPaid(house, fiscalPeriodId);
@@ -63,6 +73,8 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
     carryDues,
     priorBalance,
     priorAmount,
+    priorBalancePayments,
+    priorBalancePaid,
     preventivoBase,
     consuntivoBase,
     totalToPayPreventivo,
@@ -75,7 +87,8 @@ export function buildSituazioneReport(house, fiscalPeriodId) {
     slotsBalance: slotsTotalPaid - slotsTotalDue,
     paidTotal,
     unlinkedPayments,
-    periodPayments
+    periodPayments,
+    exercisePayments
   };
 }
 
@@ -203,7 +216,12 @@ export function computePriorYearSourceSummary(house, priorBalance, currentPeriod
     };
   }
 
-  const saldo = sourceRow.balanceConsuntivo ?? 0;
+  // L'esercizio di origine può avere a sua volta un proprio saldo anno precedente
+  // (riportato da un esercizio ancora precedente): va incluso, altrimenti il saldo
+  // qui mostrato non coincide con quello visibile aprendo direttamente quell'esercizio.
+  const sourceReport = buildSituazioneReport(house, sourcePeriodId);
+  const sourceTotals = computeSituazioneTotals(sourceReport, sourceRow);
+  const saldo = sourceTotals.saldo ?? sourceRow.balanceConsuntivo ?? 0;
   let saldoLabel = 'Pareggio';
   let saldoCls = 'warn';
   if (sourceRow.consuntivoSettledInNext) {
@@ -217,7 +235,7 @@ export function computePriorYearSourceSummary(house, priorBalance, currentPeriod
     saldoCls = 'negative';
   }
 
-  let footnote = 'Versato − consuntivo';
+  let footnote = sourceReport.priorBalance ? sourceTotals.saldoHint : 'Versato − consuntivo';
   if (sourceRow.consuntivoSettledInNext) {
     footnote = consuntivoBalanceFootnote(house, sourceRow);
   } else if (Math.abs((sourceRow.balanceConsuntivoRaw ?? saldo) - saldo) > 0.005) {

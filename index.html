@@ -93,7 +93,9 @@
       </div>
       <nav class="nav-list">
         <button class="nav-btn active" data-view="panoramica" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="nav-label"><strong>Panoramica</strong><span>Riepilogo</span></span></button>
-        <button class="nav-btn" data-view="movimenti" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span class="nav-label"><strong>Movimenti</strong><span>Dovuti e versamenti</span></span></button>
+        <button class="nav-btn" data-view="registra" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span class="nav-label"><strong>Registra</strong><span>Dovuti e versamenti</span></span></button>
+        <button class="nav-btn" data-view="importa" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg></span><span class="nav-label"><strong>Importa</strong><span>Documento e banca</span></span></button>
+        <button class="nav-btn" data-view="situazione" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M4 19h16M8 15v-4M12 19V9M16 13V7"/></svg></span><span class="nav-label"><strong>Situazione</strong><span>Saldi per esercizio</span></span></button>
         <button class="nav-btn" data-view="impostazioni" type="button"><span class="nav-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></span><span class="nav-label"><strong>Impostazioni</strong><span>Casa e account</span></span></button>
       </nav>
     </aside>
@@ -101,11 +103,10 @@
     <header class="header">
       <div class="topbar-left">
         <div class="house-bar">
-          <label class="sr-only" for="houseSelect">Immobile attivo</label>
-          <button class="icon-btn house-drawer-btn" id="openHouseDrawerBtn" type="button" aria-label="Gestisci immobili" title="Gestisci immobili">
+          <button class="icon-btn house-drawer-btn" id="openHouseDrawerBtn" type="button" aria-label="Cambia immobile" title="Cambia immobile">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20V8.5L12 4l8 4.5V20"/><path d="M8 20v-6h8v6"/></svg>
           </button>
-          <select id="houseSelect" class="house-select" aria-label="Seleziona immobile"></select>
+          <span class="house-current-name" id="houseCurrentName"></span>
           <button class="icon-btn add-house-btn" id="headerAddHouseBtn" type="button" aria-label="Aggiungi immobile" title="Aggiungi immobile">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M4 20V8.5L12 4l8 4.5V20"/>
@@ -143,9 +144,9 @@
             <p class="muted" id="currentHouseMeta">Aggiungi un immobile dal pulsante accanto al menu o da Impostazioni.</p>
           </div>
           <div class="toolbar hero-toolbar">
-            <button class="btn btn-primary" type="button" data-nav-target="movimenti" data-nav-subview="import-doc">Importa documento</button>
-            <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="dovuti">+ Dovuto</button>
-            <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="versamenti">+ Versamento</button>
+            <button class="btn btn-primary" type="button" data-nav-target="importa" data-nav-subview="import-doc">Importa documento</button>
+            <button class="btn btn-secondary" type="button" data-nav-target="registra" data-nav-subview="dovuti">+ Dovuto</button>
+            <button class="btn btn-secondary" type="button" data-nav-target="registra" data-nav-subview="versamenti">+ Versamento</button>
           </div>
         </div>
         <section class="panel panoramica-kpi-panel">
@@ -156,20 +157,17 @@
           <section class="panoramica-kpis" id="panoramicaKpis" aria-live="polite"></section>
           <section id="panoramicaPeriodLinks" class="panoramica-period-links" aria-label="Altri esercizi"></section>
           <div class="panoramica-foot-actions">
-            <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="situazione" id="panoramicaSituazioneLink">Rendiconto completo</button>
-            <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="versamenti">Storico versamenti</button>
+            <button class="btn btn-secondary" type="button" data-nav-target="situazione" data-nav-subview="rendiconto" id="panoramicaSituazioneLink">Situazione</button>
+            <button class="btn btn-secondary" type="button" data-nav-target="registra" data-nav-subview="versamenti">Storico versamenti</button>
           </div>
         </section>
       </section>
 
-      <section class="view" data-view-panel="movimenti">
-        <nav class="sub-nav" role="tablist" aria-label="Sezioni movimenti">
-          <button class="sub-nav-btn active" type="button" role="tab" data-view="movimenti" data-subview="dovuti" aria-selected="true">Dovuti</button>
-          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="versamenti" aria-selected="false">Versamenti</button>
-          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="saldi-precedenti" aria-selected="false">Saldi prec.</button>
-          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="import-doc" aria-selected="false">Import doc.</button>
-          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="import-banca" aria-selected="false">Import banca</button>
-          <button class="sub-nav-btn" type="button" role="tab" data-view="movimenti" data-subview="situazione" aria-selected="false">Situazione</button>
+      <section class="view" data-view-panel="registra">
+        <nav class="sub-nav" role="tablist" aria-label="Sezioni registra">
+          <button class="sub-nav-btn active" type="button" role="tab" data-view="registra" data-subview="dovuti" aria-selected="true">Dovuti</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="registra" data-subview="versamenti" aria-selected="false">Versamenti</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="registra" data-subview="apertura-esercizio" aria-selected="false">Apertura esercizio</button>
         </nav>
         <div class="subview active" data-subview-panel="dovuti" role="tabpanel">
           <div class="form-sheet-backdrop hidden" id="dueFormPaneBackdrop" aria-hidden="true"></div>
@@ -191,7 +189,7 @@
                     <p class="hint" id="duePeriodHint"></p>
                   </div>
                   <div><label for="dueKind">Tipologia</label><select id="dueKind" name="dueKind"><option value="preventivo">Preventivo</option><option value="consuntivo">Consuntivo</option></select></div>
-                  <div><label for="dueAmount">Importo</label><input id="dueAmount" name="amount" type="number" step="0.01" required /><p class="hint">Negativo sul preventivo = credito (es. riporto eccedenza).</p></div>
+                  <div><label for="dueAmount">Importo</label><input id="dueAmount" name="amount" type="number" step="0.01" required /><p class="hint">Per il credito/debito di apertura esercizio usa Apertura esercizio.</p></div>
                 </div>
                 <div><label for="dueDescription">Descrizione</label><input id="dueDescription" name="description" type="text" placeholder="Preventivo annuale, consuntivo, conguaglio..." /></div>
                 <div class="field-grid due-split-fields" id="dueSplitFields">
@@ -208,7 +206,10 @@
             <section class="split-content-pane card stack data-panel">
               <div class="panel-head">
                 <div><h2>Dovuti registrati</h2><p class="subtle">Elenco per esercizio — scorri se necessario.</p></div>
-                <button class="btn btn-primary form-sheet-open-btn" type="button" id="openDueFormSheet">+ Nuovo dovuto</button>
+                <div class="toolbar">
+                  <button class="btn btn-secondary" type="button" id="dueSuggestCarryoverBtn">Suggerisci riporto da esercizio precedente</button>
+                  <button class="btn btn-primary form-sheet-open-btn" type="button" id="openDueFormSheet">+ Nuovo dovuto</button>
+                </div>
               </div>
               <div class="data-table-wrap" id="duesTable"></div>
             </section>
@@ -261,12 +262,12 @@
             </section>
           </div>
         </div>
-        <div class="subview" data-subview-panel="saldi-precedenti" role="tabpanel">
+        <div class="subview" data-subview-panel="apertura-esercizio" role="tabpanel">
           <div class="form-sheet-backdrop hidden" id="priorBalanceFormPaneBackdrop" aria-hidden="true"></div>
           <div class="split-layout split-layout--list-first">
             <aside class="split-form-pane card stack" id="priorBalanceFormPane">
               <div class="panel-head form-sheet-head">
-                <div><h2>Saldo anno precedente</h2><p class="subtle">Apertura esercizio — non è un dovuto né un versamento.</p></div>
+                <div><h2>Apertura esercizio</h2><p class="subtle">Saldo di partenza — non è un dovuto né un versamento.</p></div>
                 <button class="icon-btn form-sheet-close hidden" type="button" id="closePriorBalanceFormSheet" aria-label="Chiudi modulo">×</button>
               </div>
               <form id="priorBalanceForm" class="stack">
@@ -296,14 +297,21 @@
             </aside>
             <section class="split-content-pane card stack data-panel">
               <div class="panel-head">
-                <div><h2>Saldi anno precedente</h2><p class="subtle">Un saldo per esercizio. Compare in Situazione e PDF, separato da dovuti e versamenti.</p></div>
-                <button class="btn btn-primary form-sheet-open-btn" type="button" id="openPriorBalanceFormSheet">+ Saldo precedente</button>
+                <div><h2>Saldi di apertura</h2><p class="subtle">Un saldo per esercizio. Compare in Situazione e PDF, separato da dovuti e versamenti.</p></div>
+                <button class="btn btn-primary form-sheet-open-btn" type="button" id="openPriorBalanceFormSheet">+ Saldo di apertura</button>
               </div>
               <div class="data-table-wrap" id="priorBalancesTable"></div>
             </section>
           </div>
         </div>
-        <div class="subview" data-subview-panel="import-doc" role="tabpanel">
+      </section>
+
+      <section class="view" data-view-panel="importa">
+        <nav class="sub-nav" role="tablist" aria-label="Sezioni importa">
+          <button class="sub-nav-btn active" type="button" role="tab" data-view="importa" data-subview="import-doc" aria-selected="true">Da documento</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="importa" data-subview="import-banca" aria-selected="false">Da banca</button>
+        </nav>
+        <div class="subview active" data-subview-panel="import-doc" role="tabpanel">
           <section class="card stack data-panel document-import-panel" id="documentImportPanel">
             <ol class="import-stepper" id="documentImportStepper" aria-label="Passaggi import">
               <li class="import-step" data-step="upload"><span>1</span> Carica file</li>
@@ -372,7 +380,14 @@
             </div>
           </section>
         </div>
-        <div class="subview" data-subview-panel="situazione" role="tabpanel">
+      </section>
+
+      <section class="view" data-view-panel="situazione">
+        <nav class="sub-nav" role="tablist" aria-label="Sezioni situazione">
+          <button class="sub-nav-btn active" type="button" role="tab" data-view="situazione" data-subview="rendiconto" aria-selected="true">Situazione</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="situazione" data-subview="registro" aria-selected="false">Registro dettagliato</button>
+        </nav>
+        <div class="subview active" data-subview-panel="rendiconto" role="tabpanel">
           <div class="card stack">
             <div class="panel-head">
               <div><h2>Situazione per esercizio</h2><p class="subtle">Preventivo (rate), consuntivo, riporti e versamenti — allineato al PDF.</p></div>
@@ -389,13 +404,19 @@
             <div id="situazioneSections" class="situazione-sections stack"></div>
           </div>
         </div>
+        <div class="subview" data-subview-panel="registro" role="tabpanel">
+          <div class="card stack">
+            <div class="panel-head"><div><h2>Registro dettagliato</h2><p class="subtle">Tutti i dovuti e versamenti, sola lettura. Per modificare vai su Registra.</p></div></div>
+            <div class="data-table-wrap" id="movementsAdv"></div>
+          </div>
+        </div>
       </section>
 
       <section class="view" data-view-panel="impostazioni">
         <nav class="sub-nav" role="tablist" aria-label="Sezioni impostazioni">
           <button class="sub-nav-btn active" type="button" role="tab" data-view="impostazioni" data-subview="casa" aria-selected="true">Immobili</button>
           <button class="sub-nav-btn" type="button" role="tab" data-view="impostazioni" data-subview="account" aria-selected="false">Account</button>
-          <button class="sub-nav-btn" type="button" role="tab" data-view="impostazioni" data-subview="avanzate" aria-selected="false">Avanzate</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="impostazioni" data-subview="backup" aria-selected="false">Backup</button>
         </nav>
         <div class="subview active" data-subview-panel="casa" role="tabpanel">
           <div class="split-layout house-manage-layout">
@@ -439,7 +460,7 @@
             </section>
           </div>
         </div>
-        <div class="subview" data-subview-panel="avanzate" role="tabpanel">
+        <div class="subview" data-subview-panel="backup" role="tabpanel">
           <div class="card stack">
             <div class="panel-head"><div><h2>Backup e ripristino</h2><p class="subtle">Export/import JSON v4 — uso tecnico o migrazione.</p></div></div>
             <div class="toolbar">
@@ -447,11 +468,7 @@
               <input class="file-input" id="importFileAdv" type="file" accept="application/json" />
               <button class="btn btn-secondary" id="exportBtnAdv" type="button">Esporta JSON</button>
             </div>
-            <p class="muted">Il backup non sostituisce la sincronizzazione Supabase in uso quotidiano.</p>
-          </div>
-          <div class="card stack">
-            <div class="panel-head"><div><h2>Registro movimenti</h2><p class="subtle">Vista auditoria: tutti i dovuti e versamenti.</p></div></div>
-            <div class="data-table-wrap panel-table-wrap" id="movementsAdv"></div>
+            <p class="muted">Il backup non sostituisce la sincronizzazione Supabase in uso quotidiano. Per consultare tutti i movimenti vai su Situazione → Registro dettagliato.</p>
           </div>
         </div>
         <div class="subview" data-subview-panel="account" role="tabpanel">
@@ -483,8 +500,9 @@
 
     <nav class="bottom-nav" id="bottomNav" aria-label="Navigazione mobile">
       <button class="bottom-nav-btn active" data-view="panoramica" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span>Panoramica</span></button>
-      <button class="bottom-nav-btn" data-view="movimenti" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span>Movimenti</span></button>
-      <button class="bottom-nav-btn" data-view="movimenti" data-nav-mobile-subview="situazione" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M4 19h16M8 15v-4M12 19V9M16 13V7"/></svg></span><span>Situazione</span></button>
+      <button class="bottom-nav-btn" data-view="registra" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span>Registra</span></button>
+      <button class="bottom-nav-btn" data-view="importa" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Importa</span></button>
+      <button class="bottom-nav-btn" data-view="situazione" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M4 19h16M8 15v-4M12 19V9M16 13V7"/></svg></span><span>Situazione</span></button>
       <button class="bottom-nav-btn" data-view="impostazioni" type="button"><span class="nav-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2"/></svg></span><span>Impostazioni</span></button>
     </nav>
 
@@ -496,9 +514,9 @@
     <div class="sheet hidden" id="quickAddSheet" role="dialog" aria-labelledby="quickAddTitle">
       <div class="sheet-head"><h2 id="quickAddTitle">Aggiungi</h2><button class="icon-btn sheet-close" id="quickAddClose" type="button" aria-label="Chiudi">×</button></div>
       <div class="sheet-body stack">
-        <button class="btn btn-primary" type="button" data-nav-target="movimenti" data-nav-subview="import-doc" data-close-sheet="true">Importa documento</button>
-        <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="versamenti" data-close-sheet="true">Nuovo versamento</button>
-        <button class="btn btn-secondary" type="button" data-nav-target="movimenti" data-nav-subview="dovuti" data-close-sheet="true">Nuovo dovuto</button>
+        <button class="btn btn-primary" type="button" data-nav-target="importa" data-nav-subview="import-doc" data-close-sheet="true">Importa documento</button>
+        <button class="btn btn-secondary" type="button" data-nav-target="registra" data-nav-subview="versamenti" data-close-sheet="true">Nuovo versamento</button>
+        <button class="btn btn-secondary" type="button" data-nav-target="registra" data-nav-subview="dovuti" data-close-sheet="true">Nuovo dovuto</button>
       </div>
     </div>
 

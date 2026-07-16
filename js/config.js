@@ -10,21 +10,36 @@ export const MATCH_THRESHOLD_MIN = 0.50;
 /** Legacy view IDs → [view, defaultSubview] */
 export const VIEW_ALIASES = {
   dashboard: ['panoramica', null],
-  annualita: ['movimenti', 'dovuti'],
-  versamenti: ['movimenti', 'versamenti'],
-  importbanca: ['movimenti', 'import-banca'],
-  archivio: ['impostazioni', 'avanzate'],
+  annualita: ['registra', 'dovuti'],
+  versamenti: ['registra', 'versamenti'],
+  importbanca: ['importa', 'import-banca'],
+  archivio: ['impostazioni', 'backup'],
   immobile: ['impostazioni', 'casa'],
   account: ['impostazioni', 'account']
 };
 
+/**
+ * La vecchia vista unica "movimenti" (6 sotto-schede) è stata divisa in
+ * Registra / Importa / Situazione. Mappa ogni vecchia sotto-scheda (incluse
+ * le forme legacy già alias-ate) alla nuova coppia [view, subview].
+ */
+const MOVIMENTI_SUBVIEW_MAP = {
+  dovuti: ['registra', 'dovuti'],
+  versamenti: ['registra', 'versamenti'],
+  'saldi-precedenti': ['registra', 'apertura-esercizio'],
+  'import-doc': ['importa', 'import-doc'],
+  import: ['importa', 'import-doc'],
+  documento: ['importa', 'import-doc'],
+  'import-banca': ['importa', 'import-banca'],
+  importbanca: ['importa', 'import-banca'],
+  banca: ['importa', 'import-banca'],
+  situazione: ['situazione', 'rendiconto']
+};
+
 /** Legacy subview IDs per view → nuova subview */
 const SUBVIEW_ALIASES = {
-  movimenti: {
-    import: 'import-doc',
-    importbanca: 'import-banca',
-    documento: 'import-doc',
-    banca: 'import-banca'
+  impostazioni: {
+    avanzate: 'backup'
   }
 };
 
@@ -34,17 +49,32 @@ export const viewMeta = {
     subtitle: 'Riepilogo della casa selezionata',
     defaultSubview: null
   },
-  movimenti: {
-    title: 'Movimenti',
-    subtitle: 'Dovuti, versamenti e import',
+  registra: {
+    title: 'Registra',
+    subtitle: 'Dovuti, versamenti e apertura esercizio',
     defaultSubview: 'dovuti',
     subviews: {
       dovuti: ['Dovuti', 'Quote e annualità'],
       versamenti: ['Versamenti', 'Pagamenti registrati'],
-      'import-doc': ['Import doc.', 'Documento amministratore'],
-      'import-banca': ['Import banca', 'Estratto conto Banca Intesa'],
-      'saldi-precedenti': ['Saldi precedenti', 'Apertura esercizio'],
-      situazione: ['Situazione', 'Saldi per esercizio']
+      'apertura-esercizio': ['Apertura esercizio', 'Saldo di partenza per esercizio']
+    }
+  },
+  importa: {
+    title: 'Importa',
+    subtitle: 'Documento amministratore ed estratto conto',
+    defaultSubview: 'import-doc',
+    subviews: {
+      'import-doc': ['Da documento', 'Documento amministratore'],
+      'import-banca': ['Da banca', 'Estratto conto Banca Intesa']
+    }
+  },
+  situazione: {
+    title: 'Situazione',
+    subtitle: 'Saldi per esercizio',
+    defaultSubview: 'rendiconto',
+    subviews: {
+      rendiconto: ['Situazione', 'Saldi per esercizio'],
+      registro: ['Registro dettagliato', 'Tutti i movimenti, sola lettura']
     }
   },
   impostazioni: {
@@ -54,7 +84,7 @@ export const viewMeta = {
     subviews: {
       casa: ['Gestione immobili', 'Aggiungi, modifica ed elimina case'],
       account: ['Account', 'Profilo e password'],
-      avanzate: ['Avanzate', 'Backup e dati tecnici']
+      backup: ['Backup', 'Esporta e importa i dati']
     }
   }
 };
@@ -65,6 +95,10 @@ function remapSubview(view, subview) {
 }
 
 export function resolveView(rawView, rawSubview = null) {
+  if (rawView === 'movimenti') {
+    const mapped = MOVIMENTI_SUBVIEW_MAP[rawSubview] || MOVIMENTI_SUBVIEW_MAP.dovuti;
+    return { view: mapped[0], subview: mapped[1] };
+  }
   if (VIEW_ALIASES[rawView]) {
     const [view, sub] = VIEW_ALIASES[rawView];
     return { view, subview: remapSubview(view, rawSubview ?? sub) };

@@ -7,8 +7,10 @@ import { clearUrlSearch, sanitizeLocationUrl } from './url-sanitize.js';
 async function loadHouseData() {
   try {
     await loadFromSupabase();
+    state.houseDataLoadError = null;
   } catch (err) {
-    toastError(err.message || 'Impossibile caricare i dati.');
+    state.houseDataLoadError = err.message || 'Impossibile caricare i dati.';
+    toastError(state.houseDataLoadError);
   }
 }
 
@@ -269,6 +271,7 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
     updatePasswordFromRecovery,
     updatePasswordFromAccount,
     renderAccountView,
+    retryLoadHouseData: () => loadHouseData().then(render),
     setLoginLoading,
     setStatus
   };

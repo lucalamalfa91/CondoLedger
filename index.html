@@ -313,7 +313,7 @@
             </div>
             <div class="document-import-toolbar field-grid">
               <div>
-                <label class="btn btn-secondary" for="documentImportFile">Carica documento</label>
+                <label class="btn btn-secondary" for="documentImportFile" tabindex="0" role="button">Carica documento</label>
                 <input class="file-input" id="documentImportFile" type="file" accept=".pdf,.docx,image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple />
                 <p class="hint">PDF, DOCX o immagini JPEG/PNG (max 30 MB totali). Per le scansioni seleziona tutte le pagine insieme.</p>
               </div>
@@ -350,7 +350,7 @@
             <div class="split-layout">
               <div class="split-form-pane stack">
                 <div class="panel-head"><div><h2>Import Excel Banca Intesa</h2><p class="subtle">Formato export &quot;Lista Operazioni&quot;.</p></div></div>
-                <label class="btn btn-secondary" for="bankImportFile">Carica file Excel</label>
+                <label class="btn btn-secondary" for="bankImportFile" tabindex="0" role="button">Carica file Excel</label>
                 <input class="file-input" id="bankImportFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
                 <button class="btn btn-primary" id="bankImportConfirm" type="button">Conferma import selezionati</button>
                 <div class="panel-head"><div><h3>Import salvati</h3></div></div>
@@ -437,7 +437,7 @@
           <div class="card stack">
             <div class="panel-head"><div><h2>Backup e ripristino</h2><p class="subtle">Export/import JSON v4 — uso tecnico o migrazione.</p></div></div>
             <div class="toolbar">
-              <label class="btn btn-secondary" for="importFileAdv">Importa JSON</label>
+              <label class="btn btn-secondary" for="importFileAdv" tabindex="0" role="button">Importa JSON</label>
               <input class="file-input" id="importFileAdv" type="file" accept="application/json" />
               <button class="btn btn-secondary" id="exportBtnAdv" type="button">Esporta JSON</button>
             </div>
@@ -522,7 +522,7 @@
   </dialog>
 
   <dialog id="onboardingDialog" class="onboarding-dialog">
-    <form method="dialog" class="stack onboarding-form">
+    <form method="dialog" class="stack onboarding-form" id="onboardingForm">
       <p class="onboarding-step-label" id="onboardingStepLabel">Passo 1 di 3</p>
       <h2 id="onboardingTitle">Benvenuto</h2>
       <p class="subtle" id="onboardingBody"></p>

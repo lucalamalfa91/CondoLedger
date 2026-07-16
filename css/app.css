@@ -6,7 +6,7 @@
       --text-xl: clamp(1.5rem, 1.2rem + 1.25vw, 2rem);
       --space-2: .5rem; --space-3: .75rem; --space-4: 1rem; --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem;
       --color-bg: #f7f6f2; --color-surface: #f9f8f5; --color-surface-2: #fbfbf9; --color-surface-offset: #f3f0ec;
-      --color-divider: #dcd9d5; --color-text: #28251d; --color-text-muted: #7a7974; --color-text-inverse: #f9f8f4;
+      --color-divider: #dcd9d5; --color-text: #28251d; --color-text-muted: #6e6d67; --color-text-inverse: #f9f8f4;
       --color-primary: #01696f; --color-primary-hover: #0c4e54; --color-primary-highlight: #cedcd8;
       --color-success: #437a22; --color-success-highlight: #d4dfcc; --color-warning: #964219; --color-warning-highlight: #ddcfc6; --color-error: #a12c7b; --color-error-highlight: #e0ced7;
       --radius-md: .5rem; --radius-lg: .75rem; --radius-xl: 1rem; --radius-full: 9999px; --shadow-sm: 0 1px 2px rgba(40,37,29,.06);
@@ -183,6 +183,7 @@
     .annual-item, .mini-card { background: var(--color-surface-2); border:1px solid rgba(0,0,0,.08); border-radius: var(--radius-lg); padding: .9rem 1rem; }
     .annual-item { display:flex; justify-content:space-between; align-items:center; gap:var(--space-3); }
     .empty { border:1px dashed rgba(0,0,0,.16); border-radius: var(--radius-lg); padding: var(--space-8); text-align:center; color: var(--color-text-muted); background: var(--color-surface-2); }
+    .empty--error { border-style: solid; border-color: var(--color-warning); background: var(--color-warning-highlight); color: var(--color-text); }
     .data-table-wrap .empty, .table-scroll .empty { border: none; background: transparent; min-height: 8rem; display: grid; place-items: center; }
     .view { display:none; min-width: 0; } .view.active { display:grid; } .file-input { display:none; }
     .banner { margin-bottom: var(--space-6); padding: var(--space-4) var(--space-5); border-radius: var(--radius-lg); background: var(--color-surface-offset); border: 1px solid rgba(0,0,0,.08); display:flex; justify-content:space-between; gap:var(--space-4); align-items:center; }
@@ -355,6 +356,8 @@
       .split-form-pane, .versamenti-form-pane { position: static; }
       .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .grid-2 { grid-template-columns: 1fr; }
+      .split-layout--list-first .split-form-pane { order: 2; }
+      .split-layout--list-first .split-content-pane { order: 1; }
     }
     .form-sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: calc(var(--z-drawer) - 1); }
     .form-sheet-backdrop.hidden { display: none; }

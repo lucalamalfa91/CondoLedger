@@ -288,6 +288,24 @@ export function createRenderer(els) {
     return { covered: keys.size, total: allSlots.length };
   }
 
+  function renderDueSplitAmountsFields(due) {
+    if (!els.dueSplitAmountsWrap || !els.dueSplitAmountsFields) return;
+    const amounts = Array.isArray(due?.splitAmounts) ? due.splitAmounts : [];
+    if (!amounts.length) {
+      els.dueSplitAmountsWrap.classList.add('hidden');
+      els.dueSplitAmountsFields.innerHTML = '';
+      return;
+    }
+    els.dueSplitAmountsWrap.classList.remove('hidden');
+    els.dueSplitAmountsFields.innerHTML = amounts.map((row, i) => `
+      <div class="field-grid" data-split-amount-row data-slot-index="${row.slotIndex ?? i}">
+        <div><label>${row.label || row.periodStart || `Rata ${i + 1}`}</label>
+          <input type="number" step="0.01" data-split-amount-value value="${Number(row.amount ?? 0)}" />
+        </div>
+      </div>
+    `).join('');
+  }
+
   function syncDuePeriodSelect(house, preferredId = null) {
     if (!els.duePeriod) return;
     const suggested = defaultFiscalLabel(house);
@@ -1556,6 +1574,7 @@ export function createRenderer(els) {
     syncPriorBalanceSourceSelect,
     syncDueKindFields,
     syncDuePeriodSelect,
+    renderDueSplitAmountsFields,
     applyPaymentSmartAmount,
     renderNewHouseForm
   };
@@ -1705,6 +1724,8 @@ export function collectDom() {
     dueSplitCustomWrap: document.getElementById('dueSplitCustomWrap'),
     dueKind: document.getElementById('dueKind'),
     dueSplitFields: document.getElementById('dueSplitFields'),
+    dueSplitAmountsWrap: document.getElementById('dueSplitAmountsWrap'),
+    dueSplitAmountsFields: document.getElementById('dueSplitAmountsFields'),
     navButtons: [...document.querySelectorAll('.nav-rail [data-view], .bottom-nav [data-view]')],
     subviewTabs: [...document.querySelectorAll('[data-subview]')],
     subviewPanels: [...document.querySelectorAll('[data-subview-panel]')],

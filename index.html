@@ -196,6 +196,11 @@
                   <div><label for="dueSplitMode">Ripartizione rate (solo preventivo)</label><select id="dueSplitMode" name="splitMode"><option value="monthly">Mensile</option><option value="bimonthly">Bimestrale</option><option value="semiannual">Semestrale</option><option value="custom">Custom</option></select></div>
                   <div class="due-split-custom-wrap hidden" id="dueSplitCustomWrap"><label for="dueSplitCustom">Mesi (0–11 dall’inizio esercizio)</label><input id="dueSplitCustom" name="splitCustom" type="text" placeholder="es. 0,2,4,6,8,10" /><p class="hint">Offset mesi separati da virgola.</p></div>
                 </div>
+                <div class="due-split-amounts-wrap hidden" id="dueSplitAmountsWrap">
+                  <label>Rate (importi da import documento)</label>
+                  <div id="dueSplitAmountsFields" class="stack"></div>
+                  <p class="hint">Rate create da un import con importi disomogenei: qui puoi correggere solo gli importi, non le date.</p>
+                </div>
                 <input id="dueEditId" name="editId" type="hidden" />
                 <div class="form-actions">
                   <button class="btn btn-primary" id="dueSubmitBtn" type="submit">Salva dovuto</button>

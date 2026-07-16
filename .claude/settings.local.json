@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:api.anthropic.com)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(rm -rf .git/refs/original/)",
+      "Bash(git reflog *)"
     ]
   }
 }

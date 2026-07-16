@@ -158,29 +158,6 @@ export function inferInstallmentKey(house, payment) {
   return null;
 }
 
-export function filterPaymentsByInstallmentPeriod(payments, house, yearFilter, monthFilter) {
-  return payments.filter(p => {
-    const key = p.installmentKey || inferInstallmentKey(house, p);
-    if (!key) {
-      if (!yearFilter && !monthFilter) return true;
-      const iso = String(p.date || '').slice(0, 10);
-      if (!iso) return false;
-      const y = Number(iso.slice(0, 4));
-      const m = Number(iso.slice(5, 7));
-      if (yearFilter && y !== Number(yearFilter)) return false;
-      if (monthFilter && m !== Number(monthFilter)) return false;
-      return true;
-    }
-    const slot = findInstallment(house, key);
-    if (!slot) return !yearFilter && !monthFilter;
-    const y = Number(slot.periodStart.slice(0, 4));
-    const m = Number(slot.periodStart.slice(5, 7));
-    if (yearFilter && y !== Number(yearFilter)) return false;
-    if (monthFilter && m !== Number(monthFilter)) return false;
-    return true;
-  });
-}
-
 export function paymentsSummaryForList(payments, house) {
   const keys = new Set();
   let total = 0;

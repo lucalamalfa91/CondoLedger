@@ -255,12 +255,11 @@
             </aside>
             <section class="split-content-pane versamenti-list-pane card stack data-panel">
               <div class="panel-head">
-                <div><h2>Storico versamenti</h2><p class="subtle">Filtro sulla data rata; in tabella anche la data versamento.</p></div>
+                <div><h2>Storico versamenti</h2><p class="subtle">Filtro per esercizio; in tabella anche la data versamento.</p></div>
                 <button class="btn btn-primary form-sheet-open-btn" type="button" id="openPaymentFormSheet">+ Versamento</button>
               </div>
               <div class="payments-toolbar field-grid">
-                <div><label for="paymentFilterYear">Anno rata</label><select id="paymentFilterYear"><option value="">Tutti</option></select></div>
-                <div><label for="paymentFilterMonth">Mese rata</label><select id="paymentFilterMonth"><option value="">Tutti</option></select></div>
+                <div><label for="paymentFilterPeriod">Esercizio</label><select id="paymentFilterPeriod"><option value="">Tutti</option></select></div>
               </div>
               <div class="payments-summary" id="paymentsSummary" aria-live="polite"></div>
               <div class="data-table-wrap versamenti-table-scroll" id="paymentsTable"></div>

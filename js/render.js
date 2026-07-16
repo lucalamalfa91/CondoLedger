@@ -14,7 +14,6 @@ import {
 } from './fiscal.js';
 import {
   SPLIT_MODES,
-  filterPaymentsByInstallmentPeriod,
   findInstallment,
   inferInstallmentKey,
   installmentShortLabel,
@@ -53,12 +52,6 @@ const COMPLIANCE_ICONS = {
   azione: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>',
   vuoto: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V8.5L12 4l8 4.5V20"/><path d="M8 20v-6h8v6"/></svg>'
 };
-
-const MONTH_FILTER_LABELS = [
-  ['', 'Tutti'], ['1', 'Gennaio'], ['2', 'Febbraio'], ['3', 'Marzo'], ['4', 'Aprile'],
-  ['5', 'Maggio'], ['6', 'Giugno'], ['7', 'Luglio'], ['8', 'Agosto'], ['9', 'Settembre'],
-  ['10', 'Ottobre'], ['11', 'Novembre'], ['12', 'Dicembre']
-];
 
 function rowActions(kind, id, extraHtml = '') {
   const safeId = String(id ?? '').replace(/"/g, '&quot;');
@@ -254,26 +247,18 @@ export function createRenderer(els) {
   }
 
   function renderPaymentFilterOptions(house) {
-    if (!els.paymentFilterYear || !els.paymentFilterMonth) return;
-    const years = new Set();
-    for (const slot of listAllInstallments(house)) {
-      years.add(Number(slot.periodStart.slice(0, 4)));
-    }
-    const yCur = els.paymentFilterYear.value;
-    const mCur = els.paymentFilterMonth.value;
-    els.paymentFilterYear.innerHTML = '<option value="">Tutti</option>' + [...years].sort((a, b) => b - a).map(y =>
-      `<option value="${y}" ${String(y) === yCur ? 'selected' : ''}>${y}</option>`
-    ).join('');
-    els.paymentFilterMonth.innerHTML = MONTH_FILTER_LABELS.map(([v, label]) =>
-      `<option value="${v}" ${v === mCur ? 'selected' : ''}>${label}</option>`
+    if (!els.paymentFilterPeriod) return;
+    const cur = els.paymentFilterPeriod.value;
+    const sorted = [...house.fiscalPeriods].sort((a, b) => String(b.startDate).localeCompare(String(a.startDate)));
+    els.paymentFilterPeriod.innerHTML = '<option value="">Tutti</option>' + sorted.map(p =>
+      `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${p.label}</option>`
     ).join('');
   }
 
   function getFilteredPayments(house) {
-    const year = els.paymentFilterYear?.value || '';
-    const month = els.paymentFilterMonth?.value || '';
+    const periodId = els.paymentFilterPeriod?.value || '';
     const sorted = [...house.payments].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-    return filterPaymentsByInstallmentPeriod(sorted, house, year || null, month || null);
+    return periodId ? sorted.filter(p => String(p.fiscalPeriodId) === String(periodId)) : sorted;
   }
 
   function countCoveredInstallments(house, payments, periodId) {
@@ -611,7 +596,7 @@ export function createRenderer(els) {
     if (els.paymentsSummary) {
       const ratio = coverage.total ? `${coverage.covered}/${coverage.total} rate coperte` : '— rate';
       const filteredNote = payments.length !== house.payments.length
-        ? ` · ${payments.length} su ${house.payments.length} totali (filtro rata attivo)`
+        ? ` · ${payments.length} su ${house.payments.length} totali (filtro esercizio attivo)`
         : '';
       els.paymentsSummary.textContent = `${payments.length} versamenti · ${ratio} · Totale ${fmt(summary.total)}${filteredNote}`;
     }
@@ -620,7 +605,7 @@ export function createRenderer(els) {
       return;
     }
     if (!payments.length) {
-      els.paymentsTable.innerHTML = emptyListHtml('Nessun versamento per il periodo rata selezionato.');
+      els.paymentsTable.innerHTML = emptyListHtml('Nessun versamento per l’esercizio selezionato.');
       return;
     }
     const tableHtml = `<table><thead><tr><th>Esercizio</th><th>Rata</th><th>Data vers.</th><th>Metodo</th><th>Importo</th><th></th></tr></thead><tbody>${payments.map(item => paymentRowHtml(house, item)).join('')}</tbody></table>`;
@@ -1700,8 +1685,7 @@ export function collectDom() {
     paymentPriorBalanceField: document.getElementById('paymentPriorBalanceField'),
     paymentPriorBalanceInfo: document.getElementById('paymentPriorBalanceInfo'),
     paymentPriorBalanceId: document.getElementById('paymentPriorBalanceId'),
-    paymentFilterYear: document.getElementById('paymentFilterYear'),
-    paymentFilterMonth: document.getElementById('paymentFilterMonth'),
+    paymentFilterPeriod: document.getElementById('paymentFilterPeriod'),
     paymentsSummary: document.getElementById('paymentsSummary'),
     priorBalanceForm: document.getElementById('priorBalanceForm'),
     priorBalancePeriod: document.getElementById('priorBalancePeriod'),

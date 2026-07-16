@@ -1033,8 +1033,7 @@ onboardingNext?.addEventListener('click', async () => {
 });
 
 els.periodFilter.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
-els.paymentFilterYear?.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
-els.paymentFilterMonth?.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
+els.paymentFilterPeriod?.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
 els.paymentPeriod?.addEventListener('change', () => {
   const house = activeHouse();
   if (!house) return;

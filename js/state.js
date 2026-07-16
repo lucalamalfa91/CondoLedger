@@ -73,7 +73,6 @@ export function mapHouseFromDb(house, dues, payments, periods, movements, priorB
       splitAmounts: Array.isArray(d.split_amounts) ? d.split_amounts : null,
       dueKind: d.due_kind || 'preventivo',
       carryFromPeriodId: d.carry_from_period_id ? String(d.carry_from_period_id) : null,
-      priorBalanceId: d.prior_balance_id ? String(d.prior_balance_id) : null,
       date: d.created_at?.slice(0, 10) || today
     })),
     payments: (payments || []).map(p => ({
@@ -83,6 +82,7 @@ export function mapHouseFromDb(house, dues, payments, periods, movements, priorB
       date: p.date || '',
       method: p.method || '',
       installmentKey: p.installment_key || null,
+      priorBalanceId: p.prior_balance_id ? String(p.prior_balance_id) : null,
       carryFromPeriodId: p.carry_from_period_id ? String(p.carry_from_period_id) : null,
       isCarryForward: Boolean(p.is_carry_forward),
       bankMovementId: p.bank_movement_id ? String(p.bank_movement_id) : null

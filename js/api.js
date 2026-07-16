@@ -2,7 +2,7 @@ import { DEFAULT_SUPABASE_ANON_KEY, DEFAULT_SUPABASE_URL } from './config.js';
 import { legacyCalendarPeriod, periodFromLabel } from './backup.js';
 import { serializeImportParties } from './house-import-parties.js';
 import { mapHouseFromDb, state } from './state.js';
-import { ensurePeriodPayload, parseFiscalLabel, periodLabel } from './fiscal.js';
+import { ensurePeriodPayload, parseFiscalLabel } from './fiscal.js';
 import { findInstallment, findInstallmentForDate, inferInstallmentKey } from './installments.js';
 import { chunkArray, hashText, today, uid } from './utils.js';
 
@@ -211,8 +211,7 @@ export async function saveDueToSupabase(house, due) {
     split_custom: due.splitMode === 'custom' && Array.isArray(due.splitCustom) ? due.splitCustom : null,
     split_amounts: Array.isArray(due.splitAmounts) && due.splitAmounts.length ? due.splitAmounts : null,
     due_kind: due.dueKind || 'preventivo',
-    carry_from_period_id: due.carryFromPeriodId ? Number(due.carryFromPeriodId) : null,
-    prior_balance_id: due.priorBalanceId ? Number(due.priorBalanceId) : null
+    carry_from_period_id: due.carryFromPeriodId ? Number(due.carryFromPeriodId) : null
   };
   if (Number.isFinite(Number(due.id))) {
     const { error } = await state.supabase.from('dues').update({
@@ -223,8 +222,7 @@ export async function saveDueToSupabase(house, due) {
       split_custom: payload.split_custom,
       split_amounts: payload.split_amounts,
       due_kind: payload.due_kind,
-      carry_from_period_id: payload.carry_from_period_id,
-      prior_balance_id: payload.prior_balance_id
+      carry_from_period_id: payload.carry_from_period_id
     }).eq('id', Number(due.id)).eq('house_id', Number(house.id));
     if (error) throw error;
     return;
@@ -288,57 +286,7 @@ export async function savePriorBalanceToSupabase(house, priorBalance) {
       if (data?.id) priorBalance.id = String(data.id);
     }
   }
-  await syncDueForPriorBalance(house, priorBalance, periodId);
   syncPriorBalanceLocal(house, priorBalance, periodId);
-}
-
-/** Trova il dovuto (rata) collegato a un saldo anno precedente, se esiste. */
-async function findLinkedDueId(house, priorBalanceId) {
-  const { data, error } = await state.supabase
-    .from('dues')
-    .select('id')
-    .eq('prior_balance_id', Number(priorBalanceId))
-    .eq('house_id', Number(house.id))
-    .maybeSingle();
-  if (error) throw error;
-  return data?.id ?? null;
-}
-
-/**
- * Un saldo precedente a debito (importo positivo) diventa un dovuto a rata unica,
- * pagabile tramite il modulo Versamento come una normale rata di preventivo.
- * Un saldo a credito (o azzerato) non genera nulla da versare: il dovuto collegato viene rimosso.
- */
-async function syncDueForPriorBalance(house, priorBalance, periodId) {
-  const linkedId = await findLinkedDueId(house, priorBalance.id);
-  const amount = Number(priorBalance.amount);
-  if (!(amount > 0.005)) {
-    if (linkedId) {
-      const { count, error: countError } = await state.supabase
-        .from('payments')
-        .select('id', { count: 'exact', head: true })
-        .eq('house_id', Number(house.id))
-        .like('installment_key', `${linkedId}:%`);
-      if (countError) throw countError;
-      if (count) {
-        throw new Error('Questo saldo ha versamenti già registrati a copertura: elimina prima quei versamenti per poterlo azzerare o trasformare in credito.');
-      }
-      const { error } = await state.supabase.from('dues').delete().eq('id', linkedId).eq('house_id', Number(house.id));
-      if (error) throw error;
-    }
-    return;
-  }
-  const due = {
-    id: linkedId || undefined,
-    fiscalPeriodId: periodId,
-    amount,
-    description: `Saldo precedente da versare — ${periodLabel(house, periodId)}`,
-    splitMode: 'custom',
-    splitCustom: [0],
-    dueKind: 'preventivo',
-    priorBalanceId: priorBalance.id
-  };
-  await saveDueToSupabase(house, due);
 }
 
 function syncPriorBalanceLocal(house, priorBalance, periodId) {
@@ -383,6 +331,7 @@ export async function savePaymentToSupabase(house, payment) {
     date: payment.date,
     method: payment.method,
     installment_key: payment.installmentKey || null,
+    prior_balance_id: payment.priorBalanceId ? Number(payment.priorBalanceId) : null,
     carry_from_period_id: null,
     is_carry_forward: false,
     bank_movement_id: payment.bankMovementId ? Number(payment.bankMovementId) : null
@@ -394,6 +343,7 @@ export async function savePaymentToSupabase(house, payment) {
       date: payload.date,
       method: payload.method,
       installment_key: payload.installment_key,
+      prior_balance_id: payload.prior_balance_id,
       bank_movement_id: payload.bank_movement_id,
       carry_from_period_id: null,
       is_carry_forward: false
@@ -711,11 +661,12 @@ export function createLocalDue(formData) {
   };
 }
 
-export function createLocalPayment(formData, fiscalPeriodId, installmentKey) {
+export function createLocalPayment(formData, fiscalPeriodId, installmentKey, priorBalanceId = null) {
   return {
     id: uid('pay'),
     fiscalPeriodId: fiscalPeriodId || null,
     installmentKey: installmentKey || null,
+    priorBalanceId: priorBalanceId || null,
     amount: Number(formData.get('amount')),
     date: String(formData.get('date') || today),
     method: String(formData.get('method') || '').trim(),

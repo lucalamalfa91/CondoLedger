@@ -27,7 +27,6 @@ import { createAuthHandlers } from './auth.js';
 import { exportBackup, parseBackup } from './backup.js';
 import { resolveView, viewMeta } from './config.js';
 import { hasCarryDueTargetingPeriod, hasPriorBalanceForPeriod, suggestCarryover } from './carryover.js';
-import { getDueForPriorBalance } from './situazione-report.js';
 import { periodLabel } from './fiscal.js';
 import { findInstallmentForDate } from './installments.js';
 import { exportSituazionePdf } from './pdf-situazione.js';
@@ -69,6 +68,7 @@ function setTheme(theme) {
 const {
   setView, render: baseRender, syncPaymentPeriodSelect,
   syncPaymentInstallmentSelect, syncDueKindFields, syncDuePeriodSelect, applyPaymentSmartAmount,
+  syncPaymentTargetFields, syncPaymentPriorBalanceInfo,
   syncPriorBalancePeriodSelect, syncPriorBalanceSourceSelect
 } = createRenderer(els);
 let renderedHouseId = null;
@@ -206,6 +206,8 @@ function applyPaymentGuideToForm() {
   if (!house) return;
   const g = computeNextPaymentGuide(house);
   if (!g) { toastError('Nessuna rata aperta da precompilare.'); return; }
+  if (els.paymentTarget) els.paymentTarget.value = 'rata';
+  syncPaymentTargetFields();
   if (els.paymentPeriod) els.paymentPeriod.value = g.periodId;
   syncPaymentInstallmentSelect(house, g.installmentKey);
   if (els.paymentAmount) els.paymentAmount.value = String(g.gap);
@@ -233,6 +235,7 @@ function resetPaymentForm(house) {
   if (els.paymentEditId) els.paymentEditId.value = '';
   if (els.paymentSubmitBtn) els.paymentSubmitBtn.textContent = 'Salva versamento';
   els.paymentFormCancel?.classList.add('hidden');
+  syncPaymentTargetFields();
   if (house) syncPaymentPeriodSelect(house);
 }
 
@@ -297,18 +300,21 @@ function startEditPayment(house, payment) {
   els.paymentFormCancel?.classList.remove('hidden');
   syncPaymentPeriodSelect(house);
   if (payment.fiscalPeriodId) els.paymentPeriod.value = payment.fiscalPeriodId;
+  if (els.paymentTarget) els.paymentTarget.value = payment.priorBalanceId ? 'prior' : 'rata';
+  syncPaymentTargetFields();
   syncPaymentInstallmentSelect(house, payment.installmentKey || null);
+  syncPaymentPriorBalanceInfo(house);
   navigate('movimenti', 'versamenti');
   if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('paymentFormPane');
   else els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function startPayPriorBalance(house, priorBalance) {
-  const due = getDueForPriorBalance(house, priorBalance.id);
-  if (!due) return;
   resetPaymentForm(house);
   if (els.paymentPeriod) els.paymentPeriod.value = priorBalance.fiscalPeriodId;
-  syncPaymentInstallmentSelect(house, `${due.id}:0`);
+  if (els.paymentTarget) els.paymentTarget.value = 'prior';
+  syncPaymentTargetFields();
+  syncPaymentPriorBalanceInfo(house);
   navigate('movimenti', 'versamenti');
   if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('paymentFormPane');
   else els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -330,10 +336,9 @@ function startEditPriorBalance(house, priorBalance) {
 async function deletePriorBalance(house, priorBalanceId) {
   const item = (house.priorBalances || []).find(b => String(b.id) === String(priorBalanceId));
   if (!item) return;
-  const linkedDue = getDueForPriorBalance(house, priorBalanceId);
-  const hasPayments = linkedDue && house.payments.some(p => (p.installmentKey || '').startsWith(`${linkedDue.id}:`));
+  const hasPayments = house.payments.some(p => String(p.priorBalanceId) === String(priorBalanceId));
   const msg = hasPayments
-    ? 'Questo saldo precedente ha già versamenti registrati a copertura. Eliminandolo, i versamenti resteranno ma non saranno più collegati a nessuna rata.\n\nEliminare comunque?'
+    ? 'Questo saldo precedente ha già versamenti registrati a copertura. Eliminandolo, i versamenti resteranno ma non saranno più collegati a nessun saldo.\n\nEliminare comunque?'
     : 'Eliminare questo saldo precedente?';
   if (!await confirmDialog(msg, { title: 'Elimina saldo', confirmLabel: 'Elimina', danger: true })) return;
   try {
@@ -1009,6 +1014,12 @@ els.paymentPeriod?.addEventListener('change', () => {
   const house = activeHouse();
   if (!house) return;
   syncPaymentInstallmentSelect(house);
+  syncPaymentPriorBalanceInfo(house);
+});
+els.paymentTarget?.addEventListener('change', () => {
+  syncPaymentTargetFields();
+  const house = activeHouse();
+  if (house) syncPaymentPriorBalanceInfo(house);
 });
 els.situazionePeriod?.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
 els.situazionePdfBtn?.addEventListener('click', async () => {
@@ -1165,12 +1176,23 @@ els.paymentForm.addEventListener('submit', async e => {
       const { period } = await ensureFiscalPeriod(house, els.paymentDate.value || today);
       periodId = period.id;
     }
-    const installmentKey = String(fd.get('installmentKey') || els.paymentInstallment?.value || '').trim();
-    if (!installmentKey) {
-      toastError('Seleziona la rata da associare al versamento.');
-      return;
+    const paymentTarget = String(fd.get('paymentTarget') || els.paymentTarget?.value || 'rata');
+    let installmentKey = null;
+    let priorBalanceId = null;
+    if (paymentTarget === 'prior') {
+      priorBalanceId = String(fd.get('priorBalanceId') || els.paymentPriorBalanceId?.value || '').trim();
+      if (!priorBalanceId) {
+        toastError('Nessun saldo anno precedente a debito da coprire per questo esercizio.');
+        return;
+      }
+    } else {
+      installmentKey = String(fd.get('installmentKey') || els.paymentInstallment?.value || '').trim();
+      if (!installmentKey) {
+        toastError('Seleziona la rata da associare al versamento.');
+        return;
+      }
     }
-    const payment = createLocalPayment(fd, periodId, installmentKey);
+    const payment = createLocalPayment(fd, periodId, installmentKey, priorBalanceId);
     if (editId) {
       payment.id = editId;
       const existing = house.payments.find(p => p.id === editId);

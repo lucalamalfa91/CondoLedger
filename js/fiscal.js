@@ -151,9 +151,13 @@ export function periodSummary(house) {
       paid: 0
     };
     const amount = Number(item.amount || 0);
-    if (isConsuntivoDue(item)) c.consuntivo += amount;
-    else c.preventivo += amount;
-    c.due += amount;
+    if (isConsuntivoDue(item)) {
+      c.consuntivo += amount;
+      c.due += amount;
+    } else if (isPreventivoDue(item)) {
+      c.preventivo += amount;
+      c.due += amount;
+    }
     map.set(item.fiscalPeriodId, c);
   }
   for (const item of house.payments) {
@@ -165,7 +169,8 @@ export function periodSummary(house) {
       due: 0,
       paid: 0
     };
-    c.paid += Number(item.amount || 0);
+    const amount = Number(item.amount || 0);
+    c.paid += amount;
     map.set(item.fiscalPeriodId, c);
   }
   return [...map.values()]

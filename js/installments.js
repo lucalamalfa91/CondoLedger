@@ -149,6 +149,7 @@ export function installmentShortLabel(house, key) {
 
 export function inferInstallmentKey(house, payment) {
   if (payment.installmentKey) return payment.installmentKey;
+  if (payment.priorBalanceId) return null;
   const dues = house.dues.filter(d => d.fiscalPeriodId === payment.fiscalPeriodId && isPreventivoDue(d));
   for (const due of dues) {
     const slot = findInstallmentForDate(house, due, payment.date);

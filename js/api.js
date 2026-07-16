@@ -270,24 +270,22 @@ export async function savePriorBalanceToSupabase(house, priorBalance) {
       throw error;
     }
     if (!data) throw new Error('Saldo precedente non trovato. Ricarica la pagina e riprova.');
-    syncPriorBalanceLocal(house, priorBalance, periodId);
-    return;
+  } else {
+    const existing = (house.priorBalances || []).find(b => String(b.fiscalPeriodId) === String(periodId));
+    if (existing && Number.isFinite(Number(existing.id))) {
+      const { error } = await state.supabase.from('prior_balances').update({
+        source_period_id: payload.source_period_id,
+        amount: payload.amount,
+        description: payload.description
+      }).eq('id', Number(existing.id)).eq('house_id', Number(house.id));
+      if (error) throw error;
+      priorBalance.id = existing.id;
+    } else {
+      const { data, error } = await state.supabase.from('prior_balances').insert(payload).select('id').single();
+      if (error) throw error;
+      if (data?.id) priorBalance.id = String(data.id);
+    }
   }
-  const existing = (house.priorBalances || []).find(b => String(b.fiscalPeriodId) === String(periodId));
-  if (existing && Number.isFinite(Number(existing.id))) {
-    const { error } = await state.supabase.from('prior_balances').update({
-      source_period_id: payload.source_period_id,
-      amount: payload.amount,
-      description: payload.description
-    }).eq('id', Number(existing.id)).eq('house_id', Number(house.id));
-    if (error) throw error;
-    priorBalance.id = existing.id;
-    syncPriorBalanceLocal(house, priorBalance, periodId);
-    return;
-  }
-  const { data, error } = await state.supabase.from('prior_balances').insert(payload).select('id').single();
-  if (error) throw error;
-  if (data?.id) priorBalance.id = String(data.id);
   syncPriorBalanceLocal(house, priorBalance, periodId);
 }
 
@@ -333,6 +331,7 @@ export async function savePaymentToSupabase(house, payment) {
     date: payment.date,
     method: payment.method,
     installment_key: payment.installmentKey || null,
+    prior_balance_id: payment.priorBalanceId ? Number(payment.priorBalanceId) : null,
     carry_from_period_id: null,
     is_carry_forward: false,
     bank_movement_id: payment.bankMovementId ? Number(payment.bankMovementId) : null
@@ -344,6 +343,7 @@ export async function savePaymentToSupabase(house, payment) {
       date: payload.date,
       method: payload.method,
       installment_key: payload.installment_key,
+      prior_balance_id: payload.prior_balance_id,
       bank_movement_id: payload.bank_movement_id,
       carry_from_period_id: null,
       is_carry_forward: false
@@ -661,11 +661,12 @@ export function createLocalDue(formData) {
   };
 }
 
-export function createLocalPayment(formData, fiscalPeriodId, installmentKey) {
+export function createLocalPayment(formData, fiscalPeriodId, installmentKey, priorBalanceId = null) {
   return {
     id: uid('pay'),
     fiscalPeriodId: fiscalPeriodId || null,
     installmentKey: installmentKey || null,
+    priorBalanceId: priorBalanceId || null,
     amount: Number(formData.get('amount')),
     date: String(formData.get('date') || today),
     method: String(formData.get('method') || '').trim(),

@@ -25,7 +25,6 @@ import {
 import {
   buildSituazioneReport,
   carryFromLabel,
-  defaultSituazionePdfKind,
   hasConsuntivoReport,
   hasPaymentsOnlyReport,
   hasPreventivoReport,
@@ -34,10 +33,8 @@ import {
   sumPaidForPriorBalance,
   priorBalancePresentation,
   priorBalanceSourceLabel,
-  resolveSituazionePdfKind,
   computeSituazioneTotals,
-  computePriorYearSourceSummary,
-  situazioneStatusLabel
+  computePriorYearSourceSummary
 } from './situazione-report.js';
 import { resolveFocusPeriod } from './compliance-status.js';
 import { computePanoramicaKpis } from './kpi-metrics.js';
@@ -682,7 +679,7 @@ export function createRenderer(els) {
     const t = computeSituazioneTotals(report, totalsRow);
     const settledNote = totalsRow?.consuntivoSettledInNext
       ? consuntivoBalanceFootnote(house, totalsRow)
-      : t.saldoHint;
+      : (t.saldoHint || 'Versato − totale da versare');
 
     const primary = [[
       t.saldoLabel,
@@ -691,17 +688,13 @@ export function createRenderer(els) {
       totalsRow?.consuntivoSettledInNext ? 'success' : t.saldoTone
     ]];
 
-    const secondary = [];
-    if (t.preventivo > 0.005 || !t.hasCons) {
-      secondary.push(['Preventivo', fmt(t.preventivo), 'Voci preventivo esercizio', '']);
-    }
-    if (t.hasCons) {
-      secondary.push(['Consuntivo', fmt(t.consuntivo), t.hasPrior ? 'Prima del saldo precedente' : 'Addebiti consuntivi', '']);
-    }
-    if (t.daPagare != null && t.daPagare > 0.005) {
-      secondary.push(['Da pagare', fmt(t.daPagare), t.hasPrior ? 'Consuntivo + saldo precedente' : 'Totale dovuto', 'warn']);
-    }
-    secondary.push(['Pagato', fmt(t.pagato), `${report.periodPayments.length} versamenti`, 'positive']);
+    const congHint = t.hasPrior ? priorBalancePresentation(t.conguaglio).label : 'Nessun saldo precedente';
+    const secondary = [
+      ['Totale esercizio', fmt(t.totaleEsercizio), 'Totale addebiti esercizio', ''],
+      ['Conguaglio anno precedente', fmt(t.conguaglio), congHint, ''],
+      ['Totale da versare', fmt(t.totaleDaVersare), t.hasPrior ? 'Esercizio + conguaglio' : '= Totale esercizio', ''],
+      ['Totale versato', fmt(t.totaleVersato), `${report.periodPayments.length} versamenti`, 'positive']
+    ];
 
     const chipHtml = (label, value, foot, status, tier) =>
       `<div class="metric-chip metric-chip--${tier}${status ? ` metric-chip--${status}` : ''}"><span class="muted">${label}</span><strong class="${status || ''}">${value}</strong><span class="hint">${foot}</span></div>`;
@@ -762,24 +755,24 @@ export function createRenderer(els) {
     });
   }
 
-  function renderRateTable(slots, periodId) {
-    if (!slots.length) return '';
-    const totalDue = slots.reduce((s, slot) => s + slot.amountDue, 0);
-    const totalPaid = slots.reduce((s, slot) => s + slot.paid, 0);
-    const totalBal = Math.round((totalPaid - totalDue) * 100) / 100;
-    const body = slots.map(slot => {
-      const balCls = slot.balance >= 0 ? 'positive' : 'negative';
-      const payRows = slot.payments.map(p =>
-        `<tr class="situazione-pay-row"><td colspan="2" class="hint">↳ ${p.date || '—'} · ${p.method || '—'}</td><td></td><td class="amount ${Number(p.amount) >= 0 ? 'positive' : 'negative'}">${fmt(p.amount)}</td><td></td></tr>`
-      ).join('');
-      return `<tr><td>${slot.label}</td><td>${slot.dueDescription || '—'}</td><td class="amount">${fmt(slot.amountDue)}</td><td class="amount">${fmt(slot.paid)}</td><td class="amount ${balCls}">${fmt(slot.balance)}</td></tr>${payRows}`;
-    }).join('');
-    const tableHtml = `<div class="data-table-wrap"><table><thead><tr><th>Rata</th><th>Voce</th><th>Dovuto</th><th>Versato</th><th>Saldo</th></tr></thead><tbody>${body}</tbody><tfoot><tr><th colspan="2">Totale rate</th><td class="amount">${fmt(totalDue)}</td><td class="amount">${fmt(totalPaid)}</td><td class="amount ${totalBal >= 0 ? 'positive' : 'negative'}">${fmt(totalBal)}</td></tr></tfoot></table></div>`;
+  function renderRateDetailSection(house, report, periodId) {
+    const payments = report.exercisePayments || [];
+    if (!payments.length) return '';
+    const total = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const rows = [...payments]
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+      .map(p => {
+        const key = p.installmentKey || inferInstallmentKey(house, p);
+        const rata = installmentShortLabel(house, key);
+        const cls = Number(p.amount) >= 0 ? 'positive' : 'negative';
+        return `<tr><td>${rata}</td><td>${p.date || '—'}</td><td>${p.method || '—'}</td><td class="amount ${cls}">${fmt(p.amount)}</td></tr>`;
+      }).join('');
+    const tableHtml = `<div class="data-table-wrap"><table><thead><tr><th>Rata</th><th>Data vers.</th><th>Metodo</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="3">Totale versato</th><td class="amount">${fmt(total)}</td></tr></tfoot></table></div>`;
     return situazioneCollapsibleSection({
       id: `situazione-rate-${periodId || 'x'}`,
-      title: 'Preventivo — dettaglio rate',
-      summaryTotal: fmt(totalBal),
-      summaryHint: `Saldo rate · ${slots.length} rate`,
+      title: 'Dettaglio versamenti',
+      summaryTotal: fmt(total),
+      summaryHint: `${payments.length} versamenti`,
       bodyHtml: tableHtml
     });
   }
@@ -790,74 +783,13 @@ export function createRenderer(els) {
       `<tr><td>${d.description || 'Consuntivo'}</td><td class="amount">${fmt(d.amount)}</td></tr>`
     ).join('');
     const consBase = report.consuntivoTotal ?? totalsRow?.consuntivo ?? 0;
-    let footer = `<tr><th>Totale consuntivo (voci)</th><td class="amount">${fmt(consBase)}</td></tr>`;
-    if (report.priorBalance && report.totalToPayConsuntivo != null) {
-      const pres = priorBalancePresentation(report.priorBalance.amount);
-      footer += `<tr><th>Saldo precedente</th><td class="amount ${pres.amountCls}">${fmt(report.priorBalance.amount)} <span class="hint">(${pres.label})</span></td></tr>`;
-      footer += `<tr class="prior-balance-total-row"><th>Totale da pagare</th><td class="amount"><strong>${fmt(report.totalToPayConsuntivo)}</strong></td></tr>`;
-      const bal = report.balanceVsTotalConsuntivo ?? 0;
-      const balCls = bal >= 0 ? 'positive' : 'negative';
-      footer += `<tr><th>Saldo (versato − totale da pagare)</th><td class="amount ${balCls}">${fmt(bal)}</td></tr>`;
-    } else {
-      const b = totalsRow?.balanceConsuntivo ?? 0;
-      const balCls = b >= 0 ? 'positive' : 'negative';
-      const saldoNote = totalsRow?.consuntivoSettledInNext
-        ? `<div class="hint">${consuntivoBalanceFootnote(house, totalsRow)}</div>` : '';
-      footer += `<tr><th>Saldo (versato − consuntivo)</th><td class="amount ${balCls}">${fmt(b)}${saldoNote}</td></tr>`;
-    }
-    const summaryTotal = report.priorBalance && report.totalToPayConsuntivo != null
-      ? fmt(report.totalToPayConsuntivo)
-      : fmt(consBase);
+    const footer = `<tr><th>Totale voci</th><td class="amount">${fmt(consBase)}</td></tr>`;
     const tableHtml = `<div class="data-table-wrap"><table><thead><tr><th>Descrizione</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot>${footer}</tfoot></table></div>`;
     return situazioneCollapsibleSection({
       id: `situazione-cons-${periodId || 'x'}`,
-      title: 'Consuntivo',
-      summaryTotal,
+      title: 'Voci esercizio',
+      summaryTotal: fmt(consBase),
       summaryHint: `${report.consuntivoDues.length} voci`,
-      bodyHtml: tableHtml
-    });
-  }
-
-  function renderPeriodPaymentsSection(house, report, title = 'Versamenti esercizio', periodId = '') {
-    const payments = report.exercisePayments || report.periodPayments;
-    if (!payments.length) return '';
-    const total = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
-    const rows = [...payments]
-      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
-      .map(p => {
-        const key = p.installmentKey || inferInstallmentKey(house, p);
-        const rata = installmentShortLabel(house, key);
-        const cls = Number(p.amount) >= 0 ? 'positive' : 'negative';
-        return `<tr><td>${p.date || '—'}</td><td>${p.method || '—'}</td><td>${rata}</td><td class="amount ${cls}">${fmt(p.amount)}</td></tr>`;
-      }).join('');
-    const tableHtml = `<div class="data-table-wrap"><table><thead><tr><th>Data vers.</th><th>Metodo</th><th>Rata preventivo</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="3">Totale versato</th><td class="amount">${fmt(total)}</td></tr></tfoot></table></div>`;
-    return situazioneCollapsibleSection({
-      id: `situazione-payments-${periodId || 'x'}`,
-      title,
-      summaryTotal: fmt(total),
-      summaryHint: `${payments.length} movimenti`,
-      bodyHtml: tableHtml
-    });
-  }
-
-  function renderConsuntivoPaymentsSection(house, report, periodId) {
-    const payments = report.exercisePayments || report.periodPayments;
-    if (!report.consuntivoDues.length || !payments.length) return '';
-    const total = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
-    const rows = [...payments]
-      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
-      .map(p => {
-        const key = p.installmentKey || inferInstallmentKey(house, p);
-        const rata = installmentShortLabel(house, key);
-        const cls = Number(p.amount) >= 0 ? 'positive' : 'negative';
-        return `<tr><td>${p.date || '—'}</td><td>${p.method || '—'}</td><td>${rata}</td><td class="amount ${cls}">${fmt(p.amount)}</td></tr>`;
-      }).join('');
-    const tableHtml = `<p class="hint subtle">Contano sul consuntivo dell'esercizio; la rata preventivo resta invariata.</p><div class="data-table-wrap"><table><thead><tr><th>Data vers.</th><th>Metodo</th><th>Rata preventivo</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="3">Totale versato</th><td class="amount">${fmt(total)}</td></tr></tfoot></table></div>`;
-    return situazioneCollapsibleSection({
-      id: `situazione-cons-payments-${periodId || 'x'}`,
-      title: 'Versamenti esercizio',
-      summaryTotal: fmt(total),
-      summaryHint: `${payments.length} movimenti`,
       bodyHtml: tableHtml
     });
   }
@@ -896,20 +828,6 @@ export function createRenderer(els) {
     });
   }
 
-  function syncSituazionePdfKind(house, periodId) {
-    if (!els.situazionePdfKind) return;
-    const report = buildSituazioneReport(house, periodId);
-    const hasCons = hasConsuntivoReport(report);
-    const hasPrev = hasPreventivoReport(report);
-    const hasPrior = hasPriorBalanceReport(report);
-    const both = hasCons && hasPrev;
-    els.situazionePdfKind.classList.toggle('hidden', !both);
-    els.situazionePdfBtn?.toggleAttribute('disabled', !hasCons && !hasPrev && !hasPrior);
-
-    const resolved = resolveSituazionePdfKind(report, els.situazionePdfKind.value);
-    els.situazionePdfKind.value = resolved || defaultSituazionePdfKind(report) || 'consuntivo';
-  }
-
   function renderSituazione(house) {
     if (!els.situazioneSections || !els.situazionePeriod) return;
     const summary = periodSummary(house);
@@ -917,7 +835,6 @@ export function createRenderer(els) {
       els.situazionePeriod.innerHTML = '';
       if (els.situazioneSummary) els.situazioneSummary.innerHTML = '';
       els.situazioneSections.innerHTML = '<div class="empty">Nessun esercizio registrato.</div>';
-      els.situazionePdfKind?.classList.add('hidden');
       els.situazionePdfBtn?.setAttribute('disabled', '');
       return;
     }
@@ -932,12 +849,14 @@ export function createRenderer(els) {
 
     const report = buildSituazioneReport(house, periodId);
     const totalsRow = report.totalsRow;
-    syncSituazionePdfKind(house, periodId);
     const paymentsOnly = hasPaymentsOnlyReport(report);
     const hasPrior = hasPriorBalanceReport(report);
-    if (!hasConsuntivoReport(report) && !hasPreventivoReport(report) && !paymentsOnly && !hasPrior) {
+    const hasCons = hasConsuntivoReport(report);
+    const hasPrev = hasPreventivoReport(report);
+    els.situazionePdfBtn?.toggleAttribute('disabled', !hasCons && !hasPrev && !hasPrior);
+    if (!hasCons && !hasPrev && !paymentsOnly && !hasPrior) {
       if (els.situazioneSummary) els.situazioneSummary.innerHTML = '';
-      els.situazioneSections.innerHTML = '<div class="empty">Nessun preventivo/consuntivo per questo esercizio.</div>';
+      els.situazioneSections.innerHTML = '<div class="empty">Nessun dovuto o versamento per questo esercizio.</div>';
       return;
     }
 
@@ -946,10 +865,8 @@ export function createRenderer(els) {
     }
     els.situazioneSections.innerHTML = [
       renderPriorBalanceSection(house, report, periodId),
-      renderRateTable(report.slots, periodId),
       renderConsuntivoSection(house, report, totalsRow, periodId),
-      renderConsuntivoPaymentsSection(house, report, periodId),
-      paymentsOnly ? renderPeriodPaymentsSection(house, report, 'Versamenti registrati', periodId) : '',
+      renderRateDetailSection(house, report, periodId),
       renderCarrySection(house, report.carryDues, periodId),
       renderUnlinkedSection(report.unlinkedPayments, periodId)
     ].filter(Boolean).join('');
@@ -1702,7 +1619,6 @@ export function collectDom() {
     situazioneSummary: document.getElementById('situazioneSummary'),
     situazioneSections: document.getElementById('situazioneSections'),
     situazionePdfBtn: document.getElementById('situazionePdfBtn'),
-    situazionePdfKind: document.getElementById('situazionePdfKind'),
     dueSplitMode: document.getElementById('dueSplitMode'),
     dueSplitCustom: document.getElementById('dueSplitCustom'),
     dueSplitCustomWrap: document.getElementById('dueSplitCustomWrap'),

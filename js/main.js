@@ -1050,7 +1050,7 @@ els.situazionePdfBtn?.addEventListener('click', async () => {
   const house = ensureHouse();
   if (!house || !els.situazionePeriod?.value) return;
   try {
-    await exportSituazionePdf(house, els.situazionePeriod.value, els.situazionePdfKind?.value);
+    await exportSituazionePdf(house, els.situazionePeriod.value);
   } catch (err) {
     toastError(err.message || 'Errore export PDF');
   }

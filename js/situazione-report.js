@@ -128,7 +128,7 @@ export function computeSituazioneTotals(report, totalsRow) {
     saldo = Math.round((pagato - preventivo) * 100) / 100;
     saldoHint = 'Versato − preventivo';
   } else {
-    saldo = 0;
+    saldo = Math.round(pagato * 100) / 100;
     saldoHint = '';
   }
 
@@ -145,6 +145,11 @@ export function computeSituazioneTotals(report, totalsRow) {
     saldoTone = 'negative';
   }
 
+  const totaleEsercizio = hasCons ? consuntivo : preventivo;
+  const conguaglio = hasPrior ? Number(report?.priorAmount || 0) : 0;
+  const totaleDaVersare = daPagare ?? totaleEsercizio;
+  const totaleVersato = pagato;
+
   return {
     preventivo,
     consuntivo,
@@ -155,14 +160,12 @@ export function computeSituazioneTotals(report, totalsRow) {
     saldoLabel,
     saldoTone,
     hasCons,
-    hasPrior
+    hasPrior,
+    totaleEsercizio,
+    conguaglio,
+    totaleDaVersare,
+    totaleVersato
   };
-}
-
-export function situazioneStatusLabel(balance) {
-  if (balance > 0.005) return { text: 'Eccedenza', cls: 'success' };
-  if (balance < -0.005) return { text: 'Debito', cls: 'error' };
-  return { text: 'Pareggio', cls: 'warn' };
 }
 
 export function carryFromLabel(house, due) {
@@ -269,22 +272,4 @@ export function hasPriorBalanceReport(report) {
 
 export function hasPaymentsOnlyReport(report) {
   return Boolean(report?.periodPayments?.length) && !hasConsuntivoReport(report) && !hasPreventivoReport(report);
-}
-
-/** Default PDF: consuntivo se presente, altrimenti preventivo. */
-export function defaultSituazionePdfKind(report) {
-  if (hasConsuntivoReport(report)) return 'consuntivo';
-  if (hasPreventivoReport(report)) return 'preventivo';
-  if (hasPriorBalanceReport(report)) return 'preventivo';
-  return null;
-}
-
-export function resolveSituazionePdfKind(report, requestedKind) {
-  const hasCons = hasConsuntivoReport(report);
-  const hasPrev = hasPreventivoReport(report);
-  const hasPrior = hasPriorBalanceReport(report);
-  if (!hasCons && !hasPrev && !hasPrior) return null;
-  if (requestedKind === 'consuntivo' && hasCons) return 'consuntivo';
-  if (requestedKind === 'preventivo' && (hasPrev || hasPrior)) return 'preventivo';
-  return defaultSituazionePdfKind(report);
 }

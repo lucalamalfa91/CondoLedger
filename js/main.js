@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
+  calendarFeedUrls,
   createLocalDue,
   createLocalPayment,
   createSupabaseClient,
@@ -14,6 +15,7 @@ import {
   ensureFiscalPeriodByLabel,
   linkBankMovement,
   loadFromSupabase,
+  regenerateCalendarFeedToken,
   reloadHouseFromSupabase,
   saveBankImport,
   saveDueToSupabase,
@@ -21,16 +23,18 @@ import {
   savePaymentToSupabase,
   savePriorBalanceToSupabase,
   saveUnlinkedBankMovements,
-  syncBackupToSupabase
+  syncBackupToSupabase,
+  updateCalendarSettings
 } from './api.js';
 import { createAuthHandlers } from './auth.js';
 import { exportBackup, parseBackup } from './backup.js';
 import { resolveView, viewMeta } from './config.js';
 import { hasCarryDueTargetingPeriod, hasPriorBalanceForPeriod, suggestCarryover } from './carryover.js';
-import { periodLabel } from './fiscal.js';
+import { findPeriodByDate, periodLabel } from './fiscal.js';
 import { findInstallmentForDate } from './installments.js';
 import { exportSituazionePdf } from './pdf-situazione.js';
 import { getPreviousPeriod } from './fiscal.js';
+import { computeReminderPlan, REMINDER_CADENCES } from './reminder-plan.js';
 import { applyAutoFilterToPreview, mergeExtractions } from './document-import-match.js';
 import { applyResocontoToPreview, buildResoconto, ensureResoconto } from './document-import-resoconto.js';
 import { buildDuesFromPreview, initPreviewFromExtraction } from './document-import-map.js';
@@ -82,6 +86,7 @@ function render(...args) {
   }
   baseRender(...args);
   maybeShowOnboarding();
+  renderCalendarSettingsView();
 }
 
 const onboardingDialog = document.getElementById('onboardingDialog');
@@ -176,6 +181,9 @@ function navigate(view, subview = null) {
   syncRouteHash(resolved.view, resolved.subview);
   if (resolved.view === 'impostazioni' && resolved.subview === 'account') {
     auth.renderAccountView();
+  }
+  if (resolved.view === 'impostazioni' && resolved.subview === 'calendario') {
+    renderCalendarSettingsView();
   }
 }
 
@@ -1030,6 +1038,181 @@ onboardingNext?.addEventListener('click', async () => {
   }
   onboardingStep += 1;
   showOnboardingStep();
+});
+
+const CALENDAR_WIZARD_STEPS = ['cadenza', 'preavviso', 'anteprima', 'collega'];
+let calendarWizardStep = 0;
+
+function activeFiscalPeriodId(house) {
+  const p = findPeriodByDate(house, today);
+  return p?.id ?? house.fiscalPeriods[0]?.id ?? null;
+}
+
+function currentCalendarCadence() {
+  const checked = els.calendarWizardForm?.querySelector('input[name="calendarCadence"]:checked');
+  return checked?.value || 'monthly';
+}
+
+function currentCalendarLeadDays() {
+  return Number(els.calendarLeadDays?.value || 3);
+}
+
+function reminderPlanTableHtml(plan) {
+  if (!plan.period) return '<div class="empty">Nessun esercizio fiscale configurato per questa casa.</div>';
+  if (plan.fullyPaid) return `<div class="empty">Nessuna rata residua per ${plan.period.label}: risulti in regola.</div>`;
+  const rows = plan.items
+    .map(it => `<tr><td>${it.index}/${it.count}</td><td>${it.date}</td><td>${fmt(it.amount)}</td></tr>`)
+    .join('');
+  return `<table><thead><tr><th>Rata</th><th>Data</th><th>Importo</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderCalendarWizardPreview() {
+  const house = activeHouse();
+  if (!house || !els.calendarWizardPreviewTable) return;
+  const periodId = activeFiscalPeriodId(house);
+  const plan = periodId
+    ? computeReminderPlan(house, periodId, { cadence: currentCalendarCadence(), leadDays: currentCalendarLeadDays() })
+    : { items: [], totalRemaining: 0, count: 0, period: null, fullyPaid: false };
+  if (els.calendarWizardPreviewSummary) {
+    els.calendarWizardPreviewSummary.textContent = plan.period && !plan.fullyPaid
+      ? `${plan.period.label} · residuo ${fmt(plan.totalRemaining)} in ${plan.count} rate`
+      : '';
+  }
+  els.calendarWizardPreviewTable.innerHTML = reminderPlanTableHtml(plan);
+}
+
+function renderCalendarWizardLinks() {
+  const house = activeHouse();
+  const urls = house ? calendarFeedUrls(house) : null;
+  if (els.calendarWizardWebcalLink) {
+    if (urls) {
+      els.calendarWizardWebcalLink.href = urls.webcal;
+      els.calendarWizardWebcalLink.classList.remove('hidden');
+    } else {
+      els.calendarWizardWebcalLink.href = '#';
+      els.calendarWizardWebcalLink.classList.add('hidden');
+    }
+  }
+  if (els.calendarWizardHttpsLink) els.calendarWizardHttpsLink.value = urls?.https || '';
+}
+
+function showCalendarWizardStep() {
+  const stepKey = CALENDAR_WIZARD_STEPS[calendarWizardStep];
+  els.calendarWizardStepper?.querySelectorAll('.import-step').forEach(li => {
+    li.classList.toggle('active', li.dataset.step === stepKey);
+  });
+  els.calendarWizardForm?.querySelectorAll('.calendar-wizard-step').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.wizardStep === stepKey);
+  });
+  els.calendarWizardBack?.classList.toggle('hidden', calendarWizardStep === 0);
+  if (els.calendarWizardNext) els.calendarWizardNext.textContent = stepKey === 'collega' ? 'Salva' : 'Avanti';
+  els.calendarWizardError?.classList.add('hidden');
+  if (stepKey === 'anteprima') renderCalendarWizardPreview();
+  if (stepKey === 'collega') renderCalendarWizardLinks();
+}
+
+function openCalendarWizard() {
+  const house = ensureHouse();
+  if (!house || !els.calendarWizardDialog) return;
+  const cadenceInput = els.calendarWizardForm?.querySelector(
+    `input[name="calendarCadence"][value="${house.calendarReminderCadence || 'monthly'}"]`
+  );
+  if (cadenceInput) cadenceInput.checked = true;
+  if (els.calendarLeadDays) els.calendarLeadDays.value = String(house.calendarReminderLeadDays ?? 3);
+  calendarWizardStep = 0;
+  showCalendarWizardStep();
+  els.calendarWizardDialog.showModal();
+}
+
+async function saveCalendarWizard() {
+  const house = ensureHouse();
+  if (!house) return;
+  try {
+    await updateCalendarSettings(house, {
+      cadence: currentCalendarCadence(),
+      leadDays: currentCalendarLeadDays(),
+      enabled: true
+    });
+    renderCalendarSettingsView();
+    showToast('Calendario configurato.');
+    els.calendarWizardDialog?.close();
+  } catch (err) {
+    if (els.calendarWizardError) {
+      els.calendarWizardError.textContent = err.message || 'Errore salvataggio impostazioni calendario';
+      els.calendarWizardError.classList.remove('hidden');
+    }
+  }
+}
+
+function renderCalendarSettingsView() {
+  const house = activeHouse();
+  if (!els.calendarFeedStatus || !els.calendarFeedPreview) return;
+  if (!house) {
+    els.calendarFeedStatus.innerHTML = '';
+    els.calendarFeedPreview.innerHTML = '';
+    els.regenerateCalendarTokenBtn?.classList.add('hidden');
+    return;
+  }
+  const cadenceLabel = REMINDER_CADENCES[house.calendarReminderCadence]?.label || 'Mensile';
+  if (house.calendarFeedEnabled) {
+    els.calendarFeedStatus.innerHTML = `<div class="metric-label">Calendario collegato</div><div class="metric-value" style="font-size:1.1rem;">${cadenceLabel} · preavviso ${house.calendarReminderLeadDays ?? 3} giorni</div>`;
+    els.regenerateCalendarTokenBtn?.classList.remove('hidden');
+  } else {
+    els.calendarFeedStatus.innerHTML = '<div class="metric-label">Calendario non collegato</div><div class="metric-value" style="font-size:1.1rem;">Configura per ricevere i promemoria rate</div>';
+    els.regenerateCalendarTokenBtn?.classList.add('hidden');
+  }
+  const periodId = activeFiscalPeriodId(house);
+  const plan = periodId
+    ? computeReminderPlan(house, periodId, {
+        cadence: house.calendarReminderCadence || 'monthly',
+        leadDays: house.calendarReminderLeadDays ?? 3
+      })
+    : { items: [], totalRemaining: 0, count: 0, period: null, fullyPaid: false };
+  els.calendarFeedPreview.innerHTML = reminderPlanTableHtml(plan);
+}
+
+els.calendarWizardForm?.addEventListener('submit', e => e.preventDefault());
+els.openCalendarWizardBtn?.addEventListener('click', openCalendarWizard);
+els.calendarWizardClose?.addEventListener('click', () => els.calendarWizardDialog?.close());
+els.calendarWizardBack?.addEventListener('click', () => {
+  if (calendarWizardStep > 0) {
+    calendarWizardStep -= 1;
+    showCalendarWizardStep();
+  }
+});
+els.calendarWizardNext?.addEventListener('click', () => {
+  if (calendarWizardStep < CALENDAR_WIZARD_STEPS.length - 1) {
+    calendarWizardStep += 1;
+    showCalendarWizardStep();
+  } else {
+    saveCalendarWizard();
+  }
+});
+els.calendarWizardCopyLink?.addEventListener('click', async () => {
+  const value = els.calendarWizardHttpsLink?.value;
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    showToast('Link copiato.');
+  } catch {
+    toastError('Copia non riuscita: seleziona e copia manualmente il link.');
+  }
+});
+els.regenerateCalendarTokenBtn?.addEventListener('click', async () => {
+  const house = ensureHouse();
+  if (!house) return;
+  if (!await confirmDialog('Rigenerare il link? Gli abbonamenti calendario già collegati con il link precedente smetteranno di aggiornarsi.', {
+    title: 'Rigenera link calendario',
+    confirmLabel: 'Rigenera',
+    danger: true
+  })) return;
+  try {
+    await regenerateCalendarFeedToken(house);
+    renderCalendarSettingsView();
+    showToast('Link rigenerato.');
+  } catch (err) {
+    toastError(err.message || 'Errore rigenerazione link');
+  }
 });
 
 els.periodFilter.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });

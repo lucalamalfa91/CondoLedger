@@ -416,6 +416,7 @@
         <nav class="sub-nav" role="tablist" aria-label="Sezioni impostazioni">
           <button class="sub-nav-btn active" type="button" role="tab" data-view="impostazioni" data-subview="casa" aria-selected="true">Immobili</button>
           <button class="sub-nav-btn" type="button" role="tab" data-view="impostazioni" data-subview="account" aria-selected="false">Account</button>
+          <button class="sub-nav-btn" type="button" role="tab" data-view="impostazioni" data-subview="calendario" aria-selected="false">Calendario</button>
           <button class="sub-nav-btn" type="button" role="tab" data-view="impostazioni" data-subview="backup" aria-selected="false">Backup</button>
         </nav>
         <div class="subview active" data-subview-panel="casa" role="tabpanel">
@@ -458,6 +459,21 @@
                 </div>
               </form>
             </section>
+          </div>
+        </div>
+        <div class="subview" data-subview-panel="calendario" role="tabpanel">
+          <div class="stack-single">
+            <div class="card stack">
+              <div class="panel-head">
+                <div><h2>Promemoria rate su calendario</h2><p class="subtle">Un link di sottoscrizione con le rate residue: Apple e Google Calendar lo ricontrollano da soli quando cambiano importi o versamenti, senza bisogno di reimportare nulla.</p></div>
+              </div>
+              <div id="calendarFeedStatus" class="mini-card"></div>
+              <div class="data-table-wrap" id="calendarFeedPreview"></div>
+              <div class="form-actions">
+                <button class="btn btn-primary" type="button" id="openCalendarWizardBtn">Configura calendario</button>
+                <button class="btn btn-secondary hidden" type="button" id="regenerateCalendarTokenBtn">Rigenera link</button>
+              </div>
+            </div>
           </div>
         </div>
         <div class="subview" data-subview-panel="backup" role="tabpanel">
@@ -554,6 +570,73 @@
       <div class="form-actions">
         <button class="btn btn-secondary" type="button" id="onboardingSkip">Salta</button>
         <button class="btn btn-primary" type="button" id="onboardingNext">Avanti</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="calendarWizardDialog" class="onboarding-dialog calendar-wizard-dialog">
+    <form method="dialog" class="stack" id="calendarWizardForm">
+      <ol class="import-stepper" id="calendarWizardStepper" aria-label="Passaggi configurazione calendario">
+        <li class="import-step" data-step="cadenza"><span>1</span> Cadenza</li>
+        <li class="import-step" data-step="preavviso"><span>2</span> Preavviso</li>
+        <li class="import-step" data-step="anteprima"><span>3</span> Anteprima</li>
+        <li class="import-step" data-step="collega"><span>4</span> Collega</li>
+      </ol>
+
+      <div class="calendar-wizard-step" data-wizard-step="cadenza">
+        <h2>Ogni quanto vuoi pagare?</h2>
+        <p class="subtle">Le rate residue verranno divise per il numero di scadenze rimanenti fino a fine esercizio.</p>
+        <div class="stack" role="radiogroup" aria-label="Cadenza rate">
+          <label class="radio-option"><input type="radio" name="calendarCadence" value="monthly" checked /> Mensile</label>
+          <label class="radio-option"><input type="radio" name="calendarCadence" value="bimonthly" /> Bimestrale</label>
+          <label class="radio-option"><input type="radio" name="calendarCadence" value="semiannual" /> Semestrale</label>
+        </div>
+      </div>
+
+      <div class="calendar-wizard-step" data-wizard-step="preavviso">
+        <h2>Quanti giorni prima avvisare?</h2>
+        <p class="subtle">Il promemoria comparirà nel calendario con questo anticipo rispetto alla scadenza della rata.</p>
+        <label for="calendarLeadDays">Preavviso</label>
+        <select id="calendarLeadDays">
+          <option value="1">1 giorno prima</option>
+          <option value="3" selected>3 giorni prima</option>
+          <option value="7">7 giorni prima</option>
+        </select>
+      </div>
+
+      <div class="calendar-wizard-step" data-wizard-step="anteprima">
+        <h2>Anteprima rate residue</h2>
+        <p class="subtle" id="calendarWizardPreviewSummary"></p>
+        <div class="data-table-wrap" id="calendarWizardPreviewTable"></div>
+      </div>
+
+      <div class="calendar-wizard-step" data-wizard-step="collega">
+        <h2>Collega il tuo calendario</h2>
+        <p class="subtle">Sottoscrivi il link: Apple e Google ricontrollano da soli le rate, senza bisogno di reimportare.</p>
+        <div class="stack">
+          <div>
+            <label>Apple Calendar</label>
+            <div class="calendar-link-row">
+              <a id="calendarWizardWebcalLink" class="btn btn-secondary" href="#">Sottoscrivi su Apple Calendar</a>
+            </div>
+          </div>
+          <div>
+            <label for="calendarWizardHttpsLink">Google Calendar / Gmail</label>
+            <p class="hint">Apri Google Calendar → "Altri calendari" → "Da URL" e incolla questo link:</p>
+            <div class="calendar-link-row">
+              <input type="text" id="calendarWizardHttpsLink" readonly />
+              <button class="btn btn-secondary" type="button" id="calendarWizardCopyLink">Copia link</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="calendarWizardError" class="login-error hidden" role="alert"></div>
+
+      <div class="form-actions">
+        <button class="btn btn-secondary" type="button" id="calendarWizardClose">Chiudi</button>
+        <button class="btn btn-secondary hidden" type="button" id="calendarWizardBack">Indietro</button>
+        <button class="btn btn-primary" type="button" id="calendarWizardNext">Avanti</button>
       </div>
     </form>
   </dialog>

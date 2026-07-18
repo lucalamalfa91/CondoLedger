@@ -519,6 +519,15 @@
     .import-step.done { opacity:.75; }
     .import-step.done span { background:var(--color-success); color:#fff; }
 
+    .calendar-wizard-dialog { border: none; border-radius: var(--radius-xl); padding: 0; max-width: min(92vw, 560px); }
+    .calendar-wizard-dialog::backdrop { background: rgba(0,0,0,.45); }
+    .calendar-wizard-dialog form { padding: var(--space-5); margin: 0; }
+    .calendar-wizard-step { display:none; }
+    .calendar-wizard-step.active { display:block; animation: fadeIn .2s ease; }
+    .radio-option { display:flex; align-items:center; gap:.5rem; font-weight:500; }
+    .calendar-link-row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+    .calendar-link-row input[type="text"] { flex:1; min-width:12rem; }
+
     .payment-guide-panel:empty { display:none; }
     .payment-guide-panel .guide-card { padding:var(--space-4); border-radius:var(--radius-lg); border:1px solid color-mix(in srgb, var(--color-primary) 25%, transparent); background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); }
     .payment-guide-panel .guide-amount { font-size:1.5rem; font-weight:700; font-variant-numeric:tabular-nums; }

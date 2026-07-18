@@ -43,7 +43,11 @@ export function createLocalHouse() {
     dues: [],
     payments: [],
     priorBalances: [],
-    bankMovements: []
+    bankMovements: [],
+    calendarFeedToken: null,
+    calendarFeedEnabled: false,
+    calendarReminderCadence: 'monthly',
+    calendarReminderLeadDays: 3
   };
 }
 
@@ -59,6 +63,10 @@ export function mapHouseFromDb(house, dues, payments, periods, movements, priorB
     notes: house.notes || '',
     fiscalStartMonth: house.fiscal_start_month ?? 6,
     importParties: parseImportPartiesFromDb(house.import_parties),
+    calendarFeedToken: house.calendar_feed_token || null,
+    calendarFeedEnabled: Boolean(house.calendar_feed_enabled),
+    calendarReminderCadence: house.calendar_reminder_cadence || 'monthly',
+    calendarReminderLeadDays: house.calendar_reminder_lead_days ?? 3,
     fiscalPeriods: (periods || []).map(p => ({
       id: String(p.id),
       label: p.label,

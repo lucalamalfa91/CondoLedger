@@ -49,8 +49,18 @@ export function computeReminderPlan(house, fiscalPeriodId, { cadence = 'monthly'
     cursor = addMonths(cursor, months);
   }
 
-  const future = slotDates.filter(d => d >= today);
-  if (!future.length) future.push(today);
+  // Se l'ultimo versamento registrato copre già date future (pagamento in
+  // anticipo), riparti dalla rata successiva invece che da oggi.
+  const lastPaymentDate = (house.payments || [])
+    .filter(p => String(p.fiscalPeriodId) === String(fiscalPeriodId))
+    .reduce((max, p) => {
+      const d = String(p.date || '').slice(0, 10);
+      return d && (!max || d > max) ? d : max;
+    }, null);
+  const paidAhead = Boolean(lastPaymentDate && lastPaymentDate >= today);
+
+  const future = slotDates.filter(d => (paidAhead ? d > lastPaymentDate : d >= today));
+  if (!future.length) future.push(paidAhead ? period.endDate : today);
 
   const n = future.length;
   const base = Math.floor((remaining * 100) / n) / 100;
@@ -71,5 +81,5 @@ export function computeReminderPlan(house, fiscalPeriodId, { cadence = 'monthly'
     };
   });
 
-  return { items, totalRemaining: remaining, count: n, period, fullyPaid: false };
+  return { items, totalRemaining: remaining, count: n, period, fullyPaid: false, paidAhead, lastPaymentDate };
 }

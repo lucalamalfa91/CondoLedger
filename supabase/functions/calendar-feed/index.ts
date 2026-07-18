@@ -47,7 +47,7 @@ Deno.serve(async req => {
   const [periodsRes, duesRes, paymentsRes, priorBalancesRes] = await Promise.all([
     supabase.from('fiscal_periods').select('id, label, start_date, end_date').eq('house_id', houseId),
     supabase.from('dues').select('fiscal_period_id, amount, due_kind').eq('house_id', houseId),
-    supabase.from('payments').select('fiscal_period_id, amount').eq('house_id', houseId),
+    supabase.from('payments').select('fiscal_period_id, amount, date').eq('house_id', houseId),
     supabase.from('prior_balances').select('fiscal_period_id, amount').eq('house_id', houseId)
   ]);
 
@@ -64,7 +64,8 @@ Deno.serve(async req => {
   }));
   const payments = (paymentsRes.data || []).map(p => ({
     fiscalPeriodId: p.fiscal_period_id,
-    amount: Number(p.amount)
+    amount: Number(p.amount),
+    date: p.date || ''
   }));
   const priorBalances = (priorBalancesRes.data || []).map(b => ({
     fiscalPeriodId: b.fiscal_period_id,
@@ -73,7 +74,7 @@ Deno.serve(async req => {
 
   const period = findActivePeriod(periods, today);
   const items = period
-    ? computeReminderItems(period, computeRemainingAmount(period, dues, payments, priorBalances), cadence, today, house.name)
+    ? computeReminderItems(period, computeRemainingAmount(period, dues, payments, priorBalances), cadence, today, house.name, payments)
     : [];
 
   const ics = buildCalendarFeed(houseId, period?.id ?? 'none', house.name, items, leadDays);

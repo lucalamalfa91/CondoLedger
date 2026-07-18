@@ -27,6 +27,7 @@ export interface Due {
 export interface Payment {
   fiscalPeriodId: number | string;
   amount: number;
+  date: string;
 }
 
 export interface PriorBalance {
@@ -104,7 +105,8 @@ export function computeReminderItems(
   remaining: number,
   cadence: Cadence,
   today: string,
-  houseName: string
+  houseName: string,
+  payments: Payment[] = []
 ): ReminderItem[] {
   if (remaining <= 0.01) return [];
 
@@ -117,8 +119,18 @@ export function computeReminderItems(
     cursor = addMonths(cursor, months);
   }
 
-  const future = slotDates.filter(d => d >= today);
-  if (!future.length) future.push(today);
+  // Se l'ultimo versamento registrato copre già date future (pagamento in
+  // anticipo), riparti dalla rata successiva invece che da oggi.
+  const lastPaymentDate = payments
+    .filter(p => String(p.fiscalPeriodId) === String(period.id))
+    .reduce((max: string | null, p) => {
+      const d = String(p.date || '').slice(0, 10);
+      return d && (!max || d > max) ? d : max;
+    }, null);
+  const paidAhead = Boolean(lastPaymentDate && lastPaymentDate >= today);
+
+  const future = slotDates.filter(d => (paidAhead ? d > (lastPaymentDate as string) : d >= today));
+  if (!future.length) future.push(paidAhead ? period.endDate : today);
 
   const n = future.length;
   const base = Math.floor((remaining * 100) / n) / 100;

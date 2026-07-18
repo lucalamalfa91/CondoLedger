@@ -69,9 +69,18 @@ export function buildIcsCalendar(house, plan, leadDays) {
   return lines.join('\r\n') + '\r\n';
 }
 
-function isIosDevice() {
+function isSafariOnIos() {
   const ua = navigator.userAgent || '';
-  return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const isIos = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  if (!isIos) return false;
+  // Su iOS tutti i browser usano il motore WebKit di sistema, ma solo Safari
+  // fa l'handoff nativo dei file text/calendar a Calendario. Chrome (CriOS),
+  // Firefox (FxiOS), Edge (EdgiOS) ecc. hanno un proprio gestore download che
+  // ignora il content-type e scarica sempre il file: per loro va quindi
+  // impostato "download" con estensione .ics corretta, altrimenti il file
+  // scaricato risulta senza nome/estensione validi e l'import manuale fallisce.
+  const isOtherIosBrowser = /CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
+  return !isOtherIosBrowser;
 }
 
 export function downloadIcsFile(filename, content) {
@@ -79,12 +88,7 @@ export function downloadIcsFile(filename, content) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  // Su iOS un download forzato (attributo "download") salva sempre il file
-  // in Download/File senza offrire "Aggiungi a Calendario"; aprendo invece
-  // l'URL direttamente, iOS riconosce il tipo text/calendar e propone
-  // l'import nativo. Su desktop/Android il download resta il flusso corretto
-  // (l'utente importa il file manualmente su Google Calendar).
-  if (isIosDevice()) {
+  if (isSafariOnIos()) {
     a.target = '_blank';
     a.rel = 'noopener';
   } else {

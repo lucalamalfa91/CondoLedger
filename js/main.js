@@ -1074,9 +1074,12 @@ function renderCalendarWizardPreview() {
     ? computeReminderPlan(house, periodId, { cadence: currentCalendarCadence(), leadDays: currentCalendarLeadDays() })
     : { items: [], totalRemaining: 0, count: 0, period: null, fullyPaid: false };
   if (els.calendarWizardPreviewSummary) {
-    els.calendarWizardPreviewSummary.textContent = plan.period && !plan.fullyPaid
-      ? `${plan.period.label} · residuo ${fmt(plan.totalRemaining)} in ${plan.count} rate`
-      : '';
+    let summary = '';
+    if (plan.period && !plan.fullyPaid) {
+      summary = `${plan.period.label} · residuo ${fmt(plan.totalRemaining)} in ${plan.count} rate`;
+      if (plan.paidAhead) summary += ` · versato in anticipo fino al ${plan.lastPaymentDate}: si riparte dalla rata successiva`;
+    }
+    els.calendarWizardPreviewSummary.textContent = summary;
   }
   els.calendarWizardPreviewTable.innerHTML = reminderPlanTableHtml(plan);
 }

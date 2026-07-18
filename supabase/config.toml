@@ -35,6 +35,3 @@ enable_signup = true
 
 [functions.extract-document]
 verify_jwt = false
-
-[functions.calendar-feed]
-verify_jwt = false

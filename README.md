@@ -19,7 +19,6 @@ Web app statica per gestire le spese condominiali di più immobili, con persiste
 | `gestione-spese-condominiali-supabase.html` | Redirect legacy → `index.html` |
 | `supabase/migrations/` | Migration versionate |
 | `supabase/functions/extract-document/` | Edge Function estrazione AI (PDF/DOCX/immagini) |
-| `supabase/functions/calendar-feed/` | Edge Function feed ICS sottoscrivibile (promemoria rate su Apple/Google Calendar) |
 | `references/document-import.md` | **Flusso import preventivo/consuntivo** (guida utente e tecnica) |
 | `references/intesa-format.md` | Formato export Excel Banca Intesa |
 | `vercel.json` | Routing Vercel |
@@ -243,12 +242,4 @@ Senza deploy, l'upload fallisce; puoi comunque usare **Inserisci manualmente** o
 
 ### Promemoria rate su calendario (Apple/Google)
 
-Da Impostazioni → Calendario, il wizard genera un link di **sottoscrizione** (`webcal://…`) a un feed ICS con le rate residue dell'esercizio corrente (importo mancante ÷ rate rimanenti, tenendo conto di conguagli e versamenti già fatti). Non serve OAuth: il link contiene un token opaco per-casa, rigenerabile in qualsiasi momento dalla stessa schermata. Google Calendar e Apple Calendar ricontrollano il link periodicamente, quindi le rate si aggiornano da sole se cambi importi o registri versamenti — non serve reimportare nulla.
-
-Richiede il **deploy** della nuova Edge Function `calendar-feed` (nessun secret aggiuntivo: usa la service-role key già disponibile di default in ogni Edge Function Supabase) e l'esecuzione della migration `20260718090000_calendar_feed.sql`:
-
-```bash
-npx supabase@latest functions deploy calendar-feed --project-ref cwvwfrrknmjwdpcnqvhv
-```
-
-Verifica: `curl -X OPTIONS https://cwvwfrrknmjwdpcnqvhv.supabase.co/functions/v1/calendar-feed` deve restituire **HTTP 204** (non 404).
+Da Impostazioni → Calendario, il wizard genera un file **.ics** scaricabile con le rate residue dell'esercizio corrente (importo mancante ÷ rate rimanenti, tenendo conto di conguagli e versamenti già fatti) e un promemoria (1, 3 o 5 giorni prima). Il file va aperto per aggiungere gli eventi ad Apple Calendar, oppure importato su Google Calendar da calendar.google.com → Impostazioni → Importa e esporta. Tutto avviene lato client: nessun deploy, nessun secret, nessun server coinvolto. Se cambiano le rate va semplicemente riscaricato e reimportato.

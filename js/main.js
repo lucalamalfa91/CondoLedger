@@ -1087,15 +1087,6 @@ function renderCalendarWizardPreview() {
 function renderCalendarWizardLinks() {
   const house = activeHouse();
   const urls = house ? calendarFeedUrls(house) : null;
-  if (els.calendarWizardWebcalLink) {
-    if (urls) {
-      els.calendarWizardWebcalLink.href = urls.webcal;
-      els.calendarWizardWebcalLink.classList.remove('hidden');
-    } else {
-      els.calendarWizardWebcalLink.href = '#';
-      els.calendarWizardWebcalLink.classList.add('hidden');
-    }
-  }
   if (els.calendarWizardHttpsLink) els.calendarWizardHttpsLink.value = urls?.https || '';
 }
 

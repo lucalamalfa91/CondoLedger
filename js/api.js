@@ -183,7 +183,7 @@ export async function regenerateCalendarFeedToken(house) {
 export function calendarFeedUrls(house) {
   if (!house?.calendarFeedToken || !Number.isFinite(Number(house.id))) return null;
   const base = `${DEFAULT_SUPABASE_URL}/functions/v1/calendar-feed?house=${Number(house.id)}&token=${house.calendarFeedToken}`;
-  return { https: base, webcal: base.replace(/^https?:\/\//, 'webcal://') };
+  return { https: base };
 }
 
 export async function ensureFiscalPeriodBySpec(house, spec) {

@@ -84,6 +84,7 @@ export const viewMeta = {
     subviews: {
       casa: ['Gestione immobili', 'Aggiungi, modifica ed elimina case'],
       account: ['Account', 'Profilo e password'],
+      calendario: ['Calendario', 'Promemoria rate su Apple/Google Calendar'],
       backup: ['Backup', 'Esporta e importa i dati']
     }
   }

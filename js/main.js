@@ -1077,7 +1077,7 @@ function renderCalendarWizardPreview() {
     let summary = '';
     if (plan.period && !plan.fullyPaid) {
       summary = `${plan.period.label} · residuo ${fmt(plan.totalRemaining)} in ${plan.count} rate`;
-      if (plan.paidAhead) summary += ` · versato in anticipo fino al ${plan.lastPaymentDate}: si riparte dalla rata successiva`;
+      if (plan.resumedAfterPayment) summary += ` · ultimo versamento il ${plan.lastPaymentDate}: si riparte dalla rata successiva`;
     }
     els.calendarWizardPreviewSummary.textContent = summary;
   }

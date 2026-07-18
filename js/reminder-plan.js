@@ -20,15 +20,42 @@ function addMonths(isoDate, months) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-01`;
 }
 
+function dayBefore(isoDate) {
+  const d = new Date(isoDate);
+  d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/** Griglia di finestre [windowStart, windowEnd] alla cadenza scelta, con la data di promemoria di ciascuna. */
+function buildCadenceSlots(period, cadence) {
+  const months = REMINDER_CADENCES[cadence]?.months ?? 1;
+  const windowStarts = [];
+  let cursor = `${period.startDate.slice(0, 7)}-01`;
+  const endMonth = period.endDate.slice(0, 7);
+  while (cursor.slice(0, 7) <= endMonth) {
+    windowStarts.push(cursor);
+    cursor = addMonths(cursor, months);
+  }
+  return windowStarts.map((windowStart, i) => {
+    const nextStart = windowStarts[i + 1];
+    return {
+      windowStart,
+      windowEnd: nextStart ? dayBefore(nextStart) : period.endDate,
+      reminderDate: monthEnd(windowStart)
+    };
+  });
+}
+
 /**
- * Rate residue da oggi a fine esercizio, alla cadenza scelta, per l'importo
- * ancora da versare (preventivo/consuntivo + conguaglio − già versato).
- * @returns {{ items: Array<{date:string, amount:number, index:number, count:number, causale:string, summary:string}>, totalRemaining: number, count: number, period: object|null, fullyPaid: boolean }}
+ * Rate residue da oggi (o dalla rata successiva all'ultimo versamento) a fine
+ * esercizio, alla cadenza scelta, per l'importo ancora da versare
+ * (preventivo/consuntivo + conguaglio − già versato).
+ * @returns {{ items: Array<{date:string, amount:number, index:number, count:number, causale:string, summary:string}>, totalRemaining: number, count: number, period: object|null, fullyPaid: boolean, lastPaymentDate: string|null, resumedAfterPayment: boolean }}
  */
 export function computeReminderPlan(house, fiscalPeriodId, { cadence = 'monthly', leadDays = 3 } = {}) {
   const period = house.fiscalPeriods.find(p => p.id === fiscalPeriodId);
   if (!period?.startDate || !period?.endDate) {
-    return { items: [], totalRemaining: 0, count: 0, period: null, fullyPaid: false };
+    return { items: [], totalRemaining: 0, count: 0, period: null, fullyPaid: false, lastPaymentDate: null, resumedAfterPayment: false };
   }
 
   const totalsRow = periodSummary(house).find(p => p.id === fiscalPeriodId) || null;
@@ -37,30 +64,35 @@ export function computeReminderPlan(house, fiscalPeriodId, { cadence = 'monthly'
   const remaining = Math.max(0, Math.round((totals.totaleDaVersare - totals.totaleVersato) * 100) / 100);
 
   if (remaining <= 0.01) {
-    return { items: [], totalRemaining: 0, count: 0, period, fullyPaid: true };
+    return { items: [], totalRemaining: 0, count: 0, period, fullyPaid: true, lastPaymentDate: null, resumedAfterPayment: false };
   }
 
-  const months = REMINDER_CADENCES[cadence]?.months ?? 1;
-  const slotDates = [];
-  let cursor = `${period.startDate.slice(0, 7)}-01`;
-  const endMonth = period.endDate.slice(0, 7);
-  while (cursor.slice(0, 7) <= endMonth) {
-    slotDates.push(monthEnd(cursor));
-    cursor = addMonths(cursor, months);
-  }
+  const slots = buildCadenceSlots(period, cadence);
 
-  // Se l'ultimo versamento registrato copre già date future (pagamento in
-  // anticipo), riparti dalla rata successiva invece che da oggi.
+  // Verifica a quale rata della griglia appartiene l'ultimo versamento
+  // registrato (non basta confrontare la data col "oggi": una rata pagata
+  // il 15 del mese va comunque considerata coperta, anche se la scadenza
+  // teorica di fine mese è successiva a oggi). Si riparte dalla rata
+  // successiva a quella coperta.
   const lastPaymentDate = (house.payments || [])
     .filter(p => String(p.fiscalPeriodId) === String(fiscalPeriodId))
     .reduce((max, p) => {
       const d = String(p.date || '').slice(0, 10);
       return d && (!max || d > max) ? d : max;
     }, null);
-  const paidAhead = Boolean(lastPaymentDate && lastPaymentDate >= today);
 
-  const future = slotDates.filter(d => (paidAhead ? d > lastPaymentDate : d >= today));
-  if (!future.length) future.push(paidAhead ? period.endDate : today);
+  const coveredIndex = lastPaymentDate
+    ? slots.findIndex(s => lastPaymentDate >= s.windowStart && lastPaymentDate <= s.windowEnd)
+    : -1;
+  const resumedAfterPayment = coveredIndex >= 0;
+
+  const futureSlots = resumedAfterPayment
+    ? slots.filter((s, idx) => idx > coveredIndex)
+    : slots.filter(s => s.reminderDate >= today);
+
+  const future = futureSlots.length
+    ? futureSlots.map(s => s.reminderDate)
+    : [resumedAfterPayment ? period.endDate : today];
 
   const n = future.length;
   const base = Math.floor((remaining * 100) / n) / 100;
@@ -81,5 +113,5 @@ export function computeReminderPlan(house, fiscalPeriodId, { cadence = 'monthly'
     };
   });
 
-  return { items, totalRemaining: remaining, count: n, period, fullyPaid: false, paidAhead, lastPaymentDate };
+  return { items, totalRemaining: remaining, count: n, period, fullyPaid: false, lastPaymentDate, resumedAfterPayment };
 }

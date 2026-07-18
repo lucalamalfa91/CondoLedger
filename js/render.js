@@ -1644,7 +1644,6 @@ export function collectDom() {
     calendarLeadDays: document.getElementById('calendarLeadDays'),
     calendarWizardPreviewSummary: document.getElementById('calendarWizardPreviewSummary'),
     calendarWizardPreviewTable: document.getElementById('calendarWizardPreviewTable'),
-    calendarWizardWebcalLink: document.getElementById('calendarWizardWebcalLink'),
     calendarWizardHttpsLink: document.getElementById('calendarWizardHttpsLink'),
     calendarWizardCopyLink: document.getElementById('calendarWizardCopyLink'),
     calendarWizardError: document.getElementById('calendarWizardError'),

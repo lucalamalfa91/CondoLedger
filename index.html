@@ -612,21 +612,19 @@
 
       <div class="calendar-wizard-step" data-wizard-step="collega">
         <h2>Collega il tuo calendario</h2>
-        <p class="subtle">Sottoscrivi il link: Apple e Google ricontrollano da soli le rate, senza bisogno di reimportare.</p>
+        <p class="subtle">Copia il link e incollalo nell'app calendario: Apple e Google lo ricontrollano da soli, senza bisogno di reimportare.</p>
         <div class="stack">
           <div>
-            <label>Apple Calendar</label>
-            <div class="calendar-link-row">
-              <a id="calendarWizardWebcalLink" class="btn btn-secondary" href="#">Sottoscrivi su Apple Calendar</a>
-            </div>
-          </div>
-          <div>
-            <label for="calendarWizardHttpsLink">Google Calendar / Gmail</label>
-            <p class="hint">Apri Google Calendar → "Altri calendari" → "Da URL" e incolla questo link:</p>
+            <label for="calendarWizardHttpsLink">Link di sottoscrizione</label>
             <div class="calendar-link-row">
               <input type="text" id="calendarWizardHttpsLink" readonly />
               <button class="btn btn-secondary" type="button" id="calendarWizardCopyLink">Copia link</button>
             </div>
+          </div>
+          <div>
+            <p class="hint"><strong>Apple Calendar (iPhone/iPad):</strong> app Impostazioni → Calendario → Account → Aggiungi Account → Altro → Aggiungi calendario in abbonamento, incolla il link.</p>
+            <p class="hint"><strong>Apple Calendar (Mac):</strong> app Calendario → File → Nuovo abbonamento calendario, incolla il link.</p>
+            <p class="hint"><strong>Google Calendar / Gmail:</strong> calendar.google.com → "Altri calendari" (+) → "Da URL", incolla il link.</p>
           </div>
         </div>
       </div>

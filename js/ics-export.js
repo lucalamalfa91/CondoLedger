@@ -1,6 +1,4 @@
-import type { ReminderItem } from './plan.ts';
-
-function icsEscape(text: string): string {
+function icsEscape(text) {
   return String(text)
     .replace(/\\/g, '\\\\')
     .replace(/;/g, '\\;')
@@ -9,10 +7,10 @@ function icsEscape(text: string): string {
 }
 
 /** Piega le righe > 75 ottetti come richiesto da RFC 5545 (continuazione con CRLF + spazio). */
-function foldLine(line: string): string {
+function foldLine(line) {
   const enc = new TextEncoder();
   if (enc.encode(line).length <= 75) return line;
-  const chunks: string[] = [];
+  const chunks = [];
   let current = '';
   let byteLen = 0;
   for (const ch of line) {
@@ -29,41 +27,34 @@ function foldLine(line: string): string {
   return chunks.join('\r\n ');
 }
 
-function dtstampNow(): string {
+function dtstampNow() {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 }
 
-function dtDate(iso: string): string {
+function dtDate(iso) {
   return iso.replace(/-/g, '');
 }
 
-export function buildCalendarFeed(
-  houseId: number,
-  periodId: number | string,
-  houseName: string,
-  items: ReminderItem[],
-  leadDays: number
-): string {
+/** File .ics (VCALENDAR) con le rate residue del piano promemoria, pronto per import diretto. */
+export function buildIcsCalendar(house, plan, leadDays) {
   const dtstamp = dtstampNow();
-  const lines: string[] = [
+  const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//CondoLedger//Rate Condominiali//IT',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    foldLine(`X-WR-CALNAME:${icsEscape(`Rate condominio - ${houseName}`)}`),
-    'X-PUBLISHED-TTL:PT24H',
-    'REFRESH-INTERVAL;VALUE=DURATION:PT24H'
+    foldLine(`X-WR-CALNAME:${icsEscape(`Rate condominio - ${house.name}`)}`)
   ];
 
-  for (const item of items) {
-    const uid = `condoledger-${houseId}-${periodId}-${dtDate(item.date)}@condoledger.app`;
+  for (const item of plan.items) {
+    const uid = `condoledger-${house.id}-${plan.period?.id ?? 'none'}-${dtDate(item.date)}@condoledger.app`;
     lines.push('BEGIN:VEVENT');
     lines.push(`UID:${uid}`);
     lines.push(`DTSTAMP:${dtstamp}`);
     lines.push(`DTSTART;VALUE=DATE:${dtDate(item.date)}`);
     lines.push(foldLine(`SUMMARY:${icsEscape(item.summary)}`));
-    lines.push(foldLine(`DESCRIPTION:${icsEscape(item.description)}`));
+    lines.push(foldLine(`DESCRIPTION:${icsEscape(item.causale)}`));
     if (leadDays > 0) {
       lines.push('BEGIN:VALARM');
       lines.push('ACTION:DISPLAY');
@@ -76,4 +67,16 @@ export function buildCalendarFeed(
 
   lines.push('END:VCALENDAR');
   return lines.join('\r\n') + '\r\n';
+}
+
+export function downloadIcsFile(filename, content) {
+  const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }

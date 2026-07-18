@@ -1,6 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
-  calendarFeedUrls,
   createLocalDue,
   createLocalPayment,
   createSupabaseClient,
@@ -15,7 +14,6 @@ import {
   ensureFiscalPeriodByLabel,
   linkBankMovement,
   loadFromSupabase,
-  regenerateCalendarFeedToken,
   reloadHouseFromSupabase,
   saveBankImport,
   saveDueToSupabase,
@@ -35,6 +33,7 @@ import { findInstallmentForDate } from './installments.js';
 import { exportSituazionePdf } from './pdf-situazione.js';
 import { getPreviousPeriod } from './fiscal.js';
 import { computeReminderPlan, REMINDER_CADENCES } from './reminder-plan.js';
+import { buildIcsCalendar, downloadIcsFile } from './ics-export.js';
 import { applyAutoFilterToPreview, mergeExtractions } from './document-import-match.js';
 import { applyResocontoToPreview, buildResoconto, ensureResoconto } from './document-import-resoconto.js';
 import { buildDuesFromPreview, initPreviewFromExtraction } from './document-import-map.js';
@@ -1040,7 +1039,7 @@ onboardingNext?.addEventListener('click', async () => {
   showOnboardingStep();
 });
 
-const CALENDAR_WIZARD_STEPS = ['cadenza', 'preavviso', 'anteprima', 'collega'];
+const CALENDAR_WIZARD_STEPS = ['cadenza', 'preavviso', 'anteprima', 'scarica'];
 let calendarWizardStep = 0;
 
 function activeFiscalPeriodId(house) {
@@ -1084,10 +1083,16 @@ function renderCalendarWizardPreview() {
   els.calendarWizardPreviewTable.innerHTML = reminderPlanTableHtml(plan);
 }
 
-function renderCalendarWizardLinks() {
-  const house = activeHouse();
-  const urls = house ? calendarFeedUrls(house) : null;
-  if (els.calendarWizardHttpsLink) els.calendarWizardHttpsLink.value = urls?.https || '';
+function downloadCalendarIcs(house, cadence, leadDays) {
+  const periodId = activeFiscalPeriodId(house);
+  const plan = periodId ? computeReminderPlan(house, periodId, { cadence, leadDays }) : { items: [], period: null, fullyPaid: false };
+  if (!plan.period || plan.fullyPaid || !plan.items.length) {
+    toastError('Nessuna rata residua da esportare per questa casa.');
+    return;
+  }
+  const ics = buildIcsCalendar(house, plan, leadDays);
+  downloadIcsFile(`rate-${house.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ics`, ics);
+  showToast('File calendario scaricato.');
 }
 
 function showCalendarWizardStep() {
@@ -1099,10 +1104,9 @@ function showCalendarWizardStep() {
     panel.classList.toggle('active', panel.dataset.wizardStep === stepKey);
   });
   els.calendarWizardBack?.classList.toggle('hidden', calendarWizardStep === 0);
-  if (els.calendarWizardNext) els.calendarWizardNext.textContent = stepKey === 'collega' ? 'Salva' : 'Avanti';
+  if (els.calendarWizardNext) els.calendarWizardNext.textContent = stepKey === 'scarica' ? 'Fine' : 'Avanti';
   els.calendarWizardError?.classList.add('hidden');
   if (stepKey === 'anteprima') renderCalendarWizardPreview();
-  if (stepKey === 'collega') renderCalendarWizardLinks();
 }
 
 function openCalendarWizard() {
@@ -1124,11 +1128,9 @@ async function saveCalendarWizard() {
   try {
     await updateCalendarSettings(house, {
       cadence: currentCalendarCadence(),
-      leadDays: currentCalendarLeadDays(),
-      enabled: true
+      leadDays: currentCalendarLeadDays()
     });
     renderCalendarSettingsView();
-    showToast('Calendario configurato.');
     els.calendarWizardDialog?.close();
   } catch (err) {
     if (els.calendarWizardError) {
@@ -1144,17 +1146,10 @@ function renderCalendarSettingsView() {
   if (!house) {
     els.calendarFeedStatus.innerHTML = '';
     els.calendarFeedPreview.innerHTML = '';
-    els.regenerateCalendarTokenBtn?.classList.add('hidden');
     return;
   }
   const cadenceLabel = REMINDER_CADENCES[house.calendarReminderCadence]?.label || 'Mensile';
-  if (house.calendarFeedEnabled) {
-    els.calendarFeedStatus.innerHTML = `<div class="metric-label">Calendario collegato</div><div class="metric-value" style="font-size:1.1rem;">${cadenceLabel} · preavviso ${house.calendarReminderLeadDays ?? 3} giorni</div>`;
-    els.regenerateCalendarTokenBtn?.classList.remove('hidden');
-  } else {
-    els.calendarFeedStatus.innerHTML = '<div class="metric-label">Calendario non collegato</div><div class="metric-value" style="font-size:1.1rem;">Configura per ricevere i promemoria rate</div>';
-    els.regenerateCalendarTokenBtn?.classList.add('hidden');
-  }
+  els.calendarFeedStatus.innerHTML = `<div class="metric-label">Cadenza rate</div><div class="metric-value" style="font-size:1.1rem;">${cadenceLabel} · preavviso ${house.calendarReminderLeadDays ?? 3} giorni</div>`;
   const periodId = activeFiscalPeriodId(house);
   const plan = periodId
     ? computeReminderPlan(house, periodId, {
@@ -1182,31 +1177,15 @@ els.calendarWizardNext?.addEventListener('click', () => {
     saveCalendarWizard();
   }
 });
-els.calendarWizardCopyLink?.addEventListener('click', async () => {
-  const value = els.calendarWizardHttpsLink?.value;
-  if (!value) return;
-  try {
-    await navigator.clipboard.writeText(value);
-    showToast('Link copiato.');
-  } catch {
-    toastError('Copia non riuscita: seleziona e copia manualmente il link.');
-  }
-});
-els.regenerateCalendarTokenBtn?.addEventListener('click', async () => {
+els.calendarWizardDownloadBtn?.addEventListener('click', () => {
   const house = ensureHouse();
   if (!house) return;
-  if (!await confirmDialog('Rigenerare il link? Gli abbonamenti calendario già collegati con il link precedente smetteranno di aggiornarsi.', {
-    title: 'Rigenera link calendario',
-    confirmLabel: 'Rigenera',
-    danger: true
-  })) return;
-  try {
-    await regenerateCalendarFeedToken(house);
-    renderCalendarSettingsView();
-    showToast('Link rigenerato.');
-  } catch (err) {
-    toastError(err.message || 'Errore rigenerazione link');
-  }
+  downloadCalendarIcs(house, currentCalendarCadence(), currentCalendarLeadDays());
+});
+els.downloadCalendarIcsBtn?.addEventListener('click', () => {
+  const house = ensureHouse();
+  if (!house) return;
+  downloadCalendarIcs(house, house.calendarReminderCadence || 'monthly', house.calendarReminderLeadDays ?? 3);
 });
 
 els.periodFilter.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });

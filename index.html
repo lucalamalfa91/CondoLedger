@@ -465,13 +465,13 @@
           <div class="stack-single">
             <div class="card stack">
               <div class="panel-head">
-                <div><h2>Promemoria rate su calendario</h2><p class="subtle">Un link di sottoscrizione con le rate residue: Apple e Google Calendar lo ricontrollano da soli quando cambiano importi o versamenti, senza bisogno di reimportare nulla.</p></div>
+                <div><h2>Promemoria rate su calendario</h2><p class="subtle">Scarica un file .ics con le rate residue e un promemoria automatico (1, 3 o 5 giorni prima): aprilo per aggiungerle ad Apple Calendar, oppure importalo su Google Calendar. Se cambiano le rate, riscarica e reimporta.</p></div>
               </div>
               <div id="calendarFeedStatus" class="mini-card"></div>
               <div class="data-table-wrap" id="calendarFeedPreview"></div>
               <div class="form-actions">
-                <button class="btn btn-primary" type="button" id="openCalendarWizardBtn">Configura calendario</button>
-                <button class="btn btn-secondary hidden" type="button" id="regenerateCalendarTokenBtn">Rigenera link</button>
+                <button class="btn btn-secondary" type="button" id="openCalendarWizardBtn">Cambia cadenza/preavviso</button>
+                <button class="btn btn-primary" type="button" id="downloadCalendarIcsBtn">Scarica file calendario (.ics)</button>
               </div>
             </div>
           </div>
@@ -580,7 +580,7 @@
         <li class="import-step" data-step="cadenza"><span>1</span> Cadenza</li>
         <li class="import-step" data-step="preavviso"><span>2</span> Preavviso</li>
         <li class="import-step" data-step="anteprima"><span>3</span> Anteprima</li>
-        <li class="import-step" data-step="collega"><span>4</span> Collega</li>
+        <li class="import-step" data-step="scarica"><span>4</span> Scarica</li>
       </ol>
 
       <div class="calendar-wizard-step" data-wizard-step="cadenza">
@@ -600,7 +600,7 @@
         <select id="calendarLeadDays">
           <option value="1">1 giorno prima</option>
           <option value="3" selected>3 giorni prima</option>
-          <option value="7">7 giorni prima</option>
+          <option value="5">5 giorni prima</option>
         </select>
       </div>
 
@@ -610,23 +610,13 @@
         <div class="data-table-wrap" id="calendarWizardPreviewTable"></div>
       </div>
 
-      <div class="calendar-wizard-step" data-wizard-step="collega">
-        <h2>Collega il tuo calendario</h2>
-        <p class="subtle">Copia il link e incollalo nell'app calendario: Apple e Google lo ricontrollano da soli, senza bisogno di reimportare.</p>
-        <div class="stack">
-          <div>
-            <label for="calendarWizardHttpsLink">Link di sottoscrizione</label>
-            <div class="calendar-link-row">
-              <input type="text" id="calendarWizardHttpsLink" readonly />
-              <button class="btn btn-secondary" type="button" id="calendarWizardCopyLink">Copia link</button>
-            </div>
-          </div>
-          <div>
-            <p class="hint"><strong>Apple Calendar (iPhone/iPad):</strong> app Impostazioni → Calendario → Account → Aggiungi Account → Altro → Aggiungi calendario in abbonamento, incolla il link.</p>
-            <p class="hint"><strong>Apple Calendar (Mac):</strong> app Calendario → File → Nuovo abbonamento calendario, incolla il link.</p>
-            <p class="hint"><strong>Google Calendar / Gmail:</strong> calendar.google.com → "Altri calendari" (+) → "Da URL", incolla il link.</p>
-          </div>
+      <div class="calendar-wizard-step" data-wizard-step="scarica">
+        <h2>Scarica il file calendario</h2>
+        <p class="subtle">Il file .ics contiene le rate residue con il promemoria impostato. Aprilo per aggiungerle ad Apple Calendar, oppure importalo su Google Calendar da calendar.google.com → Impostazioni → Importa e esporta.</p>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="button" id="calendarWizardDownloadBtn">Scarica file calendario (.ics)</button>
         </div>
+        <p class="hint">Se cambiano le rate (nuovo conguaglio, nuovo versamento), riapri questo wizard e riscarica il file: andrà reimportato per aggiornare gli eventi.</p>
       </div>
 
       <div id="calendarWizardError" class="login-error hidden" role="alert"></div>

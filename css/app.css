@@ -525,8 +525,6 @@
     .calendar-wizard-step { display:none; }
     .calendar-wizard-step.active { display:block; animation: fadeIn .2s ease; }
     .radio-option { display:flex; align-items:center; gap:.5rem; font-weight:500; }
-    .calendar-link-row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
-    .calendar-link-row input[type="text"] { flex:1; min-width:12rem; }
 
     .payment-guide-panel:empty { display:none; }
     .payment-guide-panel .guide-card { padding:var(--space-4); border-radius:var(--radius-lg); border:1px solid color-mix(in srgb, var(--color-primary) 25%, transparent); background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); }

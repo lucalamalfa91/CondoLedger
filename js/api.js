@@ -145,45 +145,19 @@ export async function saveHouseToSupabase(house) {
   }
 }
 
-export async function updateCalendarSettings(house, { cadence, leadDays, enabled }) {
+export async function updateCalendarSettings(house, { cadence, leadDays }) {
   const user = await ensureAuthenticated();
   if (!user) throw new Error('Devi essere connesso per salvare le impostazioni calendario');
   const numericId = Number(house.id);
   if (!Number.isFinite(numericId)) throw new Error('Salva prima la casa');
   const payload = {
     calendar_reminder_cadence: cadence,
-    calendar_reminder_lead_days: leadDays,
-    calendar_feed_enabled: enabled
+    calendar_reminder_lead_days: leadDays
   };
-  const { data, error } = await state.supabase
-    .from('houses')
-    .update(payload)
-    .eq('id', numericId)
-    .select('calendar_feed_token')
-    .single();
+  const { error } = await state.supabase.from('houses').update(payload).eq('id', numericId);
   if (error) throw error;
   house.calendarReminderCadence = cadence;
   house.calendarReminderLeadDays = leadDays;
-  house.calendarFeedEnabled = enabled;
-  if (data?.calendar_feed_token) house.calendarFeedToken = data.calendar_feed_token;
-}
-
-export async function regenerateCalendarFeedToken(house) {
-  const user = await ensureAuthenticated();
-  if (!user) throw new Error('Devi essere connesso per rigenerare il link');
-  const numericId = Number(house.id);
-  if (!Number.isFinite(numericId)) throw new Error('Salva prima la casa');
-  const newToken = crypto.randomUUID();
-  const { error } = await state.supabase.from('houses').update({ calendar_feed_token: newToken }).eq('id', numericId);
-  if (error) throw error;
-  house.calendarFeedToken = newToken;
-  return newToken;
-}
-
-export function calendarFeedUrls(house) {
-  if (!house?.calendarFeedToken || !Number.isFinite(Number(house.id))) return null;
-  const base = `${DEFAULT_SUPABASE_URL}/functions/v1/calendar-feed?house=${Number(house.id)}&token=${house.calendarFeedToken}`;
-  return { https: base };
 }
 
 export async function ensureFiscalPeriodBySpec(house, spec) {

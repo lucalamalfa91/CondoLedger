@@ -69,14 +69,29 @@ export function buildIcsCalendar(house, plan, leadDays) {
   return lines.join('\r\n') + '\r\n';
 }
 
+function isIosDevice() {
+  const ua = navigator.userAgent || '';
+  return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
 export function downloadIcsFile(filename, content) {
   const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename;
+  // Su iOS un download forzato (attributo "download") salva sempre il file
+  // in Download/File senza offrire "Aggiungi a Calendario"; aprendo invece
+  // l'URL direttamente, iOS riconosce il tipo text/calendar e propone
+  // l'import nativo. Su desktop/Android il download resta il flusso corretto
+  // (l'utente importa il file manualmente su Google Calendar).
+  if (isIosDevice()) {
+    a.target = '_blank';
+    a.rel = 'noopener';
+  } else {
+    a.download = filename;
+  }
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 }

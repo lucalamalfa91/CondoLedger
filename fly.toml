@@ -1,0 +1,42 @@
+# Configurazione Fly.io. Rinomina `app` con il nome scelto prima del primo deploy.
+#
+# Prima volta:
+#   fly launch --no-deploy --copy-config
+#   fly volumes create condoledger_data --size 1 --region cdg
+#   fly deploy
+#   fly ssh console -C "node scripts/create-user.mjs tua@email.it"
+
+app = "condoledger"
+primary_region = "cdg"
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8080"
+  DB_PATH = "/data/condoledger.db"
+  COOKIE_SECURE = "true"
+
+# SQLite è un file: senza volume persistente il database sparisce a ogni deploy.
+[mounts]
+  source = "condoledger_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_start_machines = true
+  # La macchina non va spenta: è quella che tiene il volume.
+  auto_stop_machines = "off"
+  # IMPORTANTE: mai più di una istanza. Il volume è agganciato a una sola macchina e
+  # SQLite ammette un solo scrittore. Per un'app familiare non è un limite reale.
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -494,7 +494,7 @@ async function handleBankFile(file) {
   const house = ensureHouse();
   if (!house) return;
   if (!Number.isFinite(Number(house.id))) {
-    toastError('Salva prima la casa su Supabase.');
+    toastError('Salva prima la casa.');
     return;
   }
   try {
@@ -556,13 +556,13 @@ async function importJson(file) {
     try {
       const parsed = parseBackup(JSON.parse(String(e.target.result || '{}')));
       if (state.user) {
-        if (!await confirmDialog('Importare il backup su Supabase? Le case verranno aggiunte al tuo account.', { title: 'Import backup' })) return;
+        if (!await confirmDialog('Importare il backup? Le case verranno aggiunte al tuo account.', { title: 'Import backup' })) return;
         await syncBackupToSupabase(parsed);
         render();
-        showToast('Backup importato su Supabase.');
+        showToast('Backup importato.');
         return;
       }
-      toastError('Accedi per importare il backup su Supabase.');
+      toastError('Accedi per importare il backup.');
     } catch (err) {
       toastError(err.message || 'File JSON non valido.');
     }
@@ -647,7 +647,7 @@ els.housesManageList?.addEventListener('click', e => {
 });
 els.exportBtn?.addEventListener('click', exportJson);
 els.importFile?.addEventListener('change', e => importJson(e.target.files[0]));
-els.demoBtn?.addEventListener('click', () => toastError('Demo locale disabilitata con fiscalità Supabase.'));
+els.demoBtn?.addEventListener('click', () => toastError('Demo locale non disponibile.'));
 els.openHouseDrawerBtn?.addEventListener('click', openHouseDrawer);
 els.houseDrawerClose?.addEventListener('click', closeHouseDrawer);
 els.houseDrawerBackdrop?.addEventListener('click', closeHouseDrawer);

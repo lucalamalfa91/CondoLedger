@@ -1,0 +1,19 @@
+# Materiale di lavoro che non deve finire nell'immagine: pesa e, nel caso di .env,
+# conterrebbe segreti.
+.git
+.github
+node_modules
+data
+.env
+.env.local
+*.db
+*.db-wal
+*.db-shm
+
+Sessions
+council
+Docs
+design_bundle
+design_raw.json
+.claude
+README.md

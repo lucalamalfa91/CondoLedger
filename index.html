@@ -79,7 +79,7 @@
         <button class="btn btn-primary" type="submit" id="recoverySubmitBtn">Salva nuova password</button>
       </form>
       <div class="login-footer">
-        <span class="muted">Link di recupero inviato da Supabase.</span>
+        <span class="muted">Se hai perso la password, chiedi la reimpostazione a chi amministra il server.</span>
         <button class="icon-btn" id="recoveryThemeToggle" aria-label="Cambia tema"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
       </div>
     </div>
@@ -144,7 +144,7 @@
             <p class="muted" id="currentHouseMeta">Aggiungi un immobile dal pulsante accanto al menu o da Impostazioni.</p>
           </div>
           <div class="toolbar hero-toolbar">
-            <button class="btn btn-primary" type="button" data-nav-target="importa" data-nav-subview="import-doc">Importa documento</button>
+            <button class="btn btn-primary" type="button" data-nav-target="importa" data-nav-subview="import-banca">Importa estratto conto</button>
             <button class="btn btn-secondary" type="button" data-nav-target="registra" data-nav-subview="dovuti">+ Dovuto</button>
             <button class="btn btn-secondary" type="button" data-nav-target="registra" data-nav-subview="versamenti">+ Versamento</button>
           </div>
@@ -312,58 +312,9 @@
 
       <section class="view" data-view-panel="importa">
         <nav class="sub-nav" role="tablist" aria-label="Sezioni importa">
-          <button class="sub-nav-btn active" type="button" role="tab" data-view="importa" data-subview="import-doc" aria-selected="true">Da documento</button>
-          <button class="sub-nav-btn" type="button" role="tab" data-view="importa" data-subview="import-banca" aria-selected="false">Da banca</button>
+          <button class="sub-nav-btn active" type="button" role="tab" data-view="importa" data-subview="import-banca" aria-selected="true">Da banca</button>
         </nav>
-        <div class="subview active" data-subview-panel="import-doc" role="tabpanel">
-          <section class="card stack data-panel document-import-panel" id="documentImportPanel">
-            <ol class="import-stepper" id="documentImportStepper" aria-label="Passaggi import">
-              <li class="import-step" data-step="upload"><span>1</span> Carica file</li>
-              <li class="import-step" data-step="resoconto"><span>2</span> Resoconto</li>
-              <li class="import-step" data-step="review"><span>3</span> Dettaglio</li>
-              <li class="import-step" data-step="confirm"><span>4</span> Conferma</li>
-            </ol>
-            <div class="panel-head">
-              <div>
-                <h2>Importa documento amministratore</h2>
-                <p class="subtle">Preventivo o consuntivo in PDF, DOCX o foto (anche più pagine). L&apos;AI estrae i dati: confermi in anteprima prima del salvataggio.</p>
-              </div>
-            </div>
-            <div class="document-import-toolbar field-grid">
-              <div>
-                <label class="btn btn-secondary" for="documentImportFile" tabindex="0" role="button">Carica documento</label>
-                <input class="file-input" id="documentImportFile" type="file" accept=".pdf,.docx,image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple />
-                <p class="hint">PDF, DOCX o immagini JPEG/PNG (max 30 MB totali). Per le scansioni seleziona tutte le pagine insieme.</p>
-              </div>
-              <div class="form-actions">
-                <button class="btn btn-primary" id="documentImportConfirm" type="button" disabled>Conferma import</button>
-                <button class="btn btn-secondary" id="documentImportManual" type="button">Inserisci manualmente</button>
-                <button class="btn btn-secondary hidden" id="documentImportCancel" type="button">Annulla anteprima</button>
-                <button class="btn btn-secondary hidden" id="documentImportRetry" type="button">Riprova estrazione</button>
-              </div>
-            </div>
-            <dialog id="documentImportDupDialog" class="document-import-dup-dialog">
-              <form method="dialog" class="stack">
-                <h3>Documento già importato</h3>
-                <p id="documentImportDupMsg" class="subtle"></p>
-                <div class="form-actions">
-                  <button class="btn btn-primary" id="documentImportDupAdd" type="button" value="add">Aggiungi nuovo dovuto</button>
-                  <button class="btn btn-secondary" id="documentImportDupReplace" type="button" value="replace">Sostituisci import precedente</button>
-                  <button class="btn btn-secondary" id="documentImportDupCancel" type="button" value="cancel">Annulla</button>
-                </div>
-              </form>
-            </dialog>
-            <div id="documentImportStatus" class="document-import-status muted" aria-live="polite"></div>
-            <div id="documentImportLoader" class="document-import-loader hidden" role="status" aria-live="polite" aria-busy="false">
-              <div class="loader-spinner" aria-hidden="true"></div>
-              <p class="loader-title">Elaborazione documento con AI…</p>
-              <p class="loader-hint">Estrazione da PDF o JPEG in corso. Può richiedere fino a un minuto.</p>
-              <p id="documentImportLoaderFile" class="loader-file hint"></p>
-            </div>
-            <div class="data-table-wrap" id="documentImportPreview"></div>
-          </section>
-        </div>
-        <div class="subview" data-subview-panel="import-banca" role="tabpanel">
+        <div class="subview active" data-subview-panel="import-banca" role="tabpanel">
           <section class="card stack data-panel">
             <div class="split-layout">
               <div class="split-form-pane stack">
@@ -484,7 +435,7 @@
               <input class="file-input" id="importFileAdv" type="file" accept="application/json" />
               <button class="btn btn-secondary" id="exportBtnAdv" type="button">Esporta JSON</button>
             </div>
-            <p class="muted">Il backup non sostituisce la sincronizzazione Supabase in uso quotidiano. Per consultare tutti i movimenti vai su Situazione → Registro dettagliato.</p>
+            <p class="muted">Il backup non sostituisce il salvataggio automatico in uso quotidiano. Per consultare tutti i movimenti vai su Situazione → Registro dettagliato.</p>
           </div>
         </div>
         <div class="subview" data-subview-panel="account" role="tabpanel">
@@ -530,7 +481,7 @@
     <div class="sheet hidden" id="quickAddSheet" role="dialog" aria-labelledby="quickAddTitle">
       <div class="sheet-head"><h2 id="quickAddTitle">Aggiungi</h2><button class="icon-btn sheet-close" id="quickAddClose" type="button" aria-label="Chiudi">×</button></div>
       <div class="sheet-body stack">
-        <button class="btn btn-primary" type="button" data-nav-target="importa" data-nav-subview="import-doc" data-close-sheet="true">Importa documento</button>
+        <button class="btn btn-primary" type="button" data-nav-target="importa" data-nav-subview="import-banca" data-close-sheet="true">Importa estratto conto</button>
         <button class="btn btn-secondary" type="button" data-nav-target="registra" data-nav-subview="versamenti" data-close-sheet="true">Nuovo versamento</button>
         <button class="btn btn-secondary" type="button" data-nav-target="registra" data-nav-subview="dovuti" data-close-sheet="true">Nuovo dovuto</button>
       </div>

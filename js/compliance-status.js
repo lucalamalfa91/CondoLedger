@@ -23,10 +23,10 @@ export function computeComplianceStatus(house) {
       level: 'vuoto',
       headline: 'Inizia da qui',
       subline: 'Non hai ancora dati per questo immobile.',
-      detail: 'Importa il preventivo dall’amministratore o registra il primo dovuto.',
+      detail: 'Registra il preventivo dell’amministratore come primo dovuto.',
       facts: [],
-      primaryCta: { label: 'Importa documento', view: 'importa', subview: 'import-doc' },
-      secondaryCta: { label: 'Aggiungi dovuto', view: 'registra', subview: 'dovuti' }
+      primaryCta: { label: 'Aggiungi dovuto', view: 'registra', subview: 'dovuti' },
+      secondaryCta: { label: 'Importa estratto conto', view: 'importa', subview: 'import-banca' }
     };
   }
 
@@ -38,8 +38,8 @@ export function computeComplianceStatus(house) {
       subline: 'Registra un preventivo o consuntivo per l’esercizio corrente.',
       detail: '',
       facts: [],
-      primaryCta: { label: 'Importa documento', view: 'importa', subview: 'import-doc' },
-      secondaryCta: { label: 'Nuovo dovuto', view: 'registra', subview: 'dovuti' }
+      primaryCta: { label: 'Nuovo dovuto', view: 'registra', subview: 'dovuti' },
+      secondaryCta: { label: 'Importa estratto conto', view: 'importa', subview: 'import-banca' }
     };
   }
 
@@ -107,9 +107,9 @@ export function computeComplianceStatus(house) {
       level: 'attenzione',
       headline: 'Consuntivo mancante',
       subline: `Hai il preventivo per ${period.label}, ma non il consuntivo.`,
-      detail: 'Importa il consuntivo quando l’amministratore lo pubblica.',
+      detail: 'Registra il consuntivo quando l’amministratore lo pubblica.',
       facts,
-      primaryCta: { label: 'Importa consuntivo', view: 'importa', subview: 'import-doc' },
+      primaryCta: { label: 'Registra consuntivo', view: 'registra', subview: 'dovuti' },
       secondaryCta: { label: 'Situazione', view: 'situazione', subview: 'rendiconto', situazionePeriod: period.id }
     };
   }
@@ -138,7 +138,7 @@ export function computeComplianceStatus(house) {
       detail: `Consuntivo e rate dell’esercizio ${period.label} sono sotto controllo.`,
       facts,
       primaryCta: { label: 'Registra versamento', view: 'registra', subview: 'versamenti' },
-      secondaryCta: { label: 'Importa documento', view: 'importa', subview: 'import-doc' }
+      secondaryCta: { label: 'Importa estratto conto', view: 'importa', subview: 'import-banca' }
     };
   }
 

@@ -1,4 +1,3 @@
-import { ensureResoconto, resocontoHtml } from './document-import-resoconto.js';
 import { partyDisplayName } from './house-import-parties.js';
 import { resolveView, viewHeading, viewMeta } from './config.js';
 import { hasCarryDueTargetingPeriod } from './carryover.js';
@@ -928,17 +927,6 @@ export function createRenderer(els) {
       </div>`;
   }
 
-  function updateDocumentImportStepper(phase) {
-    const steps = document.querySelectorAll('#documentImportStepper .import-step');
-    const order = ['upload', 'resoconto', 'review', 'confirm'];
-    const idx = order.indexOf(phase);
-    steps.forEach(li => {
-      const i = order.indexOf(li.dataset.step);
-      li.classList.toggle('active', li.dataset.step === phase);
-      li.classList.toggle('done', i >= 0 && i < idx);
-    });
-  }
-
   function renderMovements(house) {
     const items = [
       ...house.dues.map(item => ({ ...item, type: 'Dovuto', detail: item.description, kind: 'due' })),
@@ -1018,269 +1006,6 @@ export function createRenderer(els) {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
-  }
-
-  function renderDocumentImportLoader(busy) {
-    const panel = els.documentImportPanel;
-    const loader = els.documentImportLoader;
-    if (loader) {
-      loader.classList.toggle('hidden', !busy);
-      loader.setAttribute('aria-busy', busy ? 'true' : 'false');
-    }
-    panel?.classList.toggle('is-loading', busy);
-    if (els.documentImportFile) els.documentImportFile.disabled = busy;
-    const uploadLabel = panel?.querySelector('label[for="documentImportFile"]');
-    uploadLabel?.classList.toggle('is-disabled', busy);
-    if (els.documentImportManual) els.documentImportManual.disabled = busy;
-    if (els.documentImportRetry) els.documentImportRetry.disabled = busy;
-    if (els.documentImportLoaderFile && busy) {
-      const names = (state.documentImportLastFiles || []).map(f => f.name).filter(Boolean);
-      els.documentImportLoaderFile.textContent = names.length
-        ? `File: ${names.join(', ')}`
-        : '';
-    } else if (els.documentImportLoaderFile) {
-      els.documentImportLoaderFile.textContent = '';
-    }
-  }
-
-  function renderDocumentImportPreview(house) {
-    if (!els.documentImportPreview) return;
-    const preview = state.documentImportPreview;
-    const busy = state.documentImportBusy;
-    renderDocumentImportLoader(busy);
-    const needsResoconto = preview?.filterMode === 'auto' && !preview.resocontoConfirmed;
-    if (els.documentImportConfirm) {
-      els.documentImportConfirm.disabled = !preview || busy || needsResoconto;
-      els.documentImportConfirm.textContent = needsResoconto ? 'Conferma import (dopo resoconto)' : 'Conferma import';
-    }
-    if (els.documentImportCancel) els.documentImportCancel.classList.toggle('hidden', !preview);
-    if (els.documentImportRetry) {
-      els.documentImportRetry.classList.toggle('hidden', !state.documentImportLastFiles?.length);
-    }
-    if (els.documentImportStatus) {
-      els.documentImportStatus.textContent = busy
-        ? (state.documentImportProgressText || 'Elaborazione documento in corso…')
-        : preview
-          ? preview.filterMode === 'auto'
-            ? `Anteprima: ${preview.sourceLabel}. Verifica il resoconto e conferma.`
-            : `Anteprima: ${preview.sourceLabel}. Seleziona la riga che ti riguarda e conferma.`
-          : '';
-    }
-    if (busy) updateDocumentImportStepper('upload');
-    else if (!preview) updateDocumentImportStepper('upload');
-    else if (preview.filterMode === 'auto' && !preview.resocontoConfirmed) updateDocumentImportStepper('resoconto');
-    else if (preview && els.documentImportConfirm && !els.documentImportConfirm.disabled) updateDocumentImportStepper('confirm');
-    else updateDocumentImportStepper('review');
-
-    if (!preview) {
-      if (!busy) {
-        els.documentImportPreview.innerHTML =
-          '<div class="empty">Carica un preventivo o consuntivo (PDF, DOCX o foto). Dopo l\'estrazione scegli la tua riga nella tabella.</div>';
-      } else {
-        els.documentImportPreview.innerHTML = '';
-      }
-      return;
-    }
-    const ext = preview.extraction;
-    ensureResoconto(preview, house);
-    const fyConf = ext.fieldConfidence?.fiscalYearLabel;
-    const fyLow = fyConf != null && fyConf < 0.7;
-    let html = `<div class="document-import-review stack">`;
-
-    if (preview.autoFilterFailed) {
-      const allLabels = Object.values(preview.matchMeta || {})
-        .flatMap(m => m.extractedLabels || [])
-        .filter(Boolean);
-      const totalRows = allLabels.length;
-      const sample = allLabels.slice(0, 8)
-        .map(l => `«${l}»`)
-        .join(', ');
-      const sampleText = totalRows
-        ? ` ${totalRows} righe estratte${totalRows > 8 ? ` (prime 8: ${sample}…)` : `: ${sample}`}.`
-        : ' Nessuna riga condomino estratta.';
-      html += `<div class="banner warn">Nessuna riga corrisponde ai nominativi configurati (${(house.importParties || []).map(partyDisplayName).join(', ')}).${sampleText} L&apos;app riproverà pagina per pagina se l&apos;estrazione batch non trova la riga 111 / La Malfa. Includi la foto con «TOTALE DA VERSARE» e rate, oppure seleziona manualmente.</div>`;
-    }
-
-    html += resocontoHtml(preview.resoconto, {
-      editable: true,
-      filterMode: preview.filterMode || 'manual'
-    });
-
-    const hideTables = preview.filterMode === 'auto' && !preview.showAllRows;
-    html += `<div class="field-grid"><div><label for="docImportFiscalLabel">Esercizio fiscale</label>`;
-    html += `<input id="docImportFiscalLabel" type="text" value="${esc(ext.fiscalYearLabel)}" class="${fyLow ? 'warn-field' : ''}" /></div></div>`;
-    if (ext.extractionNotes) {
-      html += `<p class="hint">${esc(ext.extractionNotes)}</p>`;
-    }
-    if (hideTables) {
-      html += `<p class="hint">Righe filtrate automaticamente. Usa «Mostra tutte le righe» nel resoconto per modificare la selezione.</p></div>`;
-      els.documentImportPreview.innerHTML = html;
-      bindDocumentImportPreviewEvents(house, preview, ext);
-      return;
-    }
-
-    for (const section of ext.sections || []) {
-      const rowsSource = section._allRows?.length ? section._allRows : section.rows;
-      const kind = section.documentKind;
-      const kindLabel = kind === 'consuntivo' ? 'Consuntivo' : 'Preventivo';
-      const checked = preview.confirmedSections?.[kind] ? 'checked' : '';
-      const rowIdx = preview.selectedRowIndex?.[kind] ?? 0;
-      if (!section.rows?.length) {
-        if (!preview.manualRows) preview.manualRows = {};
-        if (!preview.manualRows[kind]) {
-          preview.manualRows[kind] = {
-            label: 'Inserimento manuale',
-            unit: '',
-            total: 0,
-            installments: [],
-            confidence: 1
-          };
-        }
-        section.rows = [preview.manualRows[kind]];
-      }
-      const secLow = section.confidence != null && section.confidence < 0.7;
-      html += `<div class="card stack document-import-section" data-kind="${kind}">`;
-      html += `<label class="document-section-toggle"><input type="checkbox" class="doc-section-confirm" data-kind="${kind}" ${checked} /> <strong>${kindLabel}</strong>`;
-      if (secLow) html += ` <span class="badge warn">estrazione incerta</span>`;
-      html += `</label>`;
-      html += `<table><thead><tr><th></th><th>Condomino / unità</th><th>Millesimi</th><th>Totale</th><th>Rate</th></tr></thead><tbody>`;
-      rowsSource.forEach((row, i) => {
-        const sel = i === rowIdx ? 'checked' : '';
-        const rowLow = row.confidence != null && row.confidence < 0.7;
-        const inst = row.installments?.length
-          ? row.installments.map(x => `${esc(x.label || x.periodStart)}: ${fmt(x.amount)}`).join('<br/>')
-          : '—';
-        html += `<tr class="doc-row-selectable ${i === rowIdx ? 'row-selected' : ''} ${rowLow ? 'row-warn' : ''}" data-kind="${kind}" data-idx="${i}">`;
-        html += `<td><input type="radio" name="docRow-${kind}" class="doc-row-radio" data-kind="${kind}" data-idx="${i}" ${sel} /></td>`;
-        html += `<td><strong>${esc(row.label)}</strong>${row.unit ? `<div class="hint">${esc(row.unit)}</div>` : ''}</td>`;
-        html += `<td>${row.millesimi != null ? row.millesimi : '—'}</td>`;
-        html += `<td class="amount">${fmt(row.total)}</td>`;
-        html += `<td class="hint">${inst}</td></tr>`;
-      });
-      html += `</tbody></table>`;
-      const selected = rowsSource[rowIdx];
-      if (selected) {
-        html += `<div class="doc-row-edit stack" data-kind="${kind}">`;
-        html += `<p class="hint">Modifica i valori della riga selezionata prima di confermare.</p>`;
-        html += `<div class="field-grid"><div><label>Totale (€)</label>`;
-        html += `<input type="number" step="0.01" class="doc-edit-total" data-kind="${kind}" value="${Number(selected.total || 0)}" /></div></div>`;
-        if (kind === 'preventivo' && selected.installments?.length) {
-          html += `<table class="doc-installments-edit"><thead><tr><th>Rata</th><th>Data inizio</th><th>Importo (€)</th></tr></thead><tbody>`;
-          selected.installments.forEach((inst, ii) => {
-            html += `<tr><td><input type="text" class="doc-edit-inst-label" data-kind="${kind}" data-ii="${ii}" value="${esc(inst.label || '')}" /></td>`;
-            html += `<td><input type="date" class="doc-edit-inst-date" data-kind="${kind}" data-ii="${ii}" value="${esc(inst.periodStart || '')}" /></td>`;
-            html += `<td><input type="number" step="0.01" class="doc-edit-inst-amount" data-kind="${kind}" data-ii="${ii}" value="${Number(inst.amount || 0)}" /></td></tr>`;
-          });
-          html += `</tbody></table>`;
-        }
-        html += `</div>`;
-      }
-      html += `</div>`;
-    }
-    html += `</div>`;
-    els.documentImportPreview.innerHTML = html;
-    bindDocumentImportPreviewEvents(house, preview, ext);
-  }
-
-  function bindResocontoFields(preview, house) {
-    const r = preview.resoconto;
-    if (!r) return;
-    const bind = (sel, key, parser = v => v) => {
-      els.documentImportPreview.querySelectorAll(sel).forEach(el => {
-        el.addEventListener('input', e => {
-          r[key] = parser(e.target.value);
-        });
-      });
-    };
-    bind('.resoconto-field[data-field="resocontoPrevBalance"]', 'previousBalance', v => (v === '' ? null : Number(v)));
-    bind('.resoconto-field[data-field="resocontoPrevExerciseLabel"]', 'previousExerciseLabel', v => String(v).trim());
-    bind('.resoconto-field[data-field="resocontoPrevExerciseTotal"]', 'previousExerciseTotal', v => (v === '' ? null : Number(v)));
-    bind('.resoconto-field[data-field="resocontoPreventivo"]', 'preventivoTotal', v => (v === '' ? null : Number(v)));
-    bind('.resoconto-field[data-field="resocontoConsuntivo"]', 'consuntivoTotal', v => (v === '' ? null : Number(v)));
-    els.documentImportPreview.querySelector('#resocontoApplyCarryover')?.addEventListener('change', e => {
-      r.applyCarryover = e.target.checked;
-    });
-    els.documentImportPreview.querySelectorAll('.resoconto-inst-amount').forEach(el => {
-      el.addEventListener('input', e => {
-        const ii = Number(e.target.dataset.ii);
-        if (r.installments?.[ii]) r.installments[ii].amount = Number(e.target.value);
-      });
-    });
-    els.documentImportPreview.querySelectorAll('.resoconto-inst-date').forEach(el => {
-      el.addEventListener('input', e => {
-        const ii = Number(e.target.dataset.ii);
-        if (r.installments?.[ii]) r.installments[ii].periodStart = e.target.value;
-      });
-    });
-    els.documentImportPreview.querySelectorAll('.resoconto-inst-label').forEach(el => {
-      el.addEventListener('input', e => {
-        const ii = Number(e.target.dataset.ii);
-        if (r.installments?.[ii]) r.installments[ii].label = e.target.value;
-      });
-    });
-    els.documentImportPreview.querySelector('#docResocontoConfirmBtn')?.addEventListener('click', () => {
-      preview.resocontoConfirmed = true;
-      renderDocumentImportPreview(house);
-    });
-    els.documentImportPreview.querySelector('#docShowAllRowsBtn')?.addEventListener('click', () => {
-      preview.showAllRows = true;
-      renderDocumentImportPreview(house);
-    });
-  }
-
-  function bindDocumentImportPreviewEvents(house, preview, ext) {
-    bindResocontoFields(preview, house);
-
-    els.documentImportPreview.querySelector('#docImportFiscalLabel')?.addEventListener('change', e => {
-      preview.extraction.fiscalYearLabel = e.target.value;
-      if (preview.resoconto) preview.resoconto.fiscalYearLabel = e.target.value;
-    });
-    els.documentImportPreview.querySelector('#docImportFiscalLabel')?.addEventListener('input', e => {
-      preview.extraction.fiscalYearLabel = e.target.value;
-      if (preview.resoconto) preview.resoconto.fiscalYearLabel = e.target.value;
-    });
-    els.documentImportPreview.querySelectorAll('.doc-section-confirm').forEach(el => {
-      el.addEventListener('change', e => {
-        const kind = e.target.dataset.kind;
-        preview.confirmedSections[kind] = e.target.checked;
-      });
-    });
-    els.documentImportPreview.querySelectorAll('.doc-row-radio').forEach(el => {
-      el.addEventListener('change', e => {
-        const kind = e.target.dataset.kind;
-        const idx = Number(e.target.dataset.idx);
-        preview.selectedRowIndex[kind] = idx;
-        const section = ext.sections.find(s => s.documentKind === kind);
-        const rowsSource = section?._allRows?.length ? section._allRows : section?.rows;
-        if (section && rowsSource?.[idx] && preview.filterMode === 'auto') {
-          section.rows = [rowsSource[idx]];
-          preview.selectedRowIndex[kind] = 0;
-          ensureResoconto(preview, house);
-        }
-        renderDocumentImportPreview(house);
-      });
-    });
-    els.documentImportPreview.querySelectorAll('.doc-edit-total').forEach(el => {
-      el.addEventListener('input', e => {
-        const kind = e.target.dataset.kind;
-        const section = ext.sections.find(s => s.documentKind === kind);
-        const row = section?.rows?.[preview.selectedRowIndex?.[kind] ?? 0];
-        if (row) row.total = Number(e.target.value);
-      });
-    });
-    els.documentImportPreview.querySelectorAll('.doc-edit-inst-amount, .doc-edit-inst-date, .doc-edit-inst-label').forEach(el => {
-      el.addEventListener('input', e => {
-        const kind = e.target.dataset.kind;
-        const ii = Number(e.target.dataset.ii);
-        const section = ext.sections.find(s => s.documentKind === kind);
-        const row = section?.rows?.[preview.selectedRowIndex?.[kind] ?? 0];
-        const inst = row?.installments?.[ii];
-        if (!inst) return;
-        if (e.target.classList.contains('doc-edit-inst-amount')) inst.amount = Number(e.target.value);
-        if (e.target.classList.contains('doc-edit-inst-date')) inst.periodStart = e.target.value;
-        if (e.target.classList.contains('doc-edit-inst-label')) inst.label = e.target.value;
-      });
-    });
   }
 
   function renderBankImportPreview(house) {
@@ -1455,7 +1180,6 @@ export function createRenderer(els) {
     safe('movements', () => renderMovements(house));
     safe('houseForm', () => renderHouseForm(house));
     safe('periodSelects', () => renderPeriodSelects(house));
-    safe('documentImportPreview', () => renderDocumentImportPreview(house));
     safe('bankImportPreview', () => renderBankImportPreview(house));
     safe('bankImportBatches', () => renderBankImportBatches(house));
     safe('unlinkedMovements', () => renderUnlinkedMovements(house));
@@ -1465,7 +1189,6 @@ export function createRenderer(els) {
   return {
     setView,
     render,
-    renderDocumentImportPreview,
     renderBankImportPreview,
     renderUnlinkedMovements,
     syncPaymentPeriodSelect,
@@ -1545,21 +1268,6 @@ export function collectDom() {
     fiscalStartMonth: document.getElementById('fiscalStartMonth'),
     exportBtn: document.getElementById('exportBtnAdv'),
     importFile: document.getElementById('importFileAdv'),
-    documentImportFile: document.getElementById('documentImportFile'),
-    documentImportConfirm: document.getElementById('documentImportConfirm'),
-    documentImportManual: document.getElementById('documentImportManual'),
-    documentImportCancel: document.getElementById('documentImportCancel'),
-    documentImportRetry: document.getElementById('documentImportRetry'),
-    documentImportDupDialog: document.getElementById('documentImportDupDialog'),
-    documentImportDupMsg: document.getElementById('documentImportDupMsg'),
-    documentImportDupAdd: document.getElementById('documentImportDupAdd'),
-    documentImportDupReplace: document.getElementById('documentImportDupReplace'),
-    documentImportDupCancel: document.getElementById('documentImportDupCancel'),
-    documentImportPreview: document.getElementById('documentImportPreview'),
-    documentImportPanel: document.getElementById('documentImportPanel'),
-    documentImportLoader: document.getElementById('documentImportLoader'),
-    documentImportLoaderFile: document.getElementById('documentImportLoaderFile'),
-    documentImportStatus: document.getElementById('documentImportStatus'),
     bankImportFile: document.getElementById('bankImportFile'),
     bankImportConfirm: document.getElementById('bankImportConfirm'),
     bankImportPreview: document.getElementById('bankImportPreview'),

@@ -10,13 +10,7 @@ export const state = {
   user: null,
   recoveryMode: false,
   bankImportPreview: [],
-  documentImportPreview: null,
-  documentImportBusy: false,
-  documentImportProgressText: null,
-  documentImportLastFiles: null,
   houseDataLoadError: null,
-  documentImportDuplicateAction: null,
-  documentImportReplaceDueIds: [],
   houseFormMode: 'edit',
   pendingSituazionePeriodId: null,
   postImportPaymentHint: null

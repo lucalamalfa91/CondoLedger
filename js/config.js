@@ -30,9 +30,12 @@ const MOVIMENTI_SUBVIEW_MAP = {
   dovuti: ['registra', 'dovuti'],
   versamenti: ['registra', 'versamenti'],
   'saldi-precedenti': ['registra', 'apertura-esercizio'],
-  'import-doc': ['importa', 'import-doc'],
-  import: ['importa', 'import-doc'],
-  documento: ['importa', 'import-doc'],
+  // L'import da documento non esiste più: le sue vecchie rotte restano mappate su "Da
+  // banca" invece di essere cancellate, altrimenti i segnalibri salvati dagli utenti
+  // finirebbero su una sotto-vista inesistente.
+  'import-doc': ['importa', 'import-banca'],
+  import: ['importa', 'import-banca'],
+  documento: ['importa', 'import-banca'],
   'import-banca': ['importa', 'import-banca'],
   importbanca: ['importa', 'import-banca'],
   banca: ['importa', 'import-banca'],
@@ -64,10 +67,9 @@ export const viewMeta = {
   },
   importa: {
     title: 'Importa',
-    subtitle: 'Documento amministratore ed estratto conto',
-    defaultSubview: 'import-doc',
+    subtitle: 'Estratto conto bancario',
+    defaultSubview: 'import-banca',
     subviews: {
-      'import-doc': ['Da documento', 'Documento amministratore'],
       'import-banca': ['Da banca', 'Estratto conto Banca Intesa']
     }
   },

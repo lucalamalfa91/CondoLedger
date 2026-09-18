@@ -32,21 +32,7 @@ import { exportSituazionePdf } from './pdf-situazione.js';
 import { getPreviousPeriod } from './fiscal.js';
 import { computeReminderPlan, REMINDER_CADENCES } from './reminder-plan.js';
 import { buildIcsCalendar, downloadIcsFile } from './ics-export.js';
-import { applyAutoFilterToPreview, mergeExtractions } from './document-import-match.js';
-import { applyResocontoToPreview, buildResoconto, ensureResoconto } from './document-import-resoconto.js';
-import { buildDuesFromPreview, initPreviewFromExtraction } from './document-import-map.js';
 import { collectImportPartiesFromDom, hasConfiguredParties, validateParties } from './house-import-parties.js';
-import { emptyExtraction } from './document-import-schema.js';
-import {
-  deleteDuesByIds,
-  extractFromDocument,
-  findDuplicateImport,
-  findExistingDuesForImport,
-  hashFiles,
-  recordDocumentImport,
-  sourceLabelFromFiles
-} from './document-import-api.js';
-import { collectLowConfidenceIssues, validateCommitPreview } from './document-import-validate.js';
 import { parseIntesaFile } from './intesa.js';
 import { enrichPreview } from './matching.js';
 import { collectDom, createRenderer } from './render.js';
@@ -504,229 +490,6 @@ async function createHouseFromForm() {
   });
 }
 
-function askDuplicateImportChoice(dup) {
-  return new Promise(resolve => {
-    const dlg = els.documentImportDupDialog;
-    if (!dlg) {
-      resolve(null);
-      return;
-    }
-    const when = dup.created_at ? new Date(dup.created_at).toLocaleString('it-IT') : '—';
-    els.documentImportDupMsg.textContent =
-      `Import precedente: «${dup.source_label}» (${when}). Come vuoi procedere?`;
-    const finish = v => {
-      dlg.close();
-      resolve(v);
-    };
-    els.documentImportDupAdd.onclick = () => finish('add');
-    els.documentImportDupReplace.onclick = () => finish('replace');
-    els.documentImportDupCancel.onclick = () => finish(null);
-    dlg.addEventListener('cancel', () => finish(null), { once: true });
-    dlg.showModal();
-  });
-}
-
-async function runDocumentExtraction(house, files) {
-  const fileHash = await hashFiles(files);
-  const dup = await findDuplicateImport(house.id, fileHash);
-  if (dup) {
-    const choice = await askDuplicateImportChoice(dup);
-    if (!choice) return false;
-    state.documentImportDuplicateAction = choice === 'replace' ? 'replace' : 'add';
-    state.documentImportReplaceDueIds = dup.committed_due_ids || [];
-  } else {
-    state.documentImportDuplicateAction = null;
-    state.documentImportReplaceDueIds = [];
-  }
-
-  const meta = {
-    sourceLabel: sourceLabelFromFiles(files),
-    fileHash,
-    fiscalStartMonth: house.fiscalStartMonth ?? 6,
-    mimeTypes: files.map(f => f.type).join(',')
-  };
-  const parties = house.importParties || [];
-
-  let extraction = await extractFromDocument(house.id, files, parties);
-  let preview = initPreviewFromExtraction(extraction, meta);
-  preview = applyAutoFilterToPreview(preview, house);
-
-  if (preview.autoFilterFailed && hasConfiguredParties(house) && files.length > 0) {
-    let merged = emptyExtraction('Estrazione mirata per pagina');
-    for (let i = 0; i < files.length; i++) {
-      state.documentImportProgressText = `Estrazione mirata pagina ${i + 1}/${files.length}…`;
-      render();
-      try {
-        const part = await extractFromDocument(house.id, [files[i]], parties);
-        merged = mergeExtractions(merged, part);
-      } catch {
-        /* pagina non leggibile */
-      }
-    }
-    if (merged.sections?.some(s => s.rows?.length)) {
-      extraction = merged;
-      preview = initPreviewFromExtraction(extraction, meta);
-      preview = applyAutoFilterToPreview(preview, house);
-      if (preview.extraction) {
-        preview.extraction.extractionNotes = [
-          preview.extraction.extractionNotes,
-          'Estrazione per pagina (nominativi configurati).'
-        ].filter(Boolean).join(' ');
-      }
-    }
-  }
-
-  ensureResoconto(preview, house);
-  state.documentImportPreview = preview;
-  navigate('importa', 'import-doc');
-  return true;
-}
-
-async function handleDocumentFiles(fileList) {
-  const house = ensureHouse();
-  if (!house) return;
-  if (!Number.isFinite(Number(house.id))) {
-    toastError('Salva prima la casa su Supabase.');
-    return;
-  }
-  const files = [...fileList];
-  if (!files.length) return;
-  state.documentImportLastFiles = files;
-  state.documentImportBusy = true;
-  state.documentImportProgressText = null;
-  render();
-  try {
-    await runDocumentExtraction(house, files);
-  } catch (err) {
-    toastError(err.message || 'Errore estrazione documento');
-  } finally {
-    state.documentImportBusy = false;
-    state.documentImportProgressText = null;
-    if (els.documentImportFile) els.documentImportFile.value = '';
-    render();
-  }
-}
-
-async function retryDocumentImport() {
-  const files = state.documentImportLastFiles;
-  if (!files?.length) return;
-  await handleDocumentFiles(files);
-}
-
-async function confirmDocumentImport() {
-  const house = ensureHouse();
-  const preview = state.documentImportPreview;
-  if (!house || !preview) return;
-
-  applyResocontoToPreview(preview);
-
-  const warnings = validateCommitPreview(preview);
-  const blocking = warnings.filter(w =>
-    w.includes('Seleziona') ||
-    w.includes('Indica') ||
-    w.includes('Conferma almeno') ||
-    w.includes('Conferma il resoconto') ||
-    w.includes('nessuna riga')
-  );
-  if (blocking.length) {
-    toastError(blocking.join(' '));
-    return;
-  }
-  const lowFields = collectLowConfidenceIssues(preview);
-  if (lowFields.length && !preview.lowConfidenceAck?.all) {
-    if (!await confirmDialog(
-      `Estrazione incerta su: ${lowFields.join(', ')}.\n\nConfermi comunque i valori in anteprima?`,
-      { title: 'Estrazione incerta' }
-    )) return;
-    preview.lowConfidenceAck.all = true;
-  }
-  if (warnings.length && !await confirmDialog(`${warnings.join('\n')}\n\nProcedere con l'import?`, { title: 'Avvisi import' })) return;
-
-  const summary = buildDuesFromPreview(preview, preview.sourceLabel, house);
-  if (!summary.length) {
-    toastError('Nessun dato da importare. Attiva almeno una scheda Preventivo o Consuntivo.');
-    return;
-  }
-
-  const fiscalLabel = (preview.resoconto?.fiscalYearLabel || preview.extraction.fiscalYearLabel).trim();
-  preview.extraction.fiscalYearLabel = fiscalLabel;
-  const kinds = summary.map(d => d.dueKind);
-  const existing = findExistingDuesForImport(house, fiscalLabel, kinds);
-  if (existing.length && state.documentImportDuplicateAction !== 'replace') {
-    const labels = existing.map(d => `${d.dueKind} ${fmt(d.amount)}`).join(', ');
-    if (!await confirmDialog(
-      `Per l'esercizio ${fiscalLabel} esistono già dovuti: ${labels}.\n\nAggiungere comunque quelli dell'import?`,
-      { title: 'Dovuti esistenti' }
-    )) return;
-  }
-
-  const { period, isNew } = await ensureFiscalPeriodByLabel(house, fiscalLabel);
-  const r = preview.resoconto;
-  if (r?.applyCarryover && !r.carryFromPeriodId) {
-    if (hasPriorBalanceForPeriod(house, period.id)) {
-      const proceed = await confirmDialog(
-        'Attenzione: per questo esercizio esiste già un saldo precedente dedicato. Applicare anche il riporto dall\'import rischia di contare il conguaglio due volte.\n\nApplicare comunque il riporto?',
-        { title: 'Saldo già presente' }
-      );
-      if (!proceed) r.applyCarryover = false;
-    }
-    if (r.applyCarryover) {
-      const prev = getPreviousPeriod(house, period.id);
-      if (prev) r.carryFromPeriodId = prev.id;
-    }
-  }
-  if (!isNew && !state.documentImportDuplicateAction) {
-    if (!await confirmDialog(
-      `L'esercizio ${period.label} esiste già. Associare i nuovi dovuti a questo esercizio?`,
-      { title: 'Esercizio esistente' }
-    )) return;
-  }
-
-  const recap = summary.map(d => `${d.dueKind}: ${fmt(d.amount)} (${d.description.slice(0, 60)}…)`).join('\n');
-  if (!await confirmDialog(`Riepilogo import:\nEsercizio ${fiscalLabel}\n\n${recap}\n\nConfermi?`, { title: 'Conferma import' })) return;
-
-  const oldIds =
-    state.documentImportDuplicateAction === 'replace' ? [...(state.documentImportReplaceDueIds || [])] : [];
-
-  try {
-    const savedIds = [];
-    for (const due of summary) {
-      await saveDueToSupabase(house, due);
-      if (due.id) savedIds.push(due.id);
-    }
-    if (oldIds.length) await deleteDuesByIds(house, oldIds);
-    await recordDocumentImport(house, {
-      sourceLabel: preview.sourceLabel,
-      fileHash: preview.fileHash,
-      mimeTypes: preview.mimeTypes
-    }, preview.extraction, savedIds);
-    state.documentImportPreview = null;
-    state.documentImportDuplicateAction = null;
-    state.documentImportReplaceDueIds = [];
-    await loadFromSupabase();
-    const houseAfter = activeHouse();
-    state.postImportPaymentHint = houseAfter ? computeNextPaymentGuide(houseAfter) : true;
-    render();
-    showToast('Import documento completato.');
-    navigate('registra', 'versamenti');
-  } catch (err) {
-    toastError(err.message || 'Errore salvataggio import');
-  }
-}
-
-function cancelDocumentImport() {
-  state.documentImportPreview = null;
-  state.documentImportBusy = false;
-  render();
-}
-
-function goManualDueEntry() {
-  cancelDocumentImport();
-  navigate('registra', 'dovuti');
-  if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('dueFormPane');
-  else els.dueForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
 async function handleBankFile(file) {
   const house = ensureHouse();
   if (!house) return;
@@ -1030,7 +793,7 @@ onboardingNext?.addEventListener('click', async () => {
   }
   if (onboardingStep >= 2) {
     finishOnboarding();
-    navigate('importa', 'import-doc');
+    navigate('importa', 'import-banca');
     return;
   }
   onboardingStep += 1;
@@ -1469,11 +1232,6 @@ els.dueSuggestCarryoverBtn?.addEventListener('click', async () => {
 
 els.main?.addEventListener('click', handleRecordAction);
 
-els.documentImportFile?.addEventListener('change', e => handleDocumentFiles(e.target.files));
-els.documentImportConfirm?.addEventListener('click', confirmDocumentImport);
-els.documentImportCancel?.addEventListener('click', cancelDocumentImport);
-els.documentImportRetry?.addEventListener('click', retryDocumentImport);
-els.documentImportManual?.addEventListener('click', goManualDueEntry);
 
 els.bankImportFile?.addEventListener('change', e => handleBankFile(e.target.files[0]));
 els.bankImportConfirm?.addEventListener('click', confirmBankImport);

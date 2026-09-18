@@ -1,8 +1,6 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   createLocalDue,
   createLocalPayment,
-  createSupabaseClient,
   deleteAllBankImports,
   deleteBankImportBatch,
   previewBankImportDelete,
@@ -230,7 +228,7 @@ function applyPaymentGuideToForm() {
 }
 
 async function ensureHousePersisted(house) {
-  if (state.supabase && state.user && !Number.isFinite(Number(house.id))) {
+  if (state.user && !Number.isFinite(Number(house.id))) {
     await saveHouseToSupabase(house);
     state.selectedHouseId = String(house.id);
     sessionStorage.setItem('app:selectedHouseId', String(house.id));
@@ -358,7 +356,7 @@ async function deletePriorBalance(house, priorBalanceId) {
     : 'Eliminare questo saldo precedente?';
   if (!await confirmDialog(msg, { title: 'Elimina saldo', confirmLabel: 'Elimina', danger: true })) return;
   try {
-    if (state.supabase && state.user && Number.isFinite(Number(priorBalanceId))) {
+    if (state.user && Number.isFinite(Number(priorBalanceId))) {
       await deletePriorBalanceFromSupabase(house, priorBalanceId);
       await reloadHouseFromSupabase(house.id);
     } else {
@@ -376,7 +374,7 @@ async function deleteDue(house, dueId) {
   const due = house.dues.find(d => d.id === dueId);
   if (!due || !await confirmDialog('Eliminare questo dovuto?', { title: 'Elimina dovuto', confirmLabel: 'Elimina', danger: true })) return;
   try {
-    if (state.supabase && state.user && Number.isFinite(Number(dueId))) {
+    if (state.user && Number.isFinite(Number(dueId))) {
       await deleteDueFromSupabase(house, dueId);
       await loadFromSupabase();
     } else {
@@ -394,7 +392,7 @@ async function deletePayment(house, paymentId) {
   const payment = house.payments.find(p => p.id === paymentId);
   if (!payment || !await confirmDialog('Eliminare questo versamento?', { title: 'Elimina versamento', confirmLabel: 'Elimina', danger: true })) return;
   try {
-    if (state.supabase && state.user && Number.isFinite(Number(paymentId))) {
+    if (state.user && Number.isFinite(Number(paymentId))) {
       await deletePaymentFromSupabase(house, payment);
       await loadFromSupabase();
     } else {
@@ -794,7 +792,7 @@ async function importJson(file) {
   reader.onload = async e => {
     try {
       const parsed = parseBackup(JSON.parse(String(e.target.result || '{}')));
-      if (state.supabase && state.user) {
+      if (state.user) {
         if (!await confirmDialog('Importare il backup su Supabase? Le case verranno aggiunte al tuo account.', { title: 'Import backup' })) return;
         await syncBackupToSupabase(parsed);
         render();
@@ -963,7 +961,7 @@ els.priorBalanceForm?.addEventListener('submit', async e => {
       }
     }
     const duesBefore = house.dues?.length || 0;
-    if (state.supabase && state.user) {
+    if (state.user) {
       await savePriorBalanceToSupabase(house, priorBalance);
       resetPriorBalanceForm(house);
       if (Number.isFinite(Number(house.id))) {
@@ -1258,7 +1256,7 @@ els.houseForm.addEventListener('submit', async e => {
     return;
   }
   try {
-    if (state.supabase && state.user) await saveHouseToSupabase(house);
+    if (state.user) await saveHouseToSupabase(house);
     render();
     showToast('Immobile salvato.');
   } catch (err) {
@@ -1271,7 +1269,7 @@ els.deleteHouseBtn.addEventListener('click', async () => {
   if (!house) return;
   if (!await confirmDialog(`Eliminare ${house.name}?`, { title: 'Elimina immobile', confirmLabel: 'Elimina', danger: true })) return;
   try {
-    if (state.supabase && state.user && Number.isFinite(Number(house.id))) await deleteHouseRemote(house.id);
+    if (state.user && Number.isFinite(Number(house.id))) await deleteHouseRemote(house.id);
     state.data.houses = state.data.houses.filter(h => h.id !== house.id);
     state.selectedHouseId = state.data.houses[0]?.id || null;
     state.houseFormMode = state.data.houses.length ? 'edit' : 'new';
@@ -1328,7 +1326,7 @@ els.dueForm.addEventListener('submit', async e => {
       }
     }
     let newPeriodId = null;
-    if (state.supabase && state.user) {
+    if (state.user) {
       if (due.fiscalPeriodLabel) {
         const { period, isNew } = await ensureFiscalPeriodByLabel(house, due.fiscalPeriodLabel);
         due.fiscalPeriodId = period.id;
@@ -1401,7 +1399,7 @@ els.paymentForm.addEventListener('submit', async e => {
       const existing = house.payments.find(p => p.id === editId);
       if (existing?.bankMovementId) payment.bankMovementId = existing.bankMovementId;
     }
-    if (state.supabase && state.user) {
+    if (state.user) {
       await savePaymentToSupabase(house, payment);
       resetPaymentForm(house);
       await loadFromSupabase();
@@ -1587,8 +1585,6 @@ async function initApp() {
   auth.showRecoveryUI(false);
   auth.setLoginLoading(true);
   try {
-    createSupabaseClient(createClient);
-    if (await auth.handleAuthCallbackError()) return;
     auth.bindAuthStateChange();
     const sessionResult = await auth.restoreSession();
     if (sessionResult === true) {

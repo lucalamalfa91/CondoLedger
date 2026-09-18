@@ -36,7 +36,7 @@ import {
   computeSituazioneTotals,
   computePriorYearSourceSummary
 } from './situazione-report.js';
-import { resolveFocusPeriod } from './compliance-status.js';
+import { computeComplianceStatus, resolveFocusPeriod } from './compliance-status.js';
 import { computePanoramicaKpis } from './kpi-metrics.js';
 import { dataListHtml, emptyListHtml } from './mobile-cards.js';
 import { computeNextPaymentGuide, formatPaymentGuideSummary } from './payment-guide.js';

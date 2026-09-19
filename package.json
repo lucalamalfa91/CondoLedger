@@ -1,0 +1,22 @@
+{
+  "name": "condoledger",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gestione spese condominiali — server Node + SQLite",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test scripts/*.test.mjs",
+    "create-user": "node scripts/create-user.mjs",
+    "set-password": "node scripts/set-password.mjs",
+    "migrate:supabase": "node scripts/migrate-supabase-to-sqlite.mjs"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.18.0",
+    "express": "^4.21.2"
+  }
+}

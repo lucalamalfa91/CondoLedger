@@ -1,76 +1,37 @@
-import { DEFAULT_SUPABASE_ANON_KEY, DEFAULT_SUPABASE_URL } from './config.js';
+/**
+ * Data layer dell'applicazione.
+ *
+ * Le funzioni esportate qui hanno le stesse firme e gli stessi effetti su `state` che
+ * avevano nella versione Supabase: cambia solo l'implementazione, da chiamate PostgREST a
+ * chiamate alla REST API del server. È per questo che render.js e la quasi totalità di
+ * main.js non hanno dovuto cambiare.
+ */
 import { legacyCalendarPeriod, periodFromLabel } from './backup.js';
 import { serializeImportParties } from './house-import-parties.js';
 import { mapHouseFromDb, state } from './state.js';
 import { ensurePeriodPayload, parseFiscalLabel } from './fiscal.js';
 import { findInstallment, findInstallmentForDate, inferInstallmentKey } from './installments.js';
-import { chunkArray, hashText, today, uid } from './utils.js';
+import { hashText, today, uid } from './utils.js';
+import { request } from './http.js';
 
-export function createSupabaseClient(createClient) {
-  if (!DEFAULT_SUPABASE_URL || !DEFAULT_SUPABASE_ANON_KEY) {
-    throw new Error('Configurazione backend mancante');
-  }
-  state.supabaseUrl = DEFAULT_SUPABASE_URL;
-  state.supabaseAnonKey = DEFAULT_SUPABASE_ANON_KEY;
-  state.supabase = createClient(DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY, {
-    auth: { detectSessionInUrl: true, flowType: 'pkce', persistSession: true }
-  });
+const houseUrl = (houseId, suffix = '') => `/api/houses/${Number(houseId)}${suffix}`;
+
+function mapTree(entry) {
+  return mapHouseFromDb(
+    entry.house,
+    entry.dues,
+    entry.payments,
+    entry.fiscalPeriods,
+    entry.bankMovements,
+    entry.priorBalances
+  );
 }
 
 export async function ensureAuthenticated() {
-  if (!state.supabase) throw new Error('Client non inizializzato');
   if (state.user) return state.user;
-  const { data, error } = await state.supabase.auth.getSession();
-  if (error) throw error;
-  state.user = data.session?.user ?? null;
+  const data = await request('GET', '/api/auth/session');
+  state.user = data?.user ?? null;
   return state.user;
-}
-
-async function fetchAllRows(buildPageQuery, pageSize = 1000) {
-  const all = [];
-  let from = 0;
-  while (true) {
-    const to = from + pageSize - 1;
-    const { data, error } = await buildPageQuery(from, to);
-    if (error) throw error;
-    if (!data?.length) break;
-    all.push(...data);
-    if (data.length < pageSize) break;
-    from += pageSize;
-  }
-  return all;
-}
-
-async function fetchPriorBalancesForHouse(hid) {
-  try {
-    return await fetchAllRows((from, to) =>
-      state.supabase.from('prior_balances').select('*').eq('house_id', hid).order('id', { ascending: true }).range(from, to)
-    );
-  } catch (err) {
-    if (err?.code === '42P01') return [];
-    throw err;
-  }
-}
-
-async function fetchHouseRelations(hid) {
-  return Promise.all([
-    fetchAllRows((from, to) =>
-      state.supabase.from('fiscal_periods').select('*').eq('house_id', hid)
-        .order('start_date', { ascending: false }).order('id', { ascending: true }).range(from, to)
-    ),
-    fetchAllRows((from, to) =>
-      state.supabase.from('dues').select('*').eq('house_id', hid).order('id', { ascending: true }).range(from, to)
-    ),
-    fetchAllRows((from, to) =>
-      state.supabase.from('payments').select('*').eq('house_id', hid)
-        .order('date', { ascending: false }).order('id', { ascending: true }).range(from, to)
-    ),
-    fetchAllRows((from, to) =>
-      state.supabase.from('bank_movements').select('*').eq('house_id', hid)
-        .order('movement_date', { ascending: false }).order('id', { ascending: true }).range(from, to)
-    ),
-    fetchPriorBalancesForHouse(hid)
-  ]);
 }
 
 function preserveSelectedHouseId(mapped, previousId) {
@@ -90,11 +51,7 @@ export async function reloadHouseFromSupabase(houseId) {
   const numericId = Number(houseId);
   if (!Number.isFinite(numericId)) throw new Error('Immobile non valido');
 
-  const { data: houseRow, error } = await state.supabase.from('houses').select('*').eq('id', numericId).single();
-  if (error) throw error;
-
-  const [periods, dues, payments, movements, priorBalances] = await fetchHouseRelations(numericId);
-  const mapped = mapHouseFromDb(houseRow, dues, payments, periods, movements, priorBalances);
+  const mapped = mapTree(await request('GET', houseUrl(numericId)));
   const idx = state.data.houses.findIndex(h => String(h.id) === idStr);
   if (idx >= 0) state.data.houses[idx] = mapped;
   else state.data.houses.push(mapped);
@@ -104,20 +61,17 @@ export async function reloadHouseFromSupabase(houseId) {
   return mapped;
 }
 
+/**
+ * Una sola richiesta restituisce l'albero completo di tutte le case. La versione Supabase
+ * faceva 1 + 5×N query con paginazione a 1000 righe per ciascuna relazione.
+ */
 export async function loadFromSupabase() {
   const user = await ensureAuthenticated();
   if (!user) return;
 
-  const { data: houses, error } = await state.supabase.from('houses').select('*').order('created_at', { ascending: true });
-  if (error) throw error;
-
+  const entries = await request('GET', '/api/houses');
   const previousId = state.selectedHouseId ?? sessionStorage.getItem('app:selectedHouseId');
-  const mapped = [];
-  for (const house of houses || []) {
-    const hid = house.id;
-    const [periods, dues, payments, movements, priorBalances] = await fetchHouseRelations(hid);
-    mapped.push(mapHouseFromDb(house, dues, payments, periods, movements, priorBalances));
-  }
+  const mapped = (entries || []).map(mapTree);
 
   state.data = { houses: mapped };
   preserveSelectedHouseId(mapped, previousId);
@@ -126,21 +80,21 @@ export async function loadFromSupabase() {
 export async function saveHouseToSupabase(house) {
   const user = await ensureAuthenticated();
   if (!user) throw new Error('Devi essere connesso per salvare la casa');
+
+  // Nessun user_id nel payload: il server lo prende dalla sessione.
   const payload = {
     name: house.name,
     location: house.location,
     notes: house.notes,
     fiscal_start_month: house.fiscalStartMonth,
-    import_parties: serializeImportParties(house.importParties || []),
-    user_id: user.id
+    import_parties: serializeImportParties(house.importParties || [])
   };
+
   const numericId = Number(house.id);
   if (Number.isFinite(numericId)) {
-    const { error } = await state.supabase.from('houses').update(payload).eq('id', numericId);
-    if (error) throw error;
+    await request('PUT', houseUrl(numericId), payload);
   } else {
-    const { data, error } = await state.supabase.from('houses').insert(payload).select().single();
-    if (error) throw error;
+    const data = await request('POST', '/api/houses', payload);
     house.id = String(data.id);
   }
 }
@@ -150,44 +104,40 @@ export async function updateCalendarSettings(house, { cadence, leadDays }) {
   if (!user) throw new Error('Devi essere connesso per salvare le impostazioni calendario');
   const numericId = Number(house.id);
   if (!Number.isFinite(numericId)) throw new Error('Salva prima la casa');
-  const payload = {
+
+  await request('PATCH', houseUrl(numericId, '/calendar'), {
     calendar_reminder_cadence: cadence,
     calendar_reminder_lead_days: leadDays
-  };
-  const { error } = await state.supabase.from('houses').update(payload).eq('id', numericId);
-  if (error) throw error;
+  });
+
   house.calendarReminderCadence = cadence;
   house.calendarReminderLeadDays = leadDays;
 }
 
+/**
+ * L'endpoint è idempotente: se la label esiste già restituisce la riga esistente con
+ * `isNew: false`. Sostituisce il vecchio fallback sull'errore di unique violation.
+ */
 export async function ensureFiscalPeriodBySpec(house, spec) {
   const existing = house.fiscalPeriods.find(p =>
     p.label === spec.label && p.startDate === spec.startDate && p.endDate === spec.endDate
   );
   if (existing) return { period: existing, isNew: false };
 
-  const { data, error } = await state.supabase.from('fiscal_periods').insert({
-    house_id: Number(house.id),
+  const data = await request('POST', houseUrl(house.id, '/fiscal-periods'), {
     label: spec.label,
     start_date: spec.startDate,
     end_date: spec.endDate
-  }).select().single();
-  if (error) {
-    if (error.code === '23505') {
-      const { data: row } = await state.supabase.from('fiscal_periods')
-        .select('*').eq('house_id', Number(house.id)).eq('label', spec.label).single();
-      if (row) {
-        const period = { id: String(row.id), label: row.label, startDate: row.start_date, endDate: row.end_date };
-        if (!house.fiscalPeriods.some(p => p.id === period.id)) house.fiscalPeriods.push(period);
-        return { period, isNew: false };
-      }
-    }
-    throw error;
-  }
+  });
 
-  const period = { id: String(data.id), label: data.label, startDate: data.start_date, endDate: data.end_date };
-  house.fiscalPeriods.push(period);
-  return { period, isNew: true };
+  const period = {
+    id: String(data.period.id),
+    label: data.period.label,
+    startDate: data.period.start_date,
+    endDate: data.period.end_date
+  };
+  if (!house.fiscalPeriods.some(p => p.id === period.id)) house.fiscalPeriods.push(period);
+  return { period, isNew: data.isNew };
 }
 
 export async function ensureFiscalPeriodByLabel(house, labelText) {
@@ -217,8 +167,8 @@ export async function saveDueToSupabase(house, due) {
     const { period } = await ensureFiscalPeriod(house, due.date || today);
     periodId = period.id;
   }
+
   const payload = {
-    house_id: Number(house.id),
     fiscal_period_id: Number(periodId),
     amount: due.amount,
     description: due.description,
@@ -228,32 +178,18 @@ export async function saveDueToSupabase(house, due) {
     due_kind: due.dueKind || 'preventivo',
     carry_from_period_id: due.carryFromPeriodId ? Number(due.carryFromPeriodId) : null
   };
+
   if (Number.isFinite(Number(due.id))) {
-    const { error } = await state.supabase.from('dues').update({
-      fiscal_period_id: payload.fiscal_period_id,
-      amount: payload.amount,
-      description: payload.description,
-      split_mode: payload.split_mode,
-      split_custom: payload.split_custom,
-      split_amounts: payload.split_amounts,
-      due_kind: payload.due_kind,
-      carry_from_period_id: payload.carry_from_period_id
-    }).eq('id', Number(due.id)).eq('house_id', Number(house.id));
-    if (error) throw error;
+    await request('PUT', houseUrl(house.id, `/dues/${Number(due.id)}`), payload);
     return;
   }
-  const { data, error } = await state.supabase.from('dues').insert(payload).select('id').single();
-  if (error) throw error;
+  const data = await request('POST', houseUrl(house.id, '/dues'), payload);
   if (data?.id) due.id = String(data.id);
 }
 
 export async function deleteDueFromSupabase(house, dueId) {
   await ensureAuthenticated();
-  const { error } = await state.supabase.from('dues')
-    .delete()
-    .eq('id', Number(dueId))
-    .eq('house_id', Number(house.id));
-  if (error) throw error;
+  await request('DELETE', houseUrl(house.id, `/dues/${Number(dueId)}`));
 }
 
 export async function savePriorBalanceToSupabase(house, priorBalance) {
@@ -264,43 +200,23 @@ export async function savePriorBalanceToSupabase(house, priorBalance) {
     periodId = period.id;
   }
   if (!periodId) throw new Error('Seleziona l\'esercizio fiscale del saldo precedente.');
+
   const payload = {
-    house_id: Number(house.id),
     fiscal_period_id: Number(periodId),
     source_period_id: priorBalance.sourcePeriodId ? Number(priorBalance.sourcePeriodId) : null,
     amount: priorBalance.amount,
     description: priorBalance.description || null
   };
+
   if (Number.isFinite(Number(priorBalance.id))) {
-    const { data, error } = await state.supabase.from('prior_balances').update({
-      fiscal_period_id: payload.fiscal_period_id,
-      source_period_id: payload.source_period_id,
-      amount: payload.amount,
-      description: payload.description
-    }).eq('id', Number(priorBalance.id)).eq('house_id', Number(house.id)).select('id').maybeSingle();
-    if (error) {
-      if (error.code === '23505') {
-        throw new Error('Esiste già un saldo precedente per questo esercizio.');
-      }
-      throw error;
-    }
-    if (!data) throw new Error('Saldo precedente non trovato. Ricarica la pagina e riprova.');
+    await request('PUT', houseUrl(house.id, `/prior-balances/${Number(priorBalance.id)}`), payload);
   } else {
-    const existing = (house.priorBalances || []).find(b => String(b.fiscalPeriodId) === String(periodId));
-    if (existing && Number.isFinite(Number(existing.id))) {
-      const { error } = await state.supabase.from('prior_balances').update({
-        source_period_id: payload.source_period_id,
-        amount: payload.amount,
-        description: payload.description
-      }).eq('id', Number(existing.id)).eq('house_id', Number(house.id));
-      if (error) throw error;
-      priorBalance.id = existing.id;
-    } else {
-      const { data, error } = await state.supabase.from('prior_balances').insert(payload).select('id').single();
-      if (error) throw error;
-      if (data?.id) priorBalance.id = String(data.id);
-    }
+    // L'endpoint fa upsert su (house_id, fiscal_period_id): non serve più cercare a mano
+    // un saldo esistente per lo stesso esercizio.
+    const data = await request('POST', houseUrl(house.id, '/prior-balances'), payload);
+    if (data?.id) priorBalance.id = String(data.id);
   }
+
   syncPriorBalanceLocal(house, priorBalance, periodId);
 }
 
@@ -325,11 +241,7 @@ function syncPriorBalanceLocal(house, priorBalance, periodId) {
 
 export async function deletePriorBalanceFromSupabase(house, priorBalanceId) {
   await ensureAuthenticated();
-  const { error } = await state.supabase.from('prior_balances')
-    .delete()
-    .eq('id', Number(priorBalanceId))
-    .eq('house_id', Number(house.id));
-  if (error) throw error;
+  await request('DELETE', houseUrl(house.id, `/prior-balances/${Number(priorBalanceId)}`));
 }
 
 export async function savePaymentToSupabase(house, payment) {
@@ -339,8 +251,8 @@ export async function savePaymentToSupabase(house, payment) {
     const { period } = await ensureFiscalPeriod(house, payment.date || today);
     periodId = period.id;
   }
+
   const payload = {
-    house_id: Number(house.id),
     fiscal_period_id: Number(periodId),
     amount: payment.amount,
     date: payment.date,
@@ -351,46 +263,23 @@ export async function savePaymentToSupabase(house, payment) {
     is_carry_forward: false,
     bank_movement_id: payment.bankMovementId ? Number(payment.bankMovementId) : null
   };
+
   if (Number.isFinite(Number(payment.id))) {
-    const { error } = await state.supabase.from('payments').update({
-      fiscal_period_id: payload.fiscal_period_id,
-      amount: payload.amount,
-      date: payload.date,
-      method: payload.method,
-      installment_key: payload.installment_key,
-      prior_balance_id: payload.prior_balance_id,
-      bank_movement_id: payload.bank_movement_id,
-      carry_from_period_id: null,
-      is_carry_forward: false
-    }).eq('id', Number(payment.id)).eq('house_id', Number(house.id));
-    if (error) throw error;
+    await request('PUT', houseUrl(house.id, `/payments/${Number(payment.id)}`), payload);
     return;
   }
-  const { error } = await state.supabase.from('payments').insert(payload);
-  if (error) throw error;
+  await request('POST', houseUrl(house.id, '/payments'), payload);
 }
 
+/** Il server sgancia il movimento bancario collegato nella stessa transazione. */
 export async function deletePaymentFromSupabase(house, payment) {
   await ensureAuthenticated();
-  const bankMovementId = payment.bankMovementId;
-  const { error } = await state.supabase.from('payments')
-    .delete()
-    .eq('id', Number(payment.id))
-    .eq('house_id', Number(house.id));
-  if (error) throw error;
-  if (bankMovementId) {
-    await state.supabase.from('bank_movements').update({
-      status: 'unlinked',
-      linked_payment_id: null,
-      fiscal_period_id: null
-    }).eq('id', Number(bankMovementId));
-  }
+  await request('DELETE', houseUrl(house.id, `/payments/${Number(payment.id)}`));
 }
 
 export async function deleteHouseRemote(houseId) {
   await ensureAuthenticated();
-  const { error } = await state.supabase.from('houses').delete().eq('id', Number(houseId));
-  if (error) throw error;
+  await request('DELETE', houseUrl(houseId));
 }
 
 export async function movementHash(houseId, movement) {
@@ -398,11 +287,35 @@ export async function movementHash(houseId, movement) {
   return hashText(raw.toLowerCase());
 }
 
+function bankRowPayload(row, sourceHash, extra) {
+  return {
+    movement_date: row.movementDate,
+    operation: row.operation,
+    details: row.details,
+    amount: row.amount,
+    currency: row.currency || 'EUR',
+    source_hash: sourceHash,
+    suggested_fiscal_period_id: row.suggestedFiscalPeriodId ? Number(row.suggestedFiscalPeriodId) : null,
+    match_confidence: row.matchConfidence,
+    match_reason: row.matchReason,
+    ...extra
+  };
+}
+
+/**
+ * Import delle righe selezionate. Il server scrive movimento, versamento e back-link in
+ * un'unica transazione; le righe già presenti (stesso source_hash) vengono ignorate.
+ *
+ * L'hash e il calcolo di `installment_key` restano qui perché dipendono dalla logica rate
+ * di installments.js: duplicarla sul server creerebbe due verità divergenti.
+ */
 export async function saveBankImport(house, batchId, previewRows) {
   await ensureAuthenticated();
+  const rows = [];
+
   for (const row of previewRows) {
     if (!row.selected || row.ineligible || Number(row.amount) >= 0) continue;
-    const sourceHash = await movementHash(house.id, row);
+
     let periodId = row.manualPeriodId || row.suggestedFiscalPeriodId;
     if (!periodId) {
       const { period } = await ensureFiscalPeriod(house, row.movementDate);
@@ -411,88 +324,48 @@ export async function saveBankImport(house, batchId, previewRows) {
     }
     if (!periodId) continue;
 
-    const { data: bm, error: bmErr } = await state.supabase.from('bank_movements').insert({
-      house_id: Number(house.id),
-      import_batch_id: batchId,
-      movement_date: row.movementDate,
-      operation: row.operation,
-      details: row.details,
-      amount: row.amount,
-      currency: row.currency || 'EUR',
-      source_hash: sourceHash,
-      fiscal_period_id: Number(periodId),
-      suggested_fiscal_period_id: row.suggestedFiscalPeriodId ? Number(row.suggestedFiscalPeriodId) : null,
-      match_confidence: row.matchConfidence,
-      match_reason: row.matchReason,
-      status: 'linked'
-    }).select().single();
-    if (bmErr) {
-      if (bmErr.code === '23505') continue;
-      throw bmErr;
-    }
-
     let installmentKey = null;
     for (const d of house.dues.filter(d => String(d.fiscalPeriodId) === String(periodId) && (d.dueKind || 'preventivo') === 'preventivo')) {
       const slot = findInstallmentForDate(house, d, row.movementDate);
       if (slot) { installmentKey = slot.key; break; }
     }
-    const { data: pay, error: payErr } = await state.supabase.from('payments').insert({
-      house_id: Number(house.id),
-      fiscal_period_id: Number(periodId),
-      amount: row.paymentAmount,
-      date: row.movementDate,
-      method: 'Import Intesa',
-      bank_movement_id: bm.id,
-      installment_key: installmentKey
-    }).select().single();
-    if (payErr) throw payErr;
 
-    await state.supabase.from('bank_movements').update({ linked_payment_id: pay.id }).eq('id', bm.id);
+    rows.push(bankRowPayload(row, await movementHash(house.id, row), {
+      fiscal_period_id: Number(periodId),
+      link: true,
+      payment_amount: row.paymentAmount,
+      installment_key: installmentKey
+    }));
   }
+
+  if (!rows.length) return;
+  await request('POST', houseUrl(house.id, '/bank-movements/import'), {
+    import_batch_id: batchId,
+    rows
+  });
 }
 
 export async function saveUnlinkedBankMovements(house, batchId, previewRows) {
   await ensureAuthenticated();
+  const rows = [];
+
   for (const row of previewRows) {
     if (row.selected || row.ineligible) continue;
-    const sourceHash = await movementHash(house.id, row);
-    const { error } = await state.supabase.from('bank_movements').insert({
-      house_id: Number(house.id),
-      import_batch_id: batchId,
-      movement_date: row.movementDate,
-      operation: row.operation,
-      details: row.details,
-      amount: row.amount,
-      currency: row.currency || 'EUR',
-      source_hash: sourceHash,
-      suggested_fiscal_period_id: row.suggestedFiscalPeriodId ? Number(row.suggestedFiscalPeriodId) : null,
-      match_confidence: row.matchConfidence,
-      match_reason: row.matchReason,
-      status: 'unlinked'
-    });
-    if (error && error.code !== '23505') throw error;
+    rows.push(bankRowPayload(row, await movementHash(house.id, row), { link: false }));
   }
+
+  if (!rows.length) return;
+  await request('POST', houseUrl(house.id, '/bank-movements/import'), {
+    import_batch_id: batchId,
+    rows
+  });
 }
 
 async function fetchBankMovements(houseId, { importBatchId } = {}) {
-  const hid = Number(houseId);
-  const pageSize = 1000;
-  const all = [];
-  let from = 0;
-  while (true) {
-    let query = state.supabase.from('bank_movements')
-      .select('id, linked_payment_id, status')
-      .eq('house_id', hid)
-      .order('id', { ascending: true });
-    if (importBatchId) query = query.eq('import_batch_id', importBatchId);
-    const { data, error } = await query.range(from, from + pageSize - 1);
-    if (error) throw error;
-    if (!data?.length) break;
-    all.push(...data);
-    if (data.length < pageSize) break;
-    from += pageSize;
-  }
-  return all;
+  const suffix = importBatchId
+    ? `/bank-movements?import_batch_id=${encodeURIComponent(importBatchId)}`
+    : '/bank-movements';
+  return (await request('GET', houseUrl(houseId, suffix))) || [];
 }
 
 function enrichMovement(house, movement) {
@@ -557,103 +430,69 @@ export function previewBankImportDelete(house, movements) {
   };
 }
 
-async function deleteOrphanImportPayments(house, deletableMovements) {
-  const hid = Number(house.id);
-  const payIds = [...new Set(
+function orphanPaymentIds(house, deletableMovements) {
+  return [...new Set(
     deletableMovements
       .map(m => resolveMovementPayment(house, m))
       .filter(p => p && !isPaymentLinkedToDue(house, p))
       .map(p => Number(p.id))
       .filter(Number.isFinite)
   )];
-  for (const chunk of chunkArray(payIds)) {
-    const { error } = await state.supabase.from('payments')
-      .delete()
-      .eq('house_id', hid)
-      .in('id', chunk);
-    if (error) throw error;
-  }
-  return payIds.length;
 }
 
-async function deleteBankMovementsByIds(house, movementIds) {
-  const ids = movementIds.filter(Number.isFinite);
-  if (!ids.length) return;
-  const hid = Number(house.id);
-  for (const chunk of chunkArray(ids)) {
-    const { error } = await state.supabase.from('bank_movements')
-      .delete()
-      .eq('house_id', hid)
-      .in('id', chunk);
-    if (error) throw error;
+/**
+ * La classificazione di cosa sia cancellabile resta qui perché dipende da
+ * isPaymentLinkedToDue → installments.js. Il server riceve solo gli id già decisi e li
+ * cancella in una transazione, validando che appartengano alla casa.
+ */
+async function deleteMovements(house, movements) {
+  const { deletable, protectedMovements, deletablePayments } = classifyMovementsForDelete(house, movements);
+  if (!deletable.length) {
+    return { deletedMovements: 0, deletedPayments: 0, skippedMovements: protectedMovements.length };
   }
+
+  await request('POST', houseUrl(house.id, '/bank-movements/delete'), {
+    movement_ids: deletable.map(m => Number(m.id)).filter(Number.isFinite),
+    payment_ids: orphanPaymentIds(house, deletable)
+  });
+
+  return {
+    deletedMovements: deletable.length,
+    deletedPayments: deletablePayments,
+    skippedMovements: protectedMovements.length
+  };
 }
 
 export async function deleteBankImportBatch(house, batchId) {
   await ensureAuthenticated();
-  const movements = await fetchBankMovements(house.id, { importBatchId: batchId });
-  const { deletable, protectedMovements, deletablePayments } = classifyMovementsForDelete(house, movements);
-  if (!deletable.length) {
-    return { deletedMovements: 0, deletedPayments: 0, skippedMovements: protectedMovements.length };
-  }
-
-  await deleteOrphanImportPayments(house, deletable);
-  await deleteBankMovementsByIds(house, deletable.map(m => Number(m.id)));
-
-  return {
-    deletedMovements: deletable.length,
-    deletedPayments: deletablePayments,
-    skippedMovements: protectedMovements.length
-  };
+  return deleteMovements(house, await fetchBankMovements(house.id, { importBatchId: batchId }));
 }
 
 export async function deleteAllBankImports(house) {
   await ensureAuthenticated();
-  const movements = await fetchBankMovements(house.id);
-  const { deletable, protectedMovements, deletablePayments } = classifyMovementsForDelete(house, movements);
-  if (!deletable.length) {
-    return { deletedMovements: 0, deletedPayments: 0, skippedMovements: protectedMovements.length };
-  }
-
-  await deleteOrphanImportPayments(house, deletable);
-  await deleteBankMovementsByIds(house, deletable.map(m => Number(m.id)));
-
-  return {
-    deletedMovements: deletable.length,
-    deletedPayments: deletablePayments,
-    skippedMovements: protectedMovements.length
-  };
+  return deleteMovements(house, await fetchBankMovements(house.id));
 }
 
 export async function linkBankMovement(house, movementId, fiscalPeriodId) {
   await ensureAuthenticated();
-  const { data: bm, error: bmErr } = await state.supabase.from('bank_movements').select('*').eq('id', Number(movementId)).single();
-  if (bmErr) throw bmErr;
 
+  // La data del movimento è già nello stato in memoria (render.js disegna la tabella da lì),
+  // quindi l'installment_key si calcola senza un giro aggiuntivo al server.
+  const movement = house.bankMovements?.find(m => String(m.id) === String(movementId));
   let installmentKey = null;
-  for (const d of house.dues.filter(d =>
-    String(d.fiscalPeriodId) === String(fiscalPeriodId) && (d.dueKind || 'preventivo') === 'preventivo'
-  )) {
-    const slot = findInstallmentForDate(house, d, bm.movement_date);
-    if (slot) { installmentKey = slot.key; break; }
+  if (movement?.movementDate) {
+    for (const d of house.dues.filter(d =>
+      String(d.fiscalPeriodId) === String(fiscalPeriodId) && (d.dueKind || 'preventivo') === 'preventivo'
+    )) {
+      const slot = findInstallmentForDate(house, d, movement.movementDate);
+      if (slot) { installmentKey = slot.key; break; }
+    }
   }
-  const { data: pay, error: payErr } = await state.supabase.from('payments').insert({
-    house_id: Number(house.id),
-    fiscal_period_id: Number(fiscalPeriodId),
-    amount: Math.abs(Number(bm.amount)),
-    date: bm.movement_date,
-    method: 'Import Intesa (manuale)',
-    bank_movement_id: bm.id,
-    installment_key: installmentKey
-  }).select().single();
-  if (payErr) throw payErr;
 
-  const { error } = await state.supabase.from('bank_movements').update({
+  await request('POST', houseUrl(house.id, `/bank-movements/${Number(movementId)}/link`), {
     fiscal_period_id: Number(fiscalPeriodId),
-    linked_payment_id: pay.id,
-    status: 'linked'
-  }).eq('id', bm.id);
-  if (error) throw error;
+    installment_key: installmentKey
+  });
 }
 
 export function createLocalDue(formData) {
@@ -701,93 +540,112 @@ export function createLocalPriorBalance(formData) {
   };
 }
 
+/**
+ * Risolve gli esercizi fiscali di un backup senza toccare il server: accumula le specifiche
+ * in una mappa e etichetta ogni figlio con la label del proprio esercizio. Il server poi
+ * traduce label → id dentro un'unica transazione.
+ *
+ * La risoluzione resta qui perché è logica di dominio (periodFromLabel, ensurePeriodPayload,
+ * legacyCalendarPeriod) e dipende dal mese di inizio esercizio della casa.
+ */
+function buildBackupHousePayload(houseData) {
+  const house = {
+    name: houseData.name,
+    location: houseData.location || '',
+    notes: houseData.notes || '',
+    fiscalStartMonth: houseData.fiscalStartMonth ?? 6,
+    importParties: houseData.importParties || [],
+    fiscalPeriods: []
+  };
+
+  const specs = new Map();
+  const addSpec = (spec) => {
+    if (!spec?.label) return null;
+    const label = String(spec.label).trim();
+    if (!specs.has(label)) {
+      specs.set(label, { label, start_date: spec.startDate, end_date: spec.endDate });
+      // Reso visibile a periodFromLabel per le risoluzioni successive.
+      house.fiscalPeriods.push({ id: label, label, startDate: spec.startDate, endDate: spec.endDate });
+    }
+    return label;
+  };
+
+  for (const spec of houseData.fiscalPeriods || []) addSpec(spec);
+
+  const resolveLabel = (item) => {
+    let spec = periodFromLabel(house, item.fiscalPeriodLabel, item._legacyYear);
+    if (!spec && item.date) spec = ensurePeriodPayload(house, item.date);
+    if (!spec && item._legacyYear) spec = legacyCalendarPeriod(Number(item._legacyYear));
+    return addSpec(spec);
+  };
+
+  const dues = [];
+  for (const due of houseData.dues || []) {
+    const label = resolveLabel(due);
+    if (!label) continue;
+    dues.push({
+      fiscal_period_label: label,
+      amount: due.amount,
+      description: due.description || '',
+      split_mode: due.splitMode || 'monthly',
+      split_custom: due.splitCustom || null,
+      split_amounts: due.splitAmounts || null,
+      due_kind: due.dueKind || 'preventivo'
+    });
+  }
+
+  const priorBalances = [];
+  for (const prior of houseData.priorBalances || []) {
+    let label = resolveLabel(prior);
+    if (!label && prior.fiscalPeriodLabel) {
+      label = addSpec(parseFiscalLabel(house, prior.fiscalPeriodLabel));
+    }
+    if (!label) continue;
+    priorBalances.push({
+      fiscal_period_label: label,
+      source_period_label: prior.sourcePeriodLabel
+        ? resolveLabel({ fiscalPeriodLabel: prior.sourcePeriodLabel })
+        : null,
+      amount: prior.amount,
+      description: prior.description || null
+    });
+  }
+
+  const payments = [];
+  for (const payment of houseData.payments || []) {
+    const label = resolveLabel(payment);
+    if (!label) continue;
+    payments.push({
+      fiscal_period_label: label,
+      amount: payment.amount,
+      date: payment.date || null,
+      method: payment.method || '',
+      installment_key: payment.installmentKey || null,
+      is_carry_forward: Boolean(payment.isCarryForward)
+    });
+  }
+
+  return {
+    name: house.name,
+    location: house.location,
+    notes: house.notes,
+    fiscal_start_month: house.fiscalStartMonth,
+    import_parties: serializeImportParties(house.importParties),
+    fiscal_periods: [...specs.values()],
+    dues,
+    prior_balances: priorBalances,
+    payments
+  };
+}
+
+/** Il ripristino è atomico: o entra tutto il backup, o non entra niente. */
 export async function syncBackupToSupabase(backup) {
   await ensureAuthenticated();
 
-  for (const houseData of backup.houses || []) {
-    const house = {
-      id: uid('house'),
-      name: houseData.name,
-      location: houseData.location || '',
-      notes: houseData.notes || '',
-      fiscalStartMonth: houseData.fiscalStartMonth ?? 6,
-      importParties: houseData.importParties || [],
-      fiscalPeriods: [],
-      dues: [],
-      payments: [],
-      priorBalances: [],
-      bankMovements: []
-    };
-    await saveHouseToSupabase(house);
+  const houses = (backup.houses || [])
+    .map(buildBackupHousePayload)
+    .filter(h => h.name);
 
-    for (const spec of houseData.fiscalPeriods || []) {
-      const { period } = await ensureFiscalPeriodBySpec(house, spec);
-      if (period && !house.fiscalPeriods.some(p => p.id === period.id)) house.fiscalPeriods.push(period);
-    }
-
-    const resolvePeriod = async (item) => {
-      let spec = periodFromLabel(house, item.fiscalPeriodLabel, item._legacyYear);
-      if (!spec && item.date) spec = ensurePeriodPayload(house, item.date);
-      if (!spec && item._legacyYear) spec = legacyCalendarPeriod(Number(item._legacyYear));
-      if (!spec) return null;
-      const { period } = await ensureFiscalPeriodBySpec(house, spec);
-      return period;
-    };
-
-    for (const due of houseData.dues || []) {
-      const period = await resolvePeriod(due);
-      if (!period) continue;
-      await state.supabase.from('dues').insert({
-        house_id: Number(house.id),
-        fiscal_period_id: Number(period.id),
-        amount: due.amount,
-        description: due.description || '',
-        split_mode: due.splitMode || 'monthly',
-        split_custom: due.splitCustom || null,
-        split_amounts: due.splitAmounts || null,
-        due_kind: due.dueKind || 'preventivo',
-        carry_from_period_id: due.carryFromPeriodId ? Number(due.carryFromPeriodId) : null
-      });
-    }
-
-    for (const payment of houseData.payments || []) {
-      const period = await resolvePeriod(payment);
-      if (!period) continue;
-      await state.supabase.from('payments').insert({
-        house_id: Number(house.id),
-        fiscal_period_id: Number(period.id),
-        amount: payment.amount,
-        date: payment.date || null,
-        method: payment.method || '',
-        installment_key: payment.installmentKey || null,
-        carry_from_period_id: payment.carryFromPeriodId ? Number(payment.carryFromPeriodId) : null,
-        is_carry_forward: Boolean(payment.isCarryForward)
-      });
-    }
-
-    for (const prior of houseData.priorBalances || []) {
-      let period = await resolvePeriod(prior);
-      if (!period && prior.fiscalPeriodLabel) {
-        const { period: p } = await ensureFiscalPeriodByLabel(house, prior.fiscalPeriodLabel);
-        period = p;
-      }
-      if (!period) continue;
-      let sourcePeriodId = null;
-      if (prior.sourcePeriodLabel) {
-        const src = await resolvePeriod({ fiscalPeriodLabel: prior.sourcePeriodLabel });
-        sourcePeriodId = src?.id ?? null;
-      } else if (prior.sourcePeriodId) {
-        sourcePeriodId = Number(prior.sourcePeriodId);
-      }
-      await state.supabase.from('prior_balances').insert({
-        house_id: Number(house.id),
-        fiscal_period_id: Number(period.id),
-        source_period_id: sourcePeriodId,
-        amount: prior.amount,
-        description: prior.description || null
-      });
-    }
-  }
-
+  if (houses.length) await request('POST', '/api/backup/restore', { houses });
   await loadFromSupabase();
 }

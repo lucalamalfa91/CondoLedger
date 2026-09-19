@@ -1,5 +1,6 @@
 import { STORAGE_KEY } from './config.js';
 import { loadFromSupabase } from './api.js';
+import { request, setUnauthorizedHandler } from './http.js';
 import { state } from './state.js';
 import { toastError } from './toast.js';
 import { clearUrlSearch, sanitizeLocationUrl } from './url-sanitize.js';
@@ -32,12 +33,6 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
   function showAccountPasswordError(message) { showAuthMessage(els.accountPasswordError, message); }
   function showAccountPasswordSuccess(message) { showAuthMessage(els.accountPasswordSuccess, message); }
 
-  function isRecoveryUrl() {
-    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-    const query = new URLSearchParams(window.location.search);
-    return hash.get('type') === 'recovery' || query.get('type') === 'recovery';
-  }
-
   function clearAuthParamsFromUrl() {
     sanitizeLocationUrl();
     clearUrlSearch();
@@ -50,28 +45,25 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
 
   async function applyNewPassword(password, confirm) {
     validatePasswordPair(password, confirm);
-    const { error } = await state.supabase.auth.updateUser({ password });
-    if (error) throw error;
+    await request('POST', '/api/auth/password', { password });
   }
 
   function renderAccountView() {
     els.accountEmail.textContent = state.user?.email || '—';
   }
 
+  /**
+   * Il recupero password via link email non esiste più: non c'è un servizio SMTP e la
+   * reimpostazione si fa da CLI sul server (`npm run set-password`). La schermata resta nel
+   * markup ma non viene mai attivata; il cambio password da Impostazioni → Account continua
+   * a funzionare identico.
+   */
   function showRecoveryUI(show) {
     state.recoveryMode = show;
     els.recoveryScreen.classList.toggle('hidden', !show);
     els.loginScreen.classList.toggle('hidden', show);
     els.appShell.classList.add('hidden');
     document.body.classList.toggle('authenticated', false);
-    if (show) {
-      showRecoveryError('');
-      showRecoverySuccess('');
-      els.recoveryForm.reset();
-      els.recoverySubtitle.textContent = state.user?.email
-        ? `Account: ${state.user.email}`
-        : 'Scegli una password sicura per il tuo account';
-    }
   }
 
   function setLoginLoading(isLoading) {
@@ -114,35 +106,24 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ email: els.loginEmail.value.trim() }));
   }
 
-  async function handleAuthCallbackError() {
-    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-    const query = new URLSearchParams(window.location.search);
-    const errorMessage = hash.get('error_description') || query.get('error_description') || hash.get('error') || query.get('error');
-    if (!errorMessage) return false;
-    showLoginError(decodeURIComponent(errorMessage.replace(/\+/g, ' ')));
-    clearAuthParamsFromUrl();
+  function resetToLoggedOut() {
+    state.user = null;
+    state.recoveryMode = false;
+    state.data = { houses: [] };
+    state.selectedHouseId = null;
     setAuthUI(false);
-    return true;
   }
 
   async function restoreSession() {
-    if (!state.supabase) return false;
-    const { data, error } = await state.supabase.auth.getSession();
-    if (error) throw error;
-    if (data.session?.user) {
-      state.user = data.session.user;
-      if (isRecoveryUrl()) {
-        showRecoveryUI(true);
-        clearAuthParamsFromUrl();
-        return 'recovery';
-      }
+    const data = await request('GET', '/api/auth/session');
+    state.user = data?.user ?? null;
+    if (state.user) {
       setStatus(state.user.email);
       setAuthUI(true);
       await loadHouseData();
       clearAuthParamsFromUrl();
       return true;
     }
-    state.user = null;
     setAuthUI(false);
     return false;
   }
@@ -155,8 +136,8 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
       const email = els.loginEmail.value.trim();
       const password = els.loginPassword.value;
       if (!email || !password) throw new Error('Inserisci email e password');
-      const { data, error } = await state.supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+
+      const data = await request('POST', '/api/auth/login', { email, password });
       state.user = data.user;
       saveStoredConfig();
       els.loginPassword.value = '';
@@ -174,13 +155,10 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
   }
 
   async function logout() {
-    if (!state.supabase) return;
-    await state.supabase.auth.signOut();
-    state.user = null;
-    state.recoveryMode = false;
-    state.data = { houses: [] };
-    state.selectedHouseId = null;
-    setAuthUI(false);
+    try {
+      await request('POST', '/api/auth/logout');
+    } catch { /* la sessione va comunque chiusa lato client */ }
+    resetToLoggedOut();
     showLoginError('');
     render();
   }
@@ -194,9 +172,7 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
       await applyNewPassword(els.recoveryPassword.value, els.recoveryPasswordConfirm.value);
       state.recoveryMode = false;
       clearAuthParamsFromUrl();
-      showRecoverySuccess('Password aggiornata. Accesso in corso...');
-      const { data: sessionData } = await state.supabase.auth.getSession();
-      state.user = sessionData.session?.user || state.user;
+      showRecoverySuccess('Password aggiornata.');
       if (state.user) {
         setStatus(state.user.email);
         setAuthUI(true);
@@ -229,32 +205,16 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
     }
   }
 
-  function scheduleLoadFromSupabase() {
-    queueMicrotask(() => { void loadHouseData().then(render); });
-  }
-
+  /**
+   * Sostituisce supabase.auth.onAuthStateChange. Senza un evento di sessione, la scadenza
+   * si scopre alla prima richiesta che risponde 401: la reazione è la stessa che aveva il
+   * ramo SIGNED_OUT — svuota lo stato e riporta alla schermata di accesso.
+   */
   function bindAuthStateChange() {
-    state.supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        state.user = session?.user ?? null;
-        showRecoveryUI(true);
-        clearAuthParamsFromUrl();
-        return;
-      }
-      if (state.recoveryMode) return;
-      if (event === 'INITIAL_SESSION') return;
-
-      state.user = session?.user ?? null;
-      if (state.user) {
-        setStatus(state.user.email);
-        setAuthUI(true);
-        scheduleLoadFromSupabase();
-      } else {
-        state.data = { houses: [] };
-        state.selectedHouseId = null;
-        setAuthUI(false);
-        render();
-      }
+    setUnauthorizedHandler(() => {
+      if (!state.user) return;
+      resetToLoggedOut();
+      render();
     });
   }
 
@@ -263,7 +223,6 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
     setTheme,
     setAuthUI,
     showRecoveryUI,
-    handleAuthCallbackError,
     restoreSession,
     bindAuthStateChange,
     signIn,

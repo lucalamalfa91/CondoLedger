@@ -69,6 +69,41 @@ function ts(v) {
 export const TABLES = ['houses', 'fiscal_periods', 'dues', 'prior_balances', 'bank_movements', 'payments'];
 
 /**
+ * Rifiuta la chiave pubblica di Supabase.
+ *
+ * È il controllo che vale di più in tutto lo script: con la chiave anon le policy RLS
+ * restano attive e PostgREST risponde 200 con un elenco **vuoto o parziale**, senza alcun
+ * errore. La migrazione sembrerebbe riuscita e finirebbe con zero righe migrate.
+ *
+ * Due formati in circolazione: le chiavi nuove hanno il prefisso `sb_publishable_` /
+ * `sb_secret_`, quelle vecchie sono JWT con il ruolo nel payload.
+ */
+function assertNotAnonKey(key) {
+  const wrong = () => {
+    throw new Error(
+      'La chiave fornita è quella pubblica (anon/publishable), non la service_role.\n' +
+      'Con quella le policy RLS restano attive e Supabase risponderebbe con zero righe\n' +
+      'senza segnalare alcun errore. Serve la chiave segreta: Supabase → Project Settings\n' +
+      '→ API Keys → `service_role` (formato `sb_secret_...`, oppure un JWT legacy).'
+    );
+  };
+
+  if (key.startsWith('sb_publishable_')) wrong();
+
+  // JWT legacy: il payload dichiara il ruolo. Non serve verificarne la firma, solo leggerlo.
+  const parts = key.split('.');
+  if (parts.length === 3) {
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      if (payload.role && payload.role !== 'service_role') wrong();
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('La chiave fornita')) throw err;
+      /* non è un JWT leggibile: lo lasciamo passare, sarà Supabase a rifiutarlo */
+    }
+  }
+}
+
+/**
  * Esegue la migrazione. Ritorna un riepilogo dei conteggi; lancia se qualcosa non torna,
  * senza lasciare scritture a metà (tutto dentro una transazione).
  *
@@ -83,6 +118,7 @@ export async function migrateFromSupabase({ supabaseUrl, serviceKey, db, dryRun 
   if (!supabaseUrl || !serviceKey) {
     throw new Error('Servono SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.');
   }
+  assertNotAnonKey(serviceKey);
 
   const ctx = {
     supabaseUrl: supabaseUrl.replace(/\/+$/, ''),

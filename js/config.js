@@ -10,76 +10,75 @@ export const JSON_SCHEMA_VERSION = 5;
 export const MATCH_THRESHOLD_SUGGEST = 0.88;
 export const MATCH_THRESHOLD_MIN = 0.50;
 
-/** Legacy view IDs → [view, defaultSubview] */
+/**
+ * Rotte vecchie → nuove. La v3 riorganizza l'app in quattro sezioni (Panoramica,
+ * Pagamenti, Resoconti, Impostazioni): qui restano mappate tutte le rotte che gli
+ * utenti possono avere nei segnalibri, comprese quelle delle versioni precedenti.
+ */
 export const VIEW_ALIASES = {
   dashboard: ['panoramica', null],
-  annualita: ['registra', 'dovuti'],
-  versamenti: ['registra', 'versamenti'],
-  importbanca: ['importa', 'import-banca'],
+  annualita: ['resoconti', 'preventivo'],
+  dovuti: ['resoconti', 'preventivo'],
+  versamenti: ['pagamenti', 'registra'],
+  registra: ['pagamenti', 'registra'],
+  importa: ['pagamenti', 'importa'],
+  importbanca: ['pagamenti', 'importa'],
+  situazione: ['resoconti', 'anno'],
   archivio: ['impostazioni', 'backup'],
   immobile: ['impostazioni', 'casa'],
   account: ['impostazioni', 'account']
 };
 
-/**
- * La vecchia vista unica "movimenti" (6 sotto-schede) è stata divisa in
- * Registra / Importa / Situazione. Mappa ogni vecchia sotto-scheda (incluse
- * le forme legacy già alias-ate) alla nuova coppia [view, subview].
- */
+/** Vecchie sotto-schede della vista unica «movimenti». */
 const MOVIMENTI_SUBVIEW_MAP = {
-  dovuti: ['registra', 'dovuti'],
-  versamenti: ['registra', 'versamenti'],
-  'saldi-precedenti': ['registra', 'apertura-esercizio'],
-  // L'import da documento non esiste più: le sue vecchie rotte restano mappate su "Da
-  // banca" invece di essere cancellate, altrimenti i segnalibri salvati dagli utenti
-  // finirebbero su una sotto-vista inesistente.
-  'import-doc': ['importa', 'import-banca'],
-  import: ['importa', 'import-banca'],
-  documento: ['importa', 'import-banca'],
-  'import-banca': ['importa', 'import-banca'],
-  importbanca: ['importa', 'import-banca'],
-  banca: ['importa', 'import-banca'],
-  situazione: ['situazione', 'rendiconto']
+  dovuti: ['resoconti', 'preventivo'],
+  versamenti: ['pagamenti', 'registra'],
+  'saldi-precedenti': ['resoconti', 'anno'],
+  'apertura-esercizio': ['resoconti', 'anno'],
+  'import-doc': ['pagamenti', 'importa'],
+  import: ['pagamenti', 'importa'],
+  documento: ['pagamenti', 'importa'],
+  'import-banca': ['pagamenti', 'importa'],
+  importbanca: ['pagamenti', 'importa'],
+  banca: ['pagamenti', 'importa'],
+  situazione: ['resoconti', 'anno'],
+  registro: ['resoconti', 'anno'],
+  rendiconto: ['resoconti', 'anno']
 };
 
-/** Legacy subview IDs per view → nuova subview */
+/** Sotto-schede vecchie dentro una vista che esiste ancora. */
 const SUBVIEW_ALIASES = {
-  impostazioni: {
-    avanzate: 'backup'
-  }
+  impostazioni: { avanzate: 'backup' },
+  pagamenti: { versamenti: 'registra', 'import-banca': 'importa', rendiconto: 'da-pagare' },
+  resoconti: { rendiconto: 'anno', registro: 'anno', dovuti: 'preventivo', 'apertura-esercizio': 'anno' }
 };
 
 export const viewMeta = {
   panoramica: {
     title: 'Panoramica',
-    subtitle: 'La tua situazione, casa per casa',
+    subtitle: 'Quello che devi pagare e come sta andando l\u2019anno',
     defaultSubview: null
   },
-  registra: {
-    title: 'Registra',
-    subtitle: 'Pagamenti, preventivo, conguaglio e saldo iniziale',
-    defaultSubview: 'versamenti',
+  pagamenti: {
+    title: 'Pagamenti',
+    subtitle: 'Rate, conguagli e straordinari',
+    defaultSubview: 'da-pagare',
     subviews: {
-      versamenti: ['Registra', 'Un pagamento versato al condominio'],
-      dovuti: ['Registra', 'Il preventivo dell’anno o il conguaglio del consuntivo'],
-      'apertura-esercizio': ['Registra', 'Il saldo iniziale che arriva dall’anno prima']
+      'da-pagare': ['Pagamenti', 'Quello che devi pagare'],
+      pagati: ['Pagamenti', 'Quello che hai gi\u00e0 pagato'],
+      registra: ['Registra pagamento', 'Segna quello che hai versato al condominio'],
+      importa: ['Importa estratto conto', 'I bonifici al condominio, abbinati alle rate']
     }
   },
-  importa: {
-    title: 'Importa estratto conto',
-    subtitle: 'I bonifici al condominio, abbinati alle rate',
-    defaultSubview: 'import-banca',
+  resoconti: {
+    title: 'Resoconti',
+    subtitle: 'Cosa devi, cosa hai pagato e per quale voce, anno per anno',
+    defaultSubview: 'anno',
     subviews: {
-      'import-banca': ['Importa estratto conto', 'Export «Lista operazioni» di Banca Intesa']
-    }
-  },
-  situazione: {
-    title: 'Movimenti',
-    subtitle: 'Saldi e registro dell’anno condominiale',
-    defaultSubview: 'rendiconto',
-    subviews: {
-      rendiconto: ['Movimenti', 'Riepilogo dell’anno condominiale'],
-      registro: ['Movimenti', 'Tutto quello che hai registrato']
+      anno: ['Resoconti', 'Anno per anno, voce per voce'],
+      preventivo: ['Aggiungi il preventivo', 'La quota dell\u2019anno e le sue rate'],
+      consuntivo: ['Aggiungi il consuntivo', 'Quanto hai speso davvero, e il conguaglio'],
+      rate: ['Rate personalizzate', 'Per ogni rata: mese, anno e cosa contiene']
     }
   },
   impostazioni: {

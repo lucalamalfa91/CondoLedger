@@ -176,6 +176,7 @@ export async function saveDueToSupabase(house, due) {
     split_custom: due.splitMode === 'custom' && Array.isArray(due.splitCustom) ? due.splitCustom : null,
     split_amounts: Array.isArray(due.splitAmounts) && due.splitAmounts.length ? due.splitAmounts : null,
     due_kind: due.dueKind || 'preventivo',
+    voice: due.voice || null,
     carry_from_period_id: due.carryFromPeriodId ? Number(due.carryFromPeriodId) : null
   };
 
@@ -257,6 +258,7 @@ export async function savePaymentToSupabase(house, payment) {
     amount: payment.amount,
     date: payment.date,
     method: payment.method,
+    note: payment.note || null,
     installment_key: payment.installmentKey || null,
     prior_balance_id: payment.priorBalanceId ? Number(payment.priorBalanceId) : null,
     carry_from_period_id: null,
@@ -524,6 +526,7 @@ export function createLocalPayment(formData, fiscalPeriodId, installmentKey, pri
     amount: Number(formData.get('amount')),
     date: String(formData.get('date') || today),
     method: String(formData.get('method') || '').trim(),
+    note: String(formData.get('note') || '').trim(),
     isCarryForward: false,
     carryFromPeriodId: null
   };
@@ -590,7 +593,8 @@ function buildBackupHousePayload(houseData) {
       split_mode: due.splitMode || 'monthly',
       split_custom: due.splitCustom || null,
       split_amounts: due.splitAmounts || null,
-      due_kind: due.dueKind || 'preventivo'
+      due_kind: due.dueKind || 'preventivo',
+      voice: due.voice || null
     });
   }
 
@@ -620,6 +624,7 @@ function buildBackupHousePayload(houseData) {
       amount: payment.amount,
       date: payment.date || null,
       method: payment.method || '',
+      note: payment.note || null,
       installment_key: payment.installmentKey || null,
       is_carry_forward: Boolean(payment.isCarryForward)
     });

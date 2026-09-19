@@ -8,7 +8,9 @@ import {
   priorBalanceSourceLabel,
   computeSituazioneTotals
 } from './situazione-report.js';
-import { installmentShortLabel, inferInstallmentKey } from './installments.js';
+import { installmentShortLabel, inferInstallmentKey, installmentSummaryForPeriod } from './installments.js';
+import { sumOrdinarioDue, sumStraordinariDue } from './fiscal.js';
+import { VOCI, VOCI_RATA } from './voci.js';
 import { pdfFmt, pdfStr } from './utils.js';
 
 async function loadPdfLibs() {
@@ -134,6 +136,118 @@ function renderVociEsercizioPdf(doc, autoTable, report, startY) {
   return doc.lastAutoTable.finalY + 10;
 }
 
+/**
+ * «Rate e cosa contengono»: per ogni rata quanto è ordinario, quanto conguaglio e
+ * quanto straordinari, con i totali in fondo. È il cuore del resoconto da stampare:
+ * è la tabella che si mette a fianco del riparto dell'amministratore per verificarlo.
+ */
+function renderRatePlanPdf(doc, autoTable, house, report, startY) {
+  const { slots } = installmentSummaryForPeriod(house, report.period.id);
+  if (!slots.length) return startY;
+
+  const y = addSectionTitle(doc, startY, 'Rate e cosa contengono');
+  const totals = { ordinario: 0, conguaglio: 0, straordinari: 0, tot: 0 };
+  const paid = { ordinario: 0, conguaglio: 0, straordinari: 0, tot: 0 };
+
+  const body = slots.map((slot, i) => {
+    const parts = slot.parts || {};
+    const covered = slot.paid >= slot.amountDue - 0.01;
+    for (const voice of VOCI_RATA) {
+      const value = Number(parts[voice] || 0);
+      totals[voice] += value;
+      // Una rata pagata copre tutte le sue voci: non si paga mezza rata per voce.
+      if (covered) paid[voice] += value;
+    }
+    totals.tot += slot.amountDue;
+    paid.tot += slot.paid;
+    const stato = covered
+      ? 'pagata'
+      : (slot.paid > 0.005 ? `parziale ${pdfFmt(slot.paid)}` : (slot.periodEnd < todayIso() ? 'scaduta' : 'da pagare'));
+    return [
+      cell(`Rata ${i + 1}`),
+      cell(slot.periodEnd),
+      cell(amountOrDash(parts.ordinario)),
+      cell(amountOrDash(parts.conguaglio)),
+      cell(amountOrDash(parts.straordinari)),
+      cell(pdfFmt(slot.amountDue)),
+      cell(stato)
+    ];
+  });
+
+  body.push([
+    cell('Totale'), '',
+    cell(pdfFmt(totals.ordinario)), cell(pdfFmt(totals.conguaglio)), cell(pdfFmt(totals.straordinari)),
+    cell(pdfFmt(totals.tot)), ''
+  ]);
+  body.push([
+    cell('Pagato'), '',
+    cell(pdfFmt(paid.ordinario)), cell(pdfFmt(paid.conguaglio)), cell(pdfFmt(paid.straordinari)),
+    cell(pdfFmt(paid.tot)), ''
+  ]);
+  body.push([
+    cell('Da pagare'), '',
+    cell(pdfFmt(totals.ordinario - paid.ordinario)),
+    cell(pdfFmt(totals.conguaglio - paid.conguaglio)),
+    cell(pdfFmt(totals.straordinari - paid.straordinari)),
+    cell(pdfFmt(totals.tot - paid.tot)), ''
+  ]);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Rata', 'Scadenza', 'P Ordinario', '+/- Conguaglio', 'S Straordinari', 'Totale', 'Stato']].map(row => row.map(cell)),
+    body,
+    ...PDF_TABLE,
+    headStyles: { ...PDF_TABLE.headStyles, fillColor: [45, 85, 135] },
+    columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+    didParseCell: data => {
+      if (data.section === 'body' && data.row.index >= body.length - 3) data.cell.styles.fontStyle = 'bold';
+    }
+  });
+  return doc.lastAutoTable.finalY + 10;
+}
+
+/** Il riepilogo per voce che apre il resoconto: P, +/-, S e il totale dell'anno. */
+function renderVociSummaryPdf(doc, autoTable, house, report, startY) {
+  const periodId = report.period.id;
+  const amounts = {
+    ordinario: sumOrdinarioDue(house, periodId),
+    conguaglio: Number(report.priorAmount || 0),
+    straordinari: sumStraordinariDue(house, periodId)
+  };
+  const rows = VOCI_RATA
+    .filter(voice => Math.abs(amounts[voice]) > 0.005)
+    .map(voice => [cell(`${VOCI[voice].badge === '±' ? '+/-' : VOCI[voice].badge} ${VOCI[voice].label}`), cell(pdfFmt(amounts[voice]))]);
+  if (!rows.length) return startY;
+
+  const y = addSectionTitle(doc, startY, 'Riepilogo per voce');
+  const totale = VOCI_RATA.reduce((sum, voice) => sum + amounts[voice], 0);
+  rows.push([cell("Totale previsto dell'anno"), cell(pdfFmt(totale))]);
+  // Col consuntivo l'ordinario previsto lascia il posto alla spesa accertata: le due
+  // cifre convivono nella stessa tabella, altrimenti i totali più sotto non si spiegano.
+  const consuntivo = report.consuntivoTotal ?? 0;
+  if (consuntivo > 0.005) {
+    rows.push([cell('C Consuntivo (al posto di P Ordinario)'), cell(pdfFmt(consuntivo))]);
+    rows.push([cell("Totale effettivo dell'anno"), cell(pdfFmt(consuntivo + amounts.conguaglio + amounts.straordinari))]);
+  }
+  autoTable(doc, {
+    startY: y,
+    head: [['Voce', 'Importo']].map(row => row.map(cell)),
+    body: rows,
+    ...PDF_TABLE,
+    headStyles: { ...PDF_TABLE.headStyles, fillColor: [80, 80, 80] },
+    columnStyles: { 1: { halign: 'right' } }
+  });
+  return doc.lastAutoTable.finalY + 10;
+}
+
+function amountOrDash(value) {
+  return Math.abs(Number(value || 0)) > 0.005 ? pdfFmt(value) : '-';
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function renderRateDetailPdf(doc, autoTable, house, report, startY) {
   const payments = report.exercisePayments || [];
   if (!payments.length) return startY;
@@ -175,8 +289,10 @@ function renderSituazionePdf(doc, autoTable, report, totalsRow, house) {
   });
   y = doc.lastAutoTable.finalY + 10;
 
+  y = renderVociSummaryPdf(doc, autoTable, house, report, y);
   y = renderPriorBalancePdfSection(doc, autoTable, house, report, y);
   y = renderVociEsercizioPdf(doc, autoTable, report, y);
+  y = renderRatePlanPdf(doc, autoTable, house, report, y);
   y = renderRateDetailPdf(doc, autoTable, house, report, y);
 
   if (report.carryDues.length) {

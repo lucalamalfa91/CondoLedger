@@ -23,6 +23,8 @@ export function exportBackup(data) {
         splitMode: d.splitMode || 'monthly',
         splitCustom: d.splitCustom || null,
         dueKind: d.dueKind || 'preventivo',
+        voice: d.voice || null,
+        splitAmounts: d.splitAmounts || null,
         carryFromPeriodId: d.carryFromPeriodId || null,
         fiscalPeriodLabel: resolvePeriodLabel(house, d.fiscalPeriodId)
       })),
@@ -30,6 +32,7 @@ export function exportBackup(data) {
         amount: p.amount,
         date: p.date || '',
         method: p.method || '',
+        note: p.note || '',
         installmentKey: p.installmentKey || null,
         carryFromPeriodId: p.carryFromPeriodId || null,
         isCarryForward: Boolean(p.isCarryForward),
@@ -96,10 +99,12 @@ function migrateV2ToV3(raw) {
         splitMode: d.splitMode || 'monthly',
         splitCustom: d.splitCustom ?? null,
         dueKind: d.dueKind || 'preventivo',
+        voice: d.voice ?? null,
         carryFromPeriodId: d.carryFromPeriodId ?? null
       })),
       payments: (h.payments || []).map(p => ({
         ...p,
+        note: p.note ?? '',
         installmentKey: p.installmentKey ?? null,
         carryFromPeriodId: p.carryFromPeriodId ?? null,
         isCarryForward: Boolean(p.isCarryForward)

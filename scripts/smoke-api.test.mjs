@@ -190,12 +190,16 @@ describe('CondoLedger API', () => {
       fiscal_period_id: periodId,
       amount: 100.555,
       date: '2025-07-01',
-      method: 'Bonifico'
+      method: 'Bonifico',
+      note: 'CRO 12345'
     });
     assert.equal(created.status, 201);
 
     const tree = await client.request('GET', `/api/houses/${houseId}`);
     assert.equal(tree.body.payments.length, 1);
+    // La nota è una colonna aggiunta dopo lo schema consolidato: se la ALTER all'avvio
+    // non partisse, qui arriverebbe undefined.
+    assert.equal(tree.body.payments[0].note, 'CRO 12345');
     // Arrotondamento a 2 decimali, come faceva il cast a numeric(12,2).
     assert.equal(tree.body.payments[0].amount, 100.56);
     assert.equal(tree.body.payments[0].is_carry_forward, 0);

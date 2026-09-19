@@ -77,8 +77,8 @@ backupRouter.post(
           if (!pid) continue; // come oggi: senza esercizio risolvibile la riga si salta
           await tx.prepare(
             `INSERT INTO dues (house_id, fiscal_period_id, amount, description, split_mode,
-                               split_custom, split_amounts, due_kind)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+                               split_custom, split_amounts, due_kind, voice)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).run(
             houseId,
             pid,
@@ -87,7 +87,8 @@ backupRouter.post(
             d.split_mode || 'monthly',
             toJsonColumn(d.split_custom ?? null),
             toJsonColumn(d.split_amounts ?? null),
-            d.due_kind || 'preventivo'
+            d.due_kind || 'preventivo',
+            d.voice || null
           );
           createdDues += 1;
         }
@@ -124,15 +125,16 @@ backupRouter.post(
           const pid = periodId(p.fiscal_period_label);
           if (!pid) continue;
           await tx.prepare(
-            `INSERT INTO payments (house_id, fiscal_period_id, amount, date, method,
+            `INSERT INTO payments (house_id, fiscal_period_id, amount, date, method, note,
                                    installment_key, prior_balance_id, is_carry_forward)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).run(
             houseId,
             pid,
             money(p.amount),
             p.date || null,
             p.method ?? '',
+            p.note || null,
             p.installment_key || null,
             p.prior_balance_label
               ? (priorBalanceIdByLabel.get(String(p.prior_balance_label).trim()) ?? null)

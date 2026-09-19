@@ -1,4 +1,5 @@
 import { isPreventivoDue, periodLabel } from './fiscal.js';
+import { isOrdinarioDue, isStraordinarioDue, VOCI_RATA } from './voci.js';
 import { pad2 } from './utils.js';
 
 export const SPLIT_MODES = {
@@ -43,26 +44,49 @@ function slotMonthOffsets(due) {
   return Array.from({ length: 12 }, (_, i) => i);
 }
 
+/** Le tre voci di una rata; una riga vecchia, senza voci, è tutta ordinario. */
+export function splitRowParts(row) {
+  const parts = {};
+  let hasVoices = false;
+  for (const voice of VOCI_RATA) {
+    const value = Number(row?.[voice]);
+    parts[voice] = Number.isFinite(value) ? Math.round(value * 100) / 100 : 0;
+    if (Number.isFinite(value) && value !== 0) hasVoices = true;
+  }
+  if (!hasVoices) {
+    const amount = Number(row?.amount);
+    if (Number.isFinite(amount)) parts.ordinario = Math.round(amount * 100) / 100;
+  }
+  return parts;
+}
+
+export function partsTotal(parts) {
+  return Math.round(VOCI_RATA.reduce((sum, voice) => sum + Number(parts?.[voice] || 0), 0) * 100) / 100;
+}
+
 function normalizeSplitAmounts(due) {
   if (!Array.isArray(due.splitAmounts) || !due.splitAmounts.length) return null;
   return due.splitAmounts
     .map((row, slotIndex) => {
       const periodStart = String(row.periodStart || row.period_start || '').slice(0, 10);
       if (!periodStart) return null;
-      const amount = Number(row.amount);
+      const parts = splitRowParts(row);
+      const amount = partsTotal(parts);
       if (!Number.isFinite(amount)) return null;
       const periodEnd = row.periodEnd || row.period_end
         ? String(row.periodEnd || row.period_end).slice(0, 10)
         : monthEnd(periodStart);
       const monthNum = Number(periodStart.slice(5, 7));
       const label = row.label || `${MONTH_NAMES[monthNum - 1]} ${periodStart.slice(0, 4)}`;
-      return { periodStart, periodEnd, amount, label, slotIndex };
+      return { periodStart, periodEnd, amount, parts, label, slotIndex };
     })
     .filter(Boolean);
 }
 
 export function listInstallmentsForDue(house, due) {
-  if (!isPreventivoDue(due)) return [];
+  // Gli straordinari non hanno rate proprie: il loro importo sta dentro il piano
+  // rate dell'ordinario, nella colonna S.
+  if (!isPreventivoDue(due) || isStraordinarioDue(due)) return [];
   const period = house.fiscalPeriods.find(p => p.id === due.fiscalPeriodId);
   if (!period?.startDate) return [];
 
@@ -77,6 +101,7 @@ export function listInstallmentsForDue(house, due) {
       periodStart: row.periodStart,
       periodEnd: row.periodEnd,
       amountDue: row.amount,
+      parts: row.parts,
       dueDescription: due.description || ''
     }));
   }
@@ -104,18 +129,28 @@ export function listInstallmentsForDue(house, due) {
       periodStart,
       periodEnd,
       amountDue,
+      parts: { ordinario: amountDue, conguaglio: 0, straordinari: 0 },
       dueDescription: due.description || ''
     };
   });
 }
 
 export function listInstallmentsForPeriod(house, fiscalPeriodId) {
-  const dues = house.dues.filter(d => d.fiscalPeriodId === fiscalPeriodId && isPreventivoDue(d));
+  const dues = house.dues.filter(d => d.fiscalPeriodId === fiscalPeriodId && isOrdinarioDue(d));
   return dues.flatMap(d => listInstallmentsForDue(house, d));
 }
 
+/** Il dovuto ordinario dell'anno: è lui a portare il piano rate. */
+export function ordinarioDueForPeriod(house, fiscalPeriodId) {
+  return house.dues.find(d => String(d.fiscalPeriodId) === String(fiscalPeriodId) && isOrdinarioDue(d)) || null;
+}
+
+export function straordinariDuesForPeriod(house, fiscalPeriodId) {
+  return house.dues.filter(d => String(d.fiscalPeriodId) === String(fiscalPeriodId) && isStraordinarioDue(d));
+}
+
 export function listAllInstallments(house) {
-  return house.dues.filter(isPreventivoDue).flatMap(d => listInstallmentsForDue(house, d));
+  return house.dues.filter(isOrdinarioDue).flatMap(d => listInstallmentsForDue(house, d));
 }
 
 export function findInstallment(house, key) {
@@ -173,6 +208,7 @@ export function installmentSummaryForPeriod(house, fiscalPeriodId) {
   const slots = listInstallmentsForPeriod(house, fiscalPeriodId);
   const consuntivoDues = house.dues.filter(d => d.fiscalPeriodId === fiscalPeriodId && d.dueKind === 'consuntivo');
   const preventivoDues = house.dues.filter(d => d.fiscalPeriodId === fiscalPeriodId && isPreventivoDue(d));
+  const straordinariDues = straordinariDuesForPeriod(house, fiscalPeriodId);
   const consuntivoTotal = consuntivoDues.reduce((s, d) => s + Number(d.amount || 0), 0);
   const paidByKey = new Map();
   for (const p of house.payments.filter(x => x.fiscalPeriodId === fiscalPeriodId)) {
@@ -192,5 +228,5 @@ export function installmentSummaryForPeriod(house, fiscalPeriodId) {
       })
     };
   });
-  return { slots: rows, consuntivoTotal, consuntivoDues, preventivoDues };
+  return { slots: rows, consuntivoTotal, consuntivoDues, preventivoDues, straordinariDues };
 }

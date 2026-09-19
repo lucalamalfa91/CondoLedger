@@ -1,4 +1,11 @@
-export const currency = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' });
+/**
+ * Gli importi si scrivono col simbolo davanti — «€ 2.400,00» — come nel disegno e
+ * come li scrive l'amministratore nei riparti: l'occhio trova prima la valuta e poi
+ * la cifra, e le colonne di numeri restano allineate sulla virgola.
+ */
+export const currency = new Intl.NumberFormat('it-IT', {
+  style: 'currency', currency: 'EUR', currencyDisplay: 'symbol'
+});
 export const today = new Date().toISOString().slice(0, 10);
 
 export function uid(prefix = 'id') {
@@ -6,7 +13,9 @@ export function uid(prefix = 'id') {
 }
 
 export function fmt(v) {
-  return currency.format(Number(v || 0));
+  const n = Number(v || 0);
+  const body = Math.abs(n).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${n < 0 ? '-' : ''}\u20ac\u00a0${body}`;
 }
 
 /** Importi ASCII per jsPDF (Helvetica non supporta bene EUR/Unicode). */

@@ -161,10 +161,10 @@
 
       <!-- ─────────────────────────── PANORAMICA ─────────────────────────── -->
       <section class="view active" data-view-panel="panoramica">
-        <div class="page-toolbar">
-          <div class="page-toolbar-meta">
-            <strong id="currentHouseTitle">Nessuna casa selezionata</strong>
-            <span class="muted" id="currentHouseMeta">Aggiungi un immobile dal menu in alto o da Impostazioni.</span>
+        <header class="page-head">
+          <div class="page-head-titles">
+            <h1 class="page-title" data-page-title>Panoramica</h1>
+            <p class="page-sub" id="currentHouseMeta" data-page-sub-house>Aggiungi un immobile dal menu in alto o da Impostazioni.</p>
           </div>
           <div class="toolbar">
             <select id="periodFilter" class="chip-select" aria-label="Anno condominiale"><option value="all">Anno in corso</option></select>
@@ -173,7 +173,7 @@
               Registra pagamento
             </button>
           </div>
-        </div>
+        </header>
 
         <div class="grid-5">
           <section class="panel span-3" id="panoramicaDue" aria-label="Da pagare"></section>
@@ -196,7 +196,11 @@
 
       <!-- ─────────────────────────── PAGAMENTI ─────────────────────────── -->
       <section class="view" data-view-panel="pagamenti">
-        <div class="page-toolbar page-toolbar--actions" data-show-subview="da-pagare pagati">
+        <header class="page-head" data-show-subview="da-pagare pagati">
+          <div class="page-head-titles">
+            <h1 class="page-title" data-page-title>Pagamenti</h1>
+            <p class="page-sub" data-page-sub></p>
+          </div>
           <div class="toolbar">
             <button class="btn btn-secondary" type="button" data-nav-target="pagamenti" data-nav-subview="importa">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9.5 9-6 9 6"/><path d="M5 10v8"/><path d="M9.7 10v8"/><path d="M14.3 10v8"/><path d="M19 10v8"/><path d="M3 21h18"/></svg>
@@ -207,7 +211,7 @@
               Registra pagamento
             </button>
           </div>
-        </div>
+        </header>
 
         <nav class="seg" role="tablist" aria-label="Mostra" data-show-subview="da-pagare pagati">
           <button class="seg-btn active" type="button" role="tab" data-view="pagamenti" data-subview="da-pagare" aria-selected="true">Da pagare <span class="seg-count" id="countDaPagare">0</span></button>
@@ -222,15 +226,10 @@
         </div>
 
         <div class="subview" data-subview-panel="pagati" role="tabpanel">
-          <div class="page-toolbar">
-            <div class="page-toolbar-meta">
-              <strong>Pagamenti registrati</strong>
-              <span class="muted" id="paymentsSummary" aria-live="polite"></span>
-            </div>
-            <div class="toolbar">
-              <label for="paymentFilterPeriod" class="sr-only">Anno condominiale</label>
-              <select id="paymentFilterPeriod" class="chip-select"><option value="">Tutti gli anni</option></select>
-            </div>
+          <div class="list-head">
+            <span class="muted" id="paymentsSummary" aria-live="polite"></span>
+            <label for="paymentFilterPeriod" class="sr-only">Anno condominiale</label>
+            <select id="paymentFilterPeriod" class="chip-select"><option value="">Tutti gli anni</option></select>
           </div>
           <div class="stack-single" id="paymentsTable"></div>
         </div>
@@ -240,6 +239,12 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg>
             Pagamenti
           </button>
+          <div class="doc-head">
+            <div class="page-head-titles">
+              <h1 class="page-title">Registra pagamento</h1>
+              <p class="page-sub">Segna quello che hai versato al condominio.</p>
+            </div>
+          </div>
           <div id="postImportBanner" class="post-import-banner hidden" role="status"></div>
           <div class="registra-layout">
             <form id="paymentForm" class="card stack registra-form">
@@ -344,6 +349,12 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg>
             Pagamenti
           </button>
+          <div class="doc-head">
+            <div class="page-head-titles">
+              <h1 class="page-title">Importa estratto conto</h1>
+              <p class="page-sub">Carichi il file della banca e l’app abbina i bonifici alle rate.</p>
+            </div>
+          </div>
           <ol class="import-stepper" aria-label="Passaggi dell'import">
             <li class="import-step active"><span>1</span> Carica il file</li>
             <li class="import-step"><span>2</span> Controlla</li>
@@ -388,14 +399,18 @@
 
       <!-- ─────────────────────────── RESOCONTI ─────────────────────────── -->
       <section class="view" data-view-panel="resoconti">
-        <div class="page-toolbar page-toolbar--actions" data-show-subview="anno">
+        <header class="page-head" data-show-subview="anno">
+          <div class="page-head-titles">
+            <h1 class="page-title" data-page-title>Resoconti</h1>
+            <p class="page-sub" data-page-sub></p>
+          </div>
           <div class="toolbar">
             <label for="situazionePeriod" class="sr-only">Anno condominiale</label>
             <select id="situazionePeriod" class="chip-select"></select>
             <button class="btn btn-secondary" type="button" id="situazionePdfBtn">Esporta PDF</button>
             <button class="btn btn-primary" type="button" data-nav-target="resoconti" data-nav-subview="preventivo">Aggiungi preventivo o consuntivo</button>
           </div>
-        </div>
+        </header>
 
         <div class="subview active" data-subview-panel="anno" role="tabpanel">
           <section class="panel panel--flush" id="resocontiYears" aria-label="Anno per anno"></section>
@@ -416,14 +431,14 @@
             Resoconti
           </button>
           <div class="doc-head">
-            <div class="page-toolbar-meta">
-              <strong class="doc-title" id="dueFormTitle">Aggiungi il preventivo</strong>
-              <span class="muted" id="dueFormPeriodLine"></span>
+            <div class="page-head-titles">
+              <h1 class="page-title" id="dueFormTitle">Aggiungi il preventivo</h1>
+              <p class="page-sub" id="dueFormPeriodLine"></p>
             </div>
             <nav class="seg" aria-label="Tipo di documento">
-              <button class="seg-btn active" type="button" data-view="resoconti" data-subview="preventivo" data-due-voice="ordinario" aria-selected="true"><span class="voce-badge voce-badge--sm voce--ordinario" aria-hidden="true">P</span> Preventivo</button>
-              <button class="seg-btn" type="button" data-view="resoconti" data-subview="preventivo" data-due-voice="straordinario" aria-selected="false"><span class="voce-badge voce-badge--sm voce--straordinari" aria-hidden="true">S</span> Straordinario</button>
-              <button class="seg-btn" type="button" data-view="resoconti" data-subview="consuntivo" aria-selected="false"><span class="voce-badge voce-badge--sm voce--consuntivo" aria-hidden="true">C</span> Consuntivo</button>
+              <button class="seg-btn active" type="button" data-view="resoconti" data-subview="preventivo" data-due-voice="ordinario" aria-selected="true"><span class="voce-badge voce-badge--xs voce--ordinario" aria-hidden="true">P</span> Preventivo</button>
+              <button class="seg-btn" type="button" data-view="resoconti" data-subview="preventivo" data-due-voice="straordinario" aria-selected="false"><span class="voce-badge voce-badge--xs voce--straordinari" aria-hidden="true">S</span> Straordinario</button>
+              <button class="seg-btn" type="button" data-view="resoconti" data-subview="consuntivo" aria-selected="false"><span class="voce-badge voce-badge--xs voce--consuntivo" aria-hidden="true">C</span> Consuntivo</button>
             </nav>
           </div>
 
@@ -509,14 +524,14 @@
             Resoconti
           </button>
           <div class="doc-head">
-            <div class="page-toolbar-meta">
-              <strong class="doc-title">Aggiungi il consuntivo</strong>
-              <span class="muted" id="consFormPeriodLine"></span>
+            <div class="page-head-titles">
+              <h1 class="page-title">Aggiungi il consuntivo</h1>
+              <p class="page-sub" id="consFormPeriodLine"></p>
             </div>
             <nav class="seg" aria-label="Tipo di documento">
-              <button class="seg-btn" type="button" data-view="resoconti" data-subview="preventivo" data-due-voice="ordinario" aria-selected="false"><span class="voce-badge voce-badge--sm voce--ordinario" aria-hidden="true">P</span> Preventivo</button>
-              <button class="seg-btn" type="button" data-view="resoconti" data-subview="preventivo" data-due-voice="straordinario" aria-selected="false"><span class="voce-badge voce-badge--sm voce--straordinari" aria-hidden="true">S</span> Straordinario</button>
-              <button class="seg-btn active" type="button" data-view="resoconti" data-subview="consuntivo" aria-selected="true"><span class="voce-badge voce-badge--sm voce--consuntivo" aria-hidden="true">C</span> Consuntivo</button>
+              <button class="seg-btn" type="button" data-view="resoconti" data-subview="preventivo" data-due-voice="ordinario" aria-selected="false"><span class="voce-badge voce-badge--xs voce--ordinario" aria-hidden="true">P</span> Preventivo</button>
+              <button class="seg-btn" type="button" data-view="resoconti" data-subview="preventivo" data-due-voice="straordinario" aria-selected="false"><span class="voce-badge voce-badge--xs voce--straordinari" aria-hidden="true">S</span> Straordinario</button>
+              <button class="seg-btn active" type="button" data-view="resoconti" data-subview="consuntivo" aria-selected="true"><span class="voce-badge voce-badge--xs voce--consuntivo" aria-hidden="true">C</span> Consuntivo</button>
             </nav>
           </div>
 
@@ -578,9 +593,9 @@
             Aggiungi il preventivo
           </button>
           <div class="doc-head">
-            <div class="page-toolbar-meta">
-              <strong class="doc-title">Rate personalizzate</strong>
-              <span class="muted" id="ratePlanPeriodLine">Per ogni rata scegli mese, anno e cosa contiene.</span>
+            <div class="page-head-titles">
+              <h1 class="page-title">Rate personalizzate</h1>
+              <p class="page-sub" id="ratePlanPeriodLine">Per ogni rata scegli mese, anno e cosa contiene.</p>
             </div>
             <div class="toolbar">
               <label for="ratePlanPeriod" class="sr-only">Anno condominiale</label>
@@ -617,6 +632,12 @@
         </div>
       </section>
       <section class="view" data-view-panel="impostazioni">
+        <header class="page-head">
+          <div class="page-head-titles">
+            <h1 class="page-title" data-page-title>Impostazioni</h1>
+            <p class="page-sub" data-page-sub></p>
+          </div>
+        </header>
         <nav class="sub-nav" role="tablist" aria-label="Sezioni impostazioni">
           <button class="sub-nav-btn active" type="button" role="tab" data-view="impostazioni" data-subview="casa" aria-selected="true">Immobili</button>
           <button class="sub-nav-btn" type="button" role="tab" data-view="impostazioni" data-subview="account" aria-selected="false">Account</button>

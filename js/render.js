@@ -68,7 +68,6 @@ export function createRenderer(els) {
     if (!meta?.subviews || !subview) {
       els.subviewTabs?.forEach(tab => tab.classList.remove('active'));
       els.subviewPanels?.forEach(panel => panel.classList.remove('active'));
-      document.querySelector('.header-titles')?.classList.remove('hidden');
       return;
     }
     els.subviewTabs?.forEach(tab => {
@@ -86,16 +85,20 @@ export function createRenderer(els) {
       const allowed = String(el.dataset.showSubview || '').split(/\s+/).filter(Boolean);
       el.classList.toggle('hidden', !allowed.includes(subview));
     });
-    // Una pagina che ha già il suo titolo — i documenti dell'anno, il piano rate,
-    // «Registra» — non lo ripete anche nell'intestazione dell'app.
-    const active = viewPanel?.querySelector(`[data-subview-panel="${subview}"]`);
-    document.querySelector('.header-titles')?.classList.toggle('hidden', Boolean(active?.querySelector('.doc-head')));
   }
 
+  /**
+   * Titolo e sottotitolo della pagina. Sul desktop stanno dentro la pagina, in
+   * cima e accanto alle sue azioni; su telefono nell'intestazione dell'app. Il
+   * testo è uno solo — viewHeading — e viene scritto in entrambi i posti.
+   */
   function updateHeader(view, subview) {
     const [title, subtitle] = viewHeading(view, subview);
     els.viewTitle.textContent = title;
     els.viewSubtitle.textContent = subtitle;
+    const panel = els.viewPanels.find(p => p.dataset.viewPanel === view);
+    panel?.querySelectorAll('[data-page-title]').forEach(el => { el.textContent = title; });
+    panel?.querySelectorAll('[data-page-sub]').forEach(el => { el.textContent = subtitle; });
   }
 
   function closeOverlays() {
@@ -1064,10 +1067,10 @@ export function createRenderer(els) {
     const selected = resocontoPeriodId(house);
     const head = `<div class="years-head">
       <span>Anno</span>
-      <span>${voceBadge('ordinario', 'sm')}Preventivo</span>
-      <span>${voceBadge('straordinari', 'sm')}Straordinari</span>
-      <span>${voceBadge('consuntivo', 'sm')}Consuntivo</span>
-      <span>${voceBadge('conguaglio', 'sm')}Conguaglio</span>
+      <span>${voceBadge('ordinario', 'xs')}Preventivo</span>
+      <span>${voceBadge('straordinari', 'xs')}Straordinari</span>
+      <span>${voceBadge('consuntivo', 'xs')}Consuntivo</span>
+      <span>${voceBadge('conguaglio', 'xs')}Conguaglio</span>
       <span>Stato</span>
     </div>`;
     const rows = summary.map(p => {
@@ -1161,15 +1164,15 @@ export function createRenderer(els) {
           <tr><th scope="col">Voce</th><th scope="col" class="col-previsto">Previsto</th><th scope="col">Effettivo</th></tr>
         </thead>
         <tbody>
-          ${row(`<span class="cell-voce">${voceBadge('ordinario', 'sm')}Ordinario</span>`,
+          ${row(`<span class="cell-voce">${voceBadge('ordinario', 'xs')}Ordinario</span>`,
                 f.ordinario > 0.005 ? fmt(f.ordinario) : '—',
                 effettivo ? fmt(f.consuntivo) : '<span class="muted">in attesa</span>')}
           ${f.straordinari > 0.005 ? row(
-            `<span class="cell-voce">${voceBadge('straordinari', 'sm')}Straordinari <span class="muted">· ${straordinariDues.map(d => d.description || 'spesa').join(', ')}</span></span>`,
+            `<span class="cell-voce">${voceBadge('straordinari', 'xs')}Straordinari <span class="muted">· ${straordinariDues.map(d => d.description || 'spesa').join(', ')}</span></span>`,
             fmt(f.straordinari),
             '<span class="muted">a fine lavori</span>') : ''}
           ${f.conguaglioIn !== 0 ? row(
-            `<span class="cell-voce">${voceBadge('conguaglio', 'sm')}Dall’anno prima <span class="muted">· conguaglio ${prior?.sourcePeriodId ? periodLabel(house, prior.sourcePeriodId) : ''}</span></span>`,
+            `<span class="cell-voce">${voceBadge('conguaglio', 'xs')}Dall’anno prima <span class="muted">· conguaglio ${prior?.sourcePeriodId ? periodLabel(house, prior.sourcePeriodId) : ''}</span></span>`,
             fmt(f.conguaglioIn),
             fmt(f.conguaglioIn)) : ''}
           ${row('Totale dovuto', fmt(f.dovuto), totaleEffettivo != null ? fmt(totaleEffettivo) : '—', 'row-strong')}
@@ -1189,13 +1192,18 @@ export function createRenderer(els) {
         <p class="muted">Nessuna rata: aggiungi il preventivo dell’anno per crearle.</p>`;
       return;
     }
-    const totalRow = { ordinario: 0, conguaglio: 0, straordinari: 0, tot: 0, paid: 0 };
+    const totalRow = { ordinario: 0, conguaglio: 0, straordinari: 0, tot: 0 };
+    const paidRow = { ordinario: 0, conguaglio: 0, straordinari: 0, tot: 0 };
     const rows = slots.map((slot, i) => {
       const parts = slot.parts || {};
-      for (const v of VOCI_RATA) totalRow[v] += Number(parts[v] || 0);
-      totalRow.tot += slot.amountDue;
-      totalRow.paid += slot.paid;
       const covered = slot.paid >= slot.amountDue - 0.01;
+      for (const v of VOCI_RATA) {
+        totalRow[v] += Number(parts[v] || 0);
+        // Una rata pagata copre tutte le sue voci: non se ne paga mezza.
+        if (covered) paidRow[v] += Number(parts[v] || 0);
+      }
+      totalRow.tot += slot.amountDue;
+      paidRow.tot += slot.paid;
       const late = !covered && slot.periodEnd < today;
       const stato = covered
         ? `<span class="state-ok"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Pagata</span>`
@@ -1207,7 +1215,7 @@ export function createRenderer(els) {
         <span class="muted">${fmtDate(slot.periodEnd)}</span>
         ${VOCI_RATA.map(voice => {
           const value = Number(parts[voice] || 0);
-          return `<span class="num plan-cell plan-cell--num${value ? '' : ' num--empty'}">${voceBadge(voice, 'sm')}${value ? fmt(value) : '—'}</span>`;
+          return `<span class="num plan-cell plan-cell--num${value ? '' : ' num--empty'}">${voceBadge(voice, 'xs')}${value ? fmt(value) : '—'}</span>`;
         }).join('')}
         <span class="num num--total">${fmt(slot.amountDue)}</span>
         <span class="plan-state">${stato}</span>
@@ -1225,17 +1233,26 @@ export function createRenderer(els) {
       <div class="plan-table plan-table--read">
         <div class="plan-head">
           <span>Rata</span><span>Scadenza</span>
-          <span class="num">${voceBadge('ordinario', 'sm')}Ordinario</span>
-          <span class="num">${voceBadge('conguaglio', 'sm')}Conguaglio</span>
-          <span class="num">${voceBadge('straordinari', 'sm')}Straordinari</span>
+          <span class="num">${voceBadge('ordinario', 'xs')}Ordinario</span>
+          <span class="num">${voceBadge('conguaglio', 'xs')}Conguaglio</span>
+          <span class="num">${voceBadge('straordinari', 'xs')}Straordinari</span>
           <span class="num">Totale</span><span>Stato</span>
         </div>
         ${rows}
         <div class="plan-row plan-row--total">
           <span class="plan-name">Totale</span><span></span>
-          ${VOCI_RATA.map(voice => `<span class="num plan-cell plan-cell--num">${voceBadge(voice, 'sm')}${fmt(totalRow[voice])}</span>`).join('')}
-          <span class="num num--total">${fmt(totalRow.tot)}</span>
-          <span class="plan-state muted">${fmt(totalRow.paid)} pagati</span>
+          ${VOCI_RATA.map(voice => `<span class="num plan-cell plan-cell--num">${voceBadge(voice, 'xs')}${fmt(totalRow[voice])}</span>`).join('')}
+          <span class="num num--total">${fmt(totalRow.tot)}</span><span></span>
+        </div>
+        <div class="plan-row plan-row--paid">
+          <span class="plan-name">Pagato</span><span></span>
+          ${VOCI_RATA.map(voice => `<span class="num plan-cell plan-cell--num">${paidRow[voice] ? fmt(paidRow[voice]) : '—'}</span>`).join('')}
+          <span class="num num--total">${fmt(paidRow.tot)}</span><span></span>
+        </div>
+        <div class="plan-row plan-row--todo">
+          <span class="plan-name">Da pagare</span><span></span>
+          ${VOCI_RATA.map(voice => `<span class="num plan-cell plan-cell--num">${fmt(round2(totalRow[voice] - paidRow[voice]))}</span>`).join('')}
+          <span class="num num--total">${fmt(round2(totalRow.tot - paidRow.tot))}</span><span></span>
         </div>
       </div>`;
   }
@@ -1563,14 +1580,14 @@ export function createRenderer(els) {
           <span class="badge ${p.direction === 'debito' ? 'warn' : p.direction === 'credito' ? 'success' : 'neutral'}">${dirLabel}</span>
         </div>
         <div class="summary-dl">
-          <div class="summary-row"><dt><span class="cell-voce">${voceBadge('consuntivo', 'sm')}Consuntivo ${p.label}</span></dt><dd>${fmt(p.consuntivo)}</dd></div>
+          <div class="summary-row"><dt><span class="cell-voce">${voceBadge('consuntivo', 'xs')}Consuntivo ${p.label}</span></dt><dd>${fmt(p.consuntivo)}</dd></div>
           <div class="summary-row"><dt>− Già pagato</dt><dd>${fmt(p.paid)}</dd></div>
           <div class="summary-row summary-row--total"><dt>= Conguaglio</dt><dd>${fmt(abs)} <span class="muted">${dirLabel}</span></dd></div>
         </div>
         <div class="cong-compare">
           <span class="hint">Rispetto al preventivo</span>
-          <div class="cong-bar-row">${voceBadge('ordinario', 'sm')}<span class="cong-bar"><span style="width:${(p.preventivo / max * 100).toFixed(1)}%;background:var(--voce-ordinario-fg);"></span></span><span class="cong-bar-num">${fmt(p.preventivo)}</span></div>
-          <div class="cong-bar-row">${voceBadge('consuntivo', 'sm')}<span class="cong-bar"><span style="width:${(p.consuntivo / max * 100).toFixed(1)}%;background:var(--voce-consuntivo-fg);"></span></span><span class="cong-bar-num">${fmt(p.consuntivo)}</span></div>
+          <div class="cong-bar-row">${voceBadge('ordinario', 'xs')}<span class="cong-bar"><span style="width:${(p.preventivo / max * 100).toFixed(1)}%;background:var(--voce-ordinario-fg);"></span></span><span class="cong-bar-num">${fmt(p.preventivo)}</span></div>
+          <div class="cong-bar-row">${voceBadge('consuntivo', 'xs')}<span class="cong-bar"><span style="width:${(p.consuntivo / max * 100).toFixed(1)}%;background:var(--voce-consuntivo-fg);"></span></span><span class="cong-bar-num">${fmt(p.consuntivo)}</span></div>
           <span class="hint">${Math.abs(diff) < 0.01
             ? 'Speso esattamente quanto previsto.'
             : diff > 0 ? `Speso ${fmt(diff)} in più del preventivo.` : `Speso ${fmt(Math.abs(diff))} in meno del preventivo.`}</span>
@@ -1679,9 +1696,9 @@ export function createRenderer(els) {
 
     const head = `<div class="plan-head plan-head--edit">
       <span>Rata</span><span>Mese</span><span>Anno</span>
-      <span class="num">${voceBadge('ordinario', 'sm')}Ordinario</span>
-      <span class="num">${voceBadge('conguaglio', 'sm')}Conguaglio</span>
-      <span class="num">${voceBadge('straordinari', 'sm')}Straordinari</span>
+      <span class="num">${voceBadge('ordinario', 'xs')}Ordinario</span>
+      <span class="num">${voceBadge('conguaglio', 'xs')}Conguaglio</span>
+      <span class="num">${voceBadge('straordinari', 'xs')}Straordinari</span>
       <span class="num">Totale</span><span></span>
     </div>`;
 
@@ -1703,7 +1720,7 @@ export function createRenderer(els) {
           ${uniqueYears.map(y => `<option value="${y}"${y === year ? ' selected' : ''}>${y}</option>`).join('')}
         </select>
         ${VOCI_RATA.map(voice => `<span class="plan-cell">
-          ${voceBadge(voice, 'sm')}
+          ${voceBadge(voice, 'xs')}
           <input class="plan-input plan-num" type="text" inputmode="decimal" placeholder="—"
             data-plan-amount="${i}" data-plan-voice="${voice}"
             aria-label="${VOCI[voice].label} di ${name.label}"
@@ -1718,7 +1735,7 @@ export function createRenderer(els) {
 
     const totalRow = `<div class="plan-row plan-row--edit plan-row--total">
       <span class="plan-name">Totale</span><span></span><span></span>
-      ${VOCI_RATA.map(voice => `<span class="num plan-cell plan-cell--num">${voceBadge(voice, 'sm')}${fmt(totals[voice])}</span>`).join('')}
+      ${VOCI_RATA.map(voice => `<span class="num plan-cell plan-cell--num">${voceBadge(voice, 'xs')}${fmt(totals[voice])}</span>`).join('')}
       <span class="num num--total">${fmt(totals.total)}</span><span></span>
     </div>`;
 
@@ -1922,18 +1939,16 @@ export function createRenderer(els) {
     els.houseForm.notes.value = house.notes || '';
     if (els.fiscalStartMonth) els.fiscalStartMonth.value = String(house.fiscalStartMonth || 6);
     renderHouseImportParties(house);
-    // La riga sopra la Panoramica dice di quale anno condominiale stiamo parlando:
-    // il nome della casa è già nella barra laterale.
+    // Il sottotitolo della Panoramica: casa e anno in una riga sola, come nel
+    // disegno — «Via dei Tigli 4 · anno 2026/27 in corso».
     const focus = resolveFocusPeriod(house);
-    els.currentHouseTitle.textContent = focus?.label
-      ? `Anno condominiale ${focus.label}`
-      : house.name;
-    els.currentHouseMeta.textContent = [
-      focus?.label ? house.name : null,
-      focus?.startDate && focus?.endDate ? `${fmtDate(focus.startDate)} – ${fmtDate(focus.endDate)}` : null,
-      house.location || null,
-      focus?.label ? null : 'Nessun anno condominiale registrato'
-    ].filter(Boolean).join(' · ');
+    if (els.currentHouseMeta) {
+      els.currentHouseMeta.textContent = [
+        house.name,
+        house.location || null,
+        focus?.label ? `anno ${focus.label}` : 'nessun anno condominiale registrato'
+      ].filter(Boolean).join(' · ');
+    }
   }
 
   function esc(s) {
@@ -2054,7 +2069,6 @@ export function createRenderer(els) {
   }
 
   function renderEmptyState() {
-    if (els.currentHouseTitle) els.currentHouseTitle.textContent = 'Nessuna casa selezionata';
     if (els.currentHouseMeta) {
       els.currentHouseMeta.textContent = 'Aggiungi una casa dal pulsante accanto al menu o da Impostazioni.';
     }
@@ -2316,7 +2330,6 @@ export function collectDom() {
     panoramicaScopeNote: document.getElementById('panoramicaScopeNote'),
     panoramicaPeriodLinks: document.getElementById('panoramicaPeriodLinks'),
     panoramicaSituazioneLink: document.getElementById('panoramicaSituazioneLink'),
-    currentHouseTitle: document.getElementById('currentHouseTitle'),
     currentHouseMeta: document.getElementById('currentHouseMeta'),
     deleteHouseBtn: document.getElementById('deleteHouseBtn'),
     periodFilter: document.getElementById('periodFilter'),

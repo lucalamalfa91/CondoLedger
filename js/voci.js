@@ -33,9 +33,13 @@ export function dueVoice(due) {
 }
 
 /**
- * Il segno della voce.
+ * Il segno della voce, in quattro misure:
+ *   xs  18px  dentro le tabelle e le pastiglie, dove fa da etichetta di colonna
+ *   sm  22px  nelle righe compatte — l'anno in corso, l'elenco dei pagamenti
+ *   md  28px  nelle righe principali e in cima ai riquadri
+ *   lg  36px  quando la voce è il soggetto della schermata
  * @param {string} voice chiave in VOCI
- * @param {'sm'|'md'|'lg'} size
+ * @param {'xs'|'sm'|'md'|'lg'} size
  */
 export function voceBadge(voice, size = 'md') {
   const v = VOCI[voice];

@@ -8,6 +8,7 @@
   /* Tipografia */
   --text-xs: .75rem;        /* 12px  — etichette, legende */
   --text-sm: .8125rem;      /* 13px  — testo secondario */
+  --text-sm2: .78125rem;    /* 12.5px — sottotitoli nelle righe compatte */
   --text-base: .875rem;     /* 14px  — testo corrente */
   --text-md: .9375rem;      /* 15px  — titoli di card */
   --text-lg: 1.125rem;      /* 18px  — titoli di sezione */
@@ -49,7 +50,7 @@
   --font-display: 'Newsreader', Georgia, 'Times New Roman', serif;
   --transition: 180ms cubic-bezier(.16, 1, .3, 1);
 
-  --nav-rail-w: 256px;
+  --nav-rail-w: 248px;
   --header-h: auto;
   --bottom-nav-h: 80px;
   --z-nav: 10; --z-fab: 20; --z-drawer: 30; --z-sheet: 40;
@@ -119,6 +120,13 @@ input, select, textarea {
   padding: .6rem .75rem;
   font-variant-numeric: tabular-nums lining-nums;
 }
+
+/* Caselle e pallini restano della loro misura: la regola qui sopra vale per i
+   campi di testo, non per loro. */
+input[type="checkbox"], input[type="radio"] {
+  width: 18px; height: 18px; min-height: 0; margin: 0;
+  accent-color: var(--color-primary); flex-shrink: 0;
+}
 input:focus, select:focus, textarea:focus { border-color: var(--color-primary); outline: none; box-shadow: 0 0 0 3px var(--color-primary-soft); }
 select { text-overflow: ellipsis; }
 textarea { min-height: 92px; resize: vertical; font-variant-numeric: normal; }
@@ -137,7 +145,7 @@ label { font-size: var(--text-sm); font-weight: 500; color: var(--color-text-sof
    Struttura: rail + header + contenuto
    ========================================================================== */
 
-.dashboard { display: grid; grid-template-columns: var(--nav-rail-w) 1fr; grid-template-rows: auto 1fr; height: 100dvh; }
+.dashboard { display: grid; grid-template-columns: var(--nav-rail-w) 1fr; grid-template-rows: 1fr; height: 100dvh; }
 .nav-rail {
   grid-row: 1 / -1;
   overflow-y: auto;
@@ -146,12 +154,12 @@ label { font-size: var(--text-sm); font-weight: 500; color: var(--color-text-sof
   padding: var(--space-6) var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-5);
   z-index: var(--z-nav);
 }
 .header {
   grid-column: 2;
-  display: flex;
+  display: none;
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-4);
@@ -165,13 +173,21 @@ label { font-size: var(--text-sm); font-weight: 500; color: var(--color-text-sof
 }
 .main {
   grid-column: 2;
+  grid-row: 1 / -1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: var(--space-2) var(--space-8) var(--space-8);
-  padding-bottom: calc(var(--space-8) + env(safe-area-inset-bottom, 0px));
+  /* 32px sopra, 40px ai lati e sotto: le stesse misure del disegno. */
+  padding: var(--space-8) 2.5rem 2.5rem;
+  padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));
   width: 100%;
   min-width: 0;
 }
+/* Il contenuto di una vista è una colonna con un passo solo: 24px in panoramica
+   e nei resoconti, 20px dove il disegno stringe (pagamenti, moduli). */
+.view { flex-direction: column; gap: var(--page-gap, var(--space-6)); }
+.view.active { display: flex; }
+.subview.active { display: flex; flex-direction: column; gap: var(--page-gap, var(--space-5)); }
+[data-view-panel="pagamenti"], [data-view-panel="impostazioni"] { --page-gap: var(--space-5); }
 
 /* Marchio + selettore casa nel rail */
 .brand, .topbar-left { display: flex; align-items: center; gap: .65rem; }
@@ -205,7 +221,7 @@ label { font-size: var(--text-sm); font-weight: 500; color: var(--color-text-sof
 .add-house-btn:hover { background: color-mix(in srgb, var(--color-primary) 16%, var(--color-primary-highlight)); color: var(--color-primary-hover); }
 
 /* Voci di navigazione */
-.nav-list { display: flex; flex-direction: column; gap: .15rem; }
+.nav-list { display: flex; flex-direction: column; gap: .25rem; }
 .nav-btn {
   display: flex;
   align-items: center;
@@ -236,18 +252,30 @@ label { font-size: var(--text-sm); font-weight: 500; color: var(--color-text-sof
 .side-foot-text strong { font-size: var(--text-sm); font-weight: 500; }
 .side-foot-text span { font-size: var(--text-xs); color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Intestazione della pagina */
+/* Intestazione della pagina: titolo e sottotitolo a sinistra, azioni a destra,
+   allineati sulla stessa linea di base come nel disegno. */
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.page-head-titles { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
 .header-titles { min-width: 0; }
 .page-title, .header-titles .page-title {
   font-family: var(--font-display);
-  font-size: var(--text-xl);
+  font-size: 2rem;
   font-weight: 500;
   line-height: 1.1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
+.page-sub { font-size: var(--text-base); color: var(--color-text-muted); margin: 0; }
+.page-sub:empty { display: none; }
 .header-titles .muted { font-size: var(--text-base); }
+.list-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
 .header-actions, .toolbar { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
 
 /* Barra di azioni sopra il contenuto di una vista */
@@ -383,15 +411,21 @@ label { font-size: var(--text-sm); font-weight: 500; color: var(--color-text-sof
    Superfici
    ========================================================================== */
 
+/* Una scheda è una colonna con un passo solo: niente margini sparsi, così la
+   distanza fra intestazione e contenuto è la stessa ovunque. Il passo di norma è
+   16px come nel disegno; le schede che ne vogliono un altro cambiano --panel-gap. */
 .card, .panel {
   background: var(--color-surface);
   border: 1px solid var(--color-divider);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
-  padding: var(--space-5) var(--space-6);
+  padding: var(--space-6);
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--panel-gap, var(--space-4));
 }
-.panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); margin-bottom: var(--space-4); flex-wrap: wrap; }
+.panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); flex-wrap: wrap; }
 .panel-head h2 { font-size: var(--text-md); }
 .panel-head h3 { font-size: var(--text-base); }
 .nav-list, .house-list, .stack { display: grid; gap: .75rem; }
@@ -513,7 +547,7 @@ td { overflow-wrap: break-word; }
 .residual-value { font-family: var(--font-display); font-size: var(--text-display); font-weight: 500; line-height: 1; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
 .residual-side { display: flex; flex-direction: column; gap: .5rem; align-items: flex-end; text-align: right; }
 .residual-note { font-size: var(--text-xs); color: var(--color-text-muted); }
-.progress { height: 10px; border-radius: var(--radius-full); background: var(--color-line); overflow: hidden; display: flex; }
+.progress { height: 8px; border-radius: var(--radius-full); background: var(--color-line); overflow: hidden; display: flex; }
 .progress-bar { height: 100%; background: var(--color-primary); border-radius: var(--radius-full); min-width: 0; }
 .progress-caption { display: flex; justify-content: space-between; gap: var(--space-4); font-size: var(--text-sm); color: var(--color-text-soft); flex-wrap: wrap; }
 .tag-row { display: flex; gap: .5rem; flex-wrap: wrap; }
@@ -601,11 +635,12 @@ td { overflow-wrap: break-word; }
 
 .registra-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: var(--space-5);
+  /* 340px la colonna di destra in «Registra», 380px nei documenti dell'anno:
+     sono le due misure del disegno. */
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: var(--space-6);
   align-items: start;
 }
-.registra-form { gap: var(--space-6); }
 .registra-rail { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
 
 .field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-4); }
@@ -700,10 +735,10 @@ td { overflow-wrap: break-word; }
 .step-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 
 /* Cadenza delle rate */
-.cadence-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .6rem; }
+.cadence-grid { display: flex; flex-wrap: wrap; gap: .625rem; }
 .cadence-btn {
   display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: .15rem;
-  min-height: 60px; padding: .625rem .875rem;
+  min-height: 60px; padding: .625rem .875rem; flex: 0 1 auto;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
@@ -765,7 +800,7 @@ td { overflow-wrap: break-word; }
    ========================================================================== */
 
 .compliance-hero { margin-bottom: 0; }
-.compliance-hero:empty, .panel:empty { display: none; }
+.compliance-hero:empty, .panel:empty, .panoramica-kpis:empty, .panel > div:empty { display: none; }
 .compliance-card {
   display: grid;
   gap: var(--space-4);
@@ -805,7 +840,7 @@ td { overflow-wrap: break-word; }
    ========================================================================== */
 
 .panoramica-kpi-panel { margin-top: 0; }
-.panoramica-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-4); margin-top: var(--space-4); }
+.panoramica-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-4); }
 .kpi-card { position: relative; padding: var(--space-4); border-radius: var(--radius-lg); border: 1px solid var(--color-divider); background: var(--color-surface-offset); min-height: 6rem; }
 .kpi-card--primary { grid-column: 1 / -1; border-color: var(--color-primary); background: var(--color-primary-soft); }
 .kpi-card--primary .kpi-card-value { font-size: 1.65rem; }
@@ -818,7 +853,7 @@ td { overflow-wrap: break-word; }
 .kpi-card-link { margin-top: .4rem; padding: 0; border: none; background: none; color: var(--color-primary); font-size: var(--text-sm); font-weight: 600; cursor: pointer; }
 .kpi-card-link:hover { color: var(--color-primary-hover); }
 
-.panoramica-period-links { display: flex; flex-direction: column; gap: .35rem; margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--color-line); }
+.panoramica-period-links { display: flex; flex-direction: column; gap: .35rem; }
 .panoramica-links-title { margin: 0 0 var(--space-3); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-muted); }
 .panoramica-period-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
 .panoramica-period-row {
@@ -828,7 +863,7 @@ td { overflow-wrap: break-word; }
   background: var(--color-surface); cursor: pointer; text-align: left; font: inherit;
 }
 .panoramica-period-row:hover { border-color: var(--color-primary); }
-.panoramica-foot-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--color-line); }
+.panoramica-foot-actions { display: flex; flex-wrap: wrap; gap: .5rem; padding-top: var(--space-4); border-top: 1px solid var(--color-line); }
 
 .situazione-toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .situazione-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0; margin-bottom: var(--space-5); border: 1px solid var(--color-divider); border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; }
@@ -1032,11 +1067,23 @@ body:not(.authenticated) .toast-host { bottom: var(--space-5); }
   .dashboard { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .nav-rail { display: none; }
   .header, .main { grid-column: 1; }
-  .header { padding: var(--space-4) var(--space-4) var(--space-3); align-items: center; }
-  .main { padding: 0 var(--space-4); padding-bottom: calc(var(--bottom-nav-h) + var(--space-6) + env(safe-area-inset-bottom, 0px)); }
-  .header-titles .page-title { font-size: 1.4rem; }
-  .header-titles .muted { display: none; }
-  .card, .panel { padding: var(--space-4) var(--space-5); }
+  /* Su telefono l'intestazione torna: è lì che vivono il cambio casa e il menu.
+     Il titolo della pagina invece sparisce — lo dice la barra in fondo, e lo
+     spazio serve al contenuto: è quello che fa il disegno. */
+  .header { display: flex; grid-row: 1; padding: .875rem var(--space-4) .375rem; align-items: center; }
+  .header-titles { display: none; }
+  .main { grid-row: 2; padding: .375rem var(--space-4); padding-bottom: calc(var(--bottom-nav-h) + var(--space-6) + env(safe-area-inset-bottom, 0px)); }
+  .view, .subview.active { --page-gap: .75rem; }
+  .page-head .page-title, .page-head > .page-head-titles .page-sub { display: none; }
+  .page-head:not(:has(.toolbar)) { display: none; }
+  /* Una sotto-pagina invece il suo titolo ce l'ha, più piccolo che sul desktop. */
+  .doc-head .page-title { display: block; font-size: 1.5rem; }
+  /* In Panoramica il pulsante è già dentro la scheda «da pagare» e nel «+» in
+     fondo: in cima alla pagina sarebbe la terza volta. */
+  [data-view-panel="panoramica"] .page-head .btn-primary { display: none; }
+  .page-head .toolbar { width: 100%; }
+  .page-head .toolbar .chip-select { flex: 1 1 auto; }
+  .card, .panel { padding: 1rem 1.125rem; }
 
   /* Barra inferiore con il «+» centrale per registrare */
   .bottom-nav {
@@ -1095,7 +1142,7 @@ body:not(.authenticated) .toast-host { bottom: var(--space-5); }
   .compliance-actions .btn { flex: 1 1 auto; min-width: min(100%, 12rem); }
   .rate-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .rate-chip .rate-state { display: none; }
-  .cadence-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cadence-btn { flex: 1 1 calc(50% - .32rem); }
   .rate-row { grid-template-columns: 48px minmax(84px, 1fr) 104px 32px; gap: .35rem; }
   .step { gap: .75rem; }
   /* La riga di salvataggio resta a portata di pollice sopra la barra inferiore */
@@ -1164,7 +1211,8 @@ body:not(.authenticated) .toast-host { bottom: var(--space-5); }
   display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
   font-weight: 700; line-height: 1; font-family: var(--font-body);
 }
-.voce-badge--sm { width: 18px; height: 18px; border-radius: 5px; font-size: .656rem; }
+.voce-badge--xs { width: 18px; height: 18px; border-radius: 5px; font-size: .656rem; }
+.voce-badge--sm { width: 22px; height: 22px; border-radius: 6px; font-size: .75rem; }
 .voce-badge--md { width: 28px; height: 28px; border-radius: 8px; font-size: .875rem; }
 .voce-badge--lg { width: 36px; height: 36px; border-radius: 10px; font-size: 1.0625rem; }
 .voce--ordinario { background: var(--voce-ordinario-bg); color: var(--voce-ordinario-fg); }
@@ -1192,6 +1240,7 @@ body:not(.authenticated) .toast-host { bottom: var(--space-5); }
 .voce-row-main { display: flex; flex-direction: column; gap: .125rem; flex-grow: 1; min-width: 0; }
 .voce-row-title { font-size: var(--text-md); font-weight: 600; }
 .voce-row--sm .voce-row-title { font-size: var(--text-base); font-weight: 500; }
+.voce-row--sm .voce-row-sub { font-size: var(--text-sm2); }
 .voce-row-sub { font-size: var(--text-sm); color: var(--color-text-muted); }
 .voce-row-amount { font-size: var(--text-md); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .voce-row--sm .voce-row-amount { font-size: var(--text-base); }
@@ -1313,6 +1362,8 @@ body:not(.authenticated) .toast-host { bottom: var(--space-5); }
 .doc-title { font-family: var(--font-display); font-size: 1.625rem; font-weight: 500; line-height: 1.1; }
 .due-period-field { display: grid; gap: .35rem; }
 .registra-layout--wide-rail { grid-template-columns: minmax(0, 1fr) 380px; }
+/* La causale va a capo fra le parole, non a metà di una. */
+.guide-copy-row code { overflow-wrap: break-word; word-break: normal; }
 
 .rate-cells { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: .375rem; }
 .rate-cell {
@@ -1355,20 +1406,22 @@ body:not(.authenticated) .toast-host { bottom: var(--space-5); }
 }
 .years-head {
   padding: .5rem 1.125rem;
-  font-size: var(--text-xs); font-weight: 600; color: var(--color-text-muted);
+  font-size: .6875rem; font-weight: 600; color: var(--color-text-muted);
   text-transform: uppercase; letter-spacing: .04em;
 }
 .years-head > span { display: flex; align-items: center; gap: .375rem; }
 .year-row {
   width: 100%; text-align: left;
-  padding: .875rem 1.125rem; border-radius: var(--radius-lg);
-  border: 1px solid transparent; background: none;
+  padding: .75rem 1rem; border-radius: var(--radius-lg);
+  border: 2px solid transparent; background: var(--color-surface);
 }
 .year-row:hover { background: var(--color-surface-offset); }
 .year-row--on { background: var(--color-primary-soft); border-color: var(--color-primary); }
 .year-name { display: flex; flex-direction: column; gap: .125rem; min-width: 0; }
 .year-name strong { font-size: var(--text-md); font-weight: 600; }
+.year-name .muted { font-size: var(--text-sm2); }
 .year-num { font-size: var(--text-base); font-weight: 600; font-variant-numeric: tabular-nums; }
+.year-num .muted { font-size: var(--text-sm2); font-weight: 400; }
 .year-state { justify-self: start; }
 
 .cycle { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
@@ -1385,15 +1438,21 @@ body:not(.authenticated) .toast-host { bottom: var(--space-5); }
 .account-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .account-table th, .account-table td { padding: .5625rem .875rem; border-bottom: 1px solid var(--color-line); }
 .account-table thead th {
-  text-align: left; padding: .5rem .875rem;
-  font-size: var(--text-xs); font-weight: 600; color: var(--color-text-muted);
+  text-align: left; padding: .5rem .875rem; background: transparent;
+  font-size: .6875rem; font-weight: 600; color: var(--color-text-muted);
   text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--color-divider);
 }
 .account-table thead .col-previsto { color: var(--voce-ordinario-fg); }
-.account-table tbody th { text-align: left; font-size: var(--text-base); font-weight: 500; }
+.account-table tbody th {
+  text-align: left; font-size: var(--text-base); font-weight: 500;
+  color: var(--color-text); background: transparent;
+  text-transform: none; letter-spacing: normal;
+}
+.account-table tbody th .muted { font-size: var(--text-base); font-weight: 400; }
 .account-table td { text-align: right; font-size: var(--text-base); }
 .account-table .col-previsto { background: var(--voce-ordinario-soft); }
 .account-table th.col-previsto, .account-table td.col-previsto { width: 140px; text-align: right; }
+.account-table thead th:last-child, .account-table tbody td:last-child { width: 140px; }
 .account-table .row-strong th, .account-table .row-strong td { font-weight: 600; }
 .account-table .row-total th { font-size: var(--text-md); font-weight: 600; border-bottom: 0; }
 .account-table .row-total td { font-size: 1rem; font-weight: 700; border-bottom: 0; }
@@ -1411,7 +1470,7 @@ body:not(.authenticated) .toast-host { bottom: var(--space-5); }
 }
 .plan-head {
   border-bottom: 1px solid var(--color-divider);
-  font-size: var(--text-xs); font-weight: 600; color: var(--color-text-muted);
+  font-size: .6875rem; font-weight: 600; color: var(--color-text-muted);
   text-transform: uppercase; letter-spacing: .04em;
 }
 .plan-head > span { padding: .5rem .625rem; }
@@ -1424,7 +1483,7 @@ body:not(.authenticated) .toast-host { bottom: var(--space-5); }
 .plan-name { font-size: var(--text-base); font-weight: 600; display: flex; flex-direction: column; }
 .plan-out { font-size: .71875rem; font-weight: 600; color: var(--color-error); }
 .plan-state { display: flex; align-items: center; gap: .375rem; font-size: var(--text-sm); }
-.plan-row--total { border-top: 1px solid var(--color-text); border-bottom: 0; font-weight: 600; }
+.plan-row--total { border-top: 1px solid var(--color-text); border-bottom: 0; font-weight: 600; padding: .75rem 0; }
 .plan-row--paid { border-bottom: 0; color: var(--state-ok); font-weight: 600; }
 .plan-row--todo { background: var(--color-surface-offset); border-radius: var(--radius-sm); border-bottom: 0; font-weight: 600; }
 
@@ -1434,6 +1493,9 @@ body:not(.authenticated) .toast-host { bottom: var(--space-5); }
   gap: .625rem; min-width: 52rem;
 }
 .plan-row--edit { padding: .3125rem 0; }
+/* Nelle righe modificabili l'altezza la danno le caselle: lo spazio verticale
+   delle celle raddoppierebbe la riga. */
+.plan-row--edit > * { padding-top: 0; padding-bottom: 0; }
 .plan-input { height: 40px; min-height: 40px; padding: 0 .5rem; border-radius: var(--radius-sm); font-size: var(--text-base); }
 .plan-num { text-align: right; padding: 0 .625rem; border-color: var(--color-line); background: var(--color-surface-offset); }
 .plan-num:not(:placeholder-shown) { font-weight: 600; }
@@ -1558,3 +1620,30 @@ body:not(.authenticated) .toast-host { bottom: var(--space-5); }
   .option-main { grid-column: 3 / 4; }
   .option-amount { grid-column: 1 / 4; justify-self: end; }
 }
+
+/* ==========================================================================
+   Misure delle schede, prese una per una dal disegno
+   ========================================================================== */
+
+/* Panoramica: la scheda «da pagare» è la più larga e respira di più */
+#panoramicaDue { padding: 1.75rem; --panel-gap: var(--space-5); }
+#panoramicaYear { --panel-gap: var(--space-5); }
+#panoramicaPayments, #resocontoMovements { padding: var(--space-5) var(--space-6); --panel-gap: .375rem; }
+
+/* Pagamenti */
+#pagamentiDueCard, #pagamentiNextCard { --panel-gap: var(--space-4); }
+#paymentsTable .panel { padding: var(--space-5) var(--space-6); --panel-gap: .375rem; }
+
+/* Resoconti */
+.panel--flush { padding: var(--space-2); --panel-gap: .25rem; }
+#resocontoCycle { padding: 1.125rem 1.25rem; --panel-gap: .875rem; }
+#resocontoAccount, #resocontoRate { padding: 1.125rem var(--space-6) var(--space-4); --panel-gap: .625rem; }
+
+/* Documenti dell'anno: il modulo e i riquadri di destra */
+.registra-form { padding: var(--space-6) 1.75rem; gap: 1.75rem; }
+.registra-form .steps { gap: 1.75rem; }
+.registra-layout .panel, .registra-layout > div > .panel { padding: var(--space-5) 1.375rem; --panel-gap: .625rem; }
+#consRail .panel { padding: 1.375rem var(--space-6); --panel-gap: var(--space-4); }
+
+/* Piano rate */
+.voce-card { padding: 1rem 1.125rem; }

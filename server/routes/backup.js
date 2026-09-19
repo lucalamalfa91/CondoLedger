@@ -21,13 +21,13 @@ export const backupRouter = Router();
  */
 backupRouter.post(
   '/restore',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const houses = Array.isArray(req.body?.houses) ? req.body.houses : null;
     if (!houses) throw badRequest('Backup non valido: manca l\'elenco delle case.');
 
-    const db = getDb();
+    const db = await getDb();
 
-    const run = db.transaction(() => {
+    const run = db.transaction(async (tx) => {
       let createdHouses = 0;
       let createdDues = 0;
       let createdPayments = 0;
@@ -37,7 +37,7 @@ backupRouter.post(
         const name = String(h.name || '').trim();
         if (!name) continue;
 
-        const houseInfo = db
+        const houseInfo = await tx
           .prepare(
             `INSERT INTO houses (user_id, name, location, notes, fiscal_start_month, import_parties)
              VALUES (?, ?, ?, ?, ?, ?)`
@@ -55,16 +55,15 @@ backupRouter.post(
 
         // label -> id, per risolvere i riferimenti dei figli.
         const periodIdByLabel = new Map();
-        const insertPeriod = db.prepare(
-          `INSERT INTO fiscal_periods (house_id, label, start_date, end_date)
-           VALUES (?, ?, ?, ?)
-           ON CONFLICT (house_id, label) DO NOTHING`
-        );
+        const INSERT_PERIOD = `
+          INSERT INTO fiscal_periods (house_id, label, start_date, end_date)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT (house_id, label) DO NOTHING`;
         for (const p of h.fiscal_periods || []) {
           const label = String(p.label || '').trim();
           if (!label) continue;
-          insertPeriod.run(houseId, label, p.start_date, p.end_date);
-          const row = db
+          await tx.prepare(INSERT_PERIOD).run(houseId, label, p.start_date, p.end_date);
+          const row = await tx
             .prepare('SELECT id FROM fiscal_periods WHERE house_id = ? AND label = ?')
             .get(houseId, label);
           if (row) periodIdByLabel.set(label, Number(row.id));
@@ -76,7 +75,7 @@ backupRouter.post(
         for (const d of h.dues || []) {
           const pid = periodId(d.fiscal_period_label);
           if (!pid) continue; // come oggi: senza esercizio risolvibile la riga si salta
-          db.prepare(
+          await tx.prepare(
             `INSERT INTO dues (house_id, fiscal_period_id, amount, description, split_mode,
                                split_custom, split_amounts, due_kind)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -98,7 +97,7 @@ backupRouter.post(
         for (const b of h.prior_balances || []) {
           const pid = periodId(b.fiscal_period_label);
           if (!pid) continue;
-          const info = db
+          const info = await tx
             .prepare(
               `INSERT INTO prior_balances (house_id, fiscal_period_id, source_period_id, amount, description)
                VALUES (?, ?, ?, ?, ?)
@@ -115,7 +114,7 @@ backupRouter.post(
               b.description ?? null
             );
           if (info.changes > 0) createdPriorBalances += 1;
-          const row = db
+          const row = await tx
             .prepare('SELECT id FROM prior_balances WHERE house_id = ? AND fiscal_period_id = ?')
             .get(houseId, pid);
           if (row) priorBalanceIdByLabel.set(String(b.fiscal_period_label).trim(), Number(row.id));
@@ -124,7 +123,7 @@ backupRouter.post(
         for (const p of h.payments || []) {
           const pid = periodId(p.fiscal_period_label);
           if (!pid) continue;
-          db.prepare(
+          await tx.prepare(
             `INSERT INTO payments (house_id, fiscal_period_id, amount, date, method,
                                    installment_key, prior_balance_id, is_carry_forward)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -147,6 +146,6 @@ backupRouter.post(
       return { createdHouses, createdDues, createdPayments, createdPriorBalances };
     });
 
-    res.status(201).json(run());
+    res.status(201).json(await run());
   })
 );

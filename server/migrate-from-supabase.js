@@ -106,7 +106,7 @@ export async function migrateFromSupabase({ supabaseUrl, serviceKey, db, dryRun 
     return { dryRun: true, read: Object.fromEntries(TABLES.map(t => [t, data[t].length])), users: users.length };
   }
 
-  const existing = db.prepare('SELECT count(*) AS c FROM houses').get().c;
+  const { c: existing } = await db.prepare('SELECT count(*) AS c FROM houses').get();
   if (existing > 0) {
     throw new Error(
       `Il database di destinazione contiene già ${existing} case. ` +
@@ -117,11 +117,11 @@ export async function migrateFromSupabase({ supabaseUrl, serviceKey, db, dryRun 
   // foreign_keys OFF durante l'import: payments.bank_movement_id e
   // bank_movements.linked_payment_id sono circolari e nessun ordine di inserimento le
   // soddisfa entrambe. L'integrità viene verificata alla fine con foreign_key_check.
-  db.pragma('foreign_keys = OFF');
+  await db.pragma('foreign_keys = OFF');
   try {
-    const run = db.transaction(() => {
+    const run = db.transaction(async (tx) => {
       for (const u of users) {
-        db.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)').run(
+        await tx.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)').run(
           u.id || newUserId(),
           u.email,
           // Gli hash bcrypt di GoTrue non sono riutilizzabili: password da reimpostare.
@@ -131,7 +131,7 @@ export async function migrateFromSupabase({ supabaseUrl, serviceKey, db, dryRun 
       }
 
       for (const h of data.houses) {
-        db.prepare(
+        await tx.prepare(
           `INSERT INTO houses (id, user_id, name, location, notes, fiscal_start_month,
                                import_parties, calendar_reminder_cadence,
                                calendar_reminder_lead_days, created_at)
@@ -151,14 +151,14 @@ export async function migrateFromSupabase({ supabaseUrl, serviceKey, db, dryRun 
       }
 
       for (const p of data.fiscal_periods) {
-        db.prepare(
+        await tx.prepare(
           `INSERT INTO fiscal_periods (id, house_id, label, start_date, end_date, created_at)
            VALUES (?, ?, ?, ?, ?, ?)`
         ).run(p.id, p.house_id, p.label, p.start_date, p.end_date, ts(p.created_at));
       }
 
       for (const d of data.dues) {
-        db.prepare(
+        await tx.prepare(
           `INSERT INTO dues (id, house_id, fiscal_period_id, amount, description, split_mode,
                              split_custom, split_amounts, due_kind, carry_from_period_id, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -178,7 +178,7 @@ export async function migrateFromSupabase({ supabaseUrl, serviceKey, db, dryRun 
       }
 
       for (const b of data.prior_balances) {
-        db.prepare(
+        await tx.prepare(
           `INSERT INTO prior_balances (id, house_id, fiscal_period_id, source_period_id, amount,
                                        description, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -194,7 +194,7 @@ export async function migrateFromSupabase({ supabaseUrl, serviceKey, db, dryRun 
       }
 
       for (const m of data.bank_movements) {
-        db.prepare(
+        await tx.prepare(
           `INSERT INTO bank_movements (id, house_id, import_batch_id, movement_date, operation,
                                        details, amount, currency, source_hash, fiscal_period_id,
                                        suggested_fiscal_period_id, match_confidence, match_reason,
@@ -221,7 +221,7 @@ export async function migrateFromSupabase({ supabaseUrl, serviceKey, db, dryRun 
       }
 
       for (const p of data.payments) {
-        db.prepare(
+        await tx.prepare(
           `INSERT INTO payments (id, house_id, fiscal_period_id, amount, date, method,
                                  installment_key, carry_from_period_id, is_carry_forward,
                                  prior_balance_id, bank_movement_id, created_at)
@@ -254,17 +254,17 @@ export async function migrateFromSupabase({ supabaseUrl, serviceKey, db, dryRun 
           .prepare('UPDATE sqlite_sequence SET seq = ? WHERE name = ?')
           .run(max, t).changes;
         if (updated === 0) {
-          db.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)').run(t, max);
+          await tx.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)').run(t, max);
         }
       }
     });
 
-    run();
+    await run();
   } finally {
-    db.pragma('foreign_keys = ON');
+    await db.pragma('foreign_keys = ON');
   }
 
-  const violations = db.pragma('foreign_key_check');
+  const violations = await db.pragma('foreign_key_check');
   if (violations.length) {
     log(`Vincoli di integrità violati: ${JSON.stringify(violations.slice(0, 5))}`);
     throw new Error(`${violations.length} violazioni di foreign key. Il database non è integro.`);
@@ -274,13 +274,13 @@ export async function migrateFromSupabase({ supabaseUrl, serviceKey, db, dryRun 
   const written = {};
   let mismatch = false;
   for (const t of TABLES) {
-    const w = db.prepare(`SELECT count(*) AS c FROM ${t}`).get().c;
+    const { c: w } = await db.prepare(`SELECT count(*) AS c FROM ${t}`).get();
     written[t] = w;
     const ok = w === data[t].length;
     if (!ok) mismatch = true;
     log(`  ${ok ? ' ' : '!'} ${t.padEnd(16)} ${data[t].length} → ${w}`);
   }
-  const writtenUsers = db.prepare('SELECT count(*) AS c FROM users').get().c;
+  const { c: writtenUsers } = await db.prepare('SELECT count(*) AS c FROM users').get();
   log(`    ${'users'.padEnd(16)} ${users.length} → ${writtenUsers}`);
 
   if (mismatch) throw new Error('I conteggi non coincidono: la migrazione è incompleta.');

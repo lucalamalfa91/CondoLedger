@@ -10,13 +10,13 @@ import { getDb } from './db.js';
 import { notFound, unauthorized } from './errors.js';
 import { parseCookies, resolveSession, SESSION_COOKIE, setSessionCookie } from './auth-core.js';
 
-export function attachSession(req, res, next) {
+export async function attachSession(req, res, next) {
   const cookies = parseCookies(req.headers.cookie);
   req.sessionToken = cookies[SESSION_COOKIE] || null;
   req.user = null;
 
   if (req.sessionToken) {
-    const resolved = resolveSession(getDb(), req.sessionToken);
+    const resolved = await resolveSession(await getDb(), req.sessionToken);
     if (resolved) {
       req.user = resolved.user;
       if (resolved.renewed) setSessionCookie(res, req.sessionToken, resolved.renewed);
@@ -39,14 +39,15 @@ export function requireAuth(req, _res, next) {
  * Risolve la casa del path verificando il proprietario.
  * Risponde 404 e non 403: non rivela l'esistenza di case altrui.
  */
-export function loadHouse(req, _res, next) {
+export async function loadHouse(req, _res, next) {
   const houseId = Number(req.params.houseId);
   if (!Number.isInteger(houseId)) {
     next(notFound('Immobile non trovato.'));
     return;
   }
 
-  const row = getDb()
+  const db = await getDb();
+  const row = await db
     .prepare('SELECT * FROM houses WHERE id = ? AND user_id = ?')
     .get(houseId, req.user.id);
 

@@ -32,6 +32,7 @@ export function createApp() {
   app.disable('x-powered-by');
 
   app.use(express.json({ limit: '5mb' }));
+  app.use(sessionCleanupMiddleware);
   app.use(attachSession);
 
   // --- API ---------------------------------------------------------------
@@ -39,9 +40,10 @@ export function createApp() {
   api.use(originCheck);
   // Sonda per gli health check della piattaforma di hosting: non tocca il database
   // pesantemente, ma verifica che sia apribile.
-  api.get('/health', (_req, res) => {
+  api.get('/health', async (_req, res) => {
     try {
-      getDb().prepare('SELECT 1').get();
+      const db = await getDb();
+      await db.prepare('SELECT 1').get();
       res.json({ ok: true });
     } catch {
       res.status(503).json({ ok: false });
@@ -82,17 +84,25 @@ export function createApp() {
   return app;
 }
 
-/** Pulizia delle sessioni scadute: all'avvio e poi ogni ora. */
-export function startSessionCleanup() {
-  const tick = () => {
+/**
+ * Pulizia delle sessioni scadute.
+ *
+ * Non può essere un setInterval: su funzioni serverless il processo muore dopo la
+ * risposta, quindi un timer non arriverebbe mai a scattare. Si fa invece in modo pigro,
+ * su una piccola frazione delle richieste. Le sessioni scadute vengono comunque rifiutate
+ * una per una al momento dell'uso: questa è solo igiene, per non far crescere la tabella.
+ */
+const CLEANUP_PROBABILITY = 0.01;
+
+export function sessionCleanupMiddleware(_req, _res, next) {
+  next(); // la pulizia non deve mai ritardare la risposta
+
+  if (Math.random() >= CLEANUP_PROBABILITY) return;
+  (async () => {
     try {
-      purgeExpiredSessions(getDb());
+      await purgeExpiredSessions(await getDb());
     } catch (err) {
       console.error('[cleanup sessioni]', err);
     }
-  };
-  tick();
-  const timer = setInterval(tick, 60 * 60 * 1000);
-  timer.unref();
-  return timer;
+  })();
 }

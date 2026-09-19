@@ -26,9 +26,10 @@ function duePayload(body) {
 
 duesRouter.post(
   '/',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const p = duePayload(req.body || {});
-    const info = getDb()
+    const db = await getDb();
+    const info = await db
       .prepare(
         `INSERT INTO dues (house_id, fiscal_period_id, amount, description, split_mode,
                            split_custom, split_amounts, due_kind, carry_from_period_id)
@@ -51,10 +52,11 @@ duesRouter.post(
 
 duesRouter.put(
   '/:dueId',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const p = duePayload(req.body || {});
+    const db = await getDb();
     // `AND house_id = ?` anche qui: difesa in profondità oltre al middleware di ownership.
-    const info = getDb()
+    const info = await db
       .prepare(
         `UPDATE dues
             SET fiscal_period_id = ?, amount = ?, description = ?, split_mode = ?,
@@ -81,8 +83,9 @@ duesRouter.put(
 
 duesRouter.delete(
   '/:dueId',
-  asyncRoute((req, res) => {
-    getDb()
+  asyncRoute(async (req, res) => {
+    const db = await getDb();
+    await db
       .prepare('DELETE FROM dues WHERE id = ? AND house_id = ?')
       .run(Number(req.params.dueId), req.houseId);
     res.status(204).end();

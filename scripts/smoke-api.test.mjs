@@ -68,18 +68,19 @@ function createClient() {
   };
 }
 
-function seedUser(email, password) {
+async function seedUser(email, password) {
   const id = newUserId();
-  getDb()
+  const db = await getDb();
+  await db
     .prepare('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)')
     .run(id, email, hashPassword(password));
   return id;
 }
 
 before(async () => {
-  getDb();
-  seedUser('primo@example.it', 'password1');
-  seedUser('secondo@example.it', 'password2');
+  await getDb();
+  await seedUser('primo@example.it', 'password1');
+  await seedUser('secondo@example.it', 'password2');
 
   const app = createApp();
   await new Promise((resolveListen) => {
@@ -92,7 +93,7 @@ before(async () => {
 
 after(async () => {
   await new Promise((resolveClose) => server.close(resolveClose));
-  closeDb();
+  await closeDb();
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -343,7 +344,7 @@ describe('CondoLedger API', () => {
     const del = await client.request('DELETE', `/api/houses/${houseId}`);
     assert.equal(del.status, 204);
 
-    const db = getDb();
+    const db = await getDb();
     for (const table of [
       'fiscal_periods',
       'dues',
@@ -351,11 +352,11 @@ describe('CondoLedger API', () => {
       'bank_movements',
       'prior_balances'
     ]) {
-      const { c } = db.prepare(`SELECT count(*) AS c FROM ${table} WHERE house_id = ?`).get(houseId);
+      const { c } = await db.prepare(`SELECT count(*) AS c FROM ${table} WHERE house_id = ?`).get(houseId);
       // Se PRAGMA foreign_keys non fosse ON, qui resterebbero righe orfane.
       assert.equal(c, 0, `${table} svuotata dal CASCADE`);
     }
-    assert.equal(db.pragma('foreign_key_check').length, 0);
+    assert.equal((await db.pragma('foreign_key_check')).length, 0);
   });
 
   it('13. cambia password e invalida le altre sessioni', async () => {

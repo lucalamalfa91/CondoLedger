@@ -10,21 +10,22 @@ export const housesRouter = Router();
 /** Sostituisce loadFromSupabase(): un'unica chiamata al posto di 1 + 5×N query. */
 housesRouter.get(
   '/',
-  asyncRoute((req, res) => {
-    res.json(allHouseTrees(getDb(), req.user.id));
+  asyncRoute(async (req, res) => {
+    res.json(await allHouseTrees(await getDb(), req.user.id));
   })
 );
 
 housesRouter.post(
   '/',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const body = req.body || {};
     const name = String(body.name || '').trim();
     if (!name) throw badRequest("Il nome dell'immobile è obbligatorio.");
 
     // user_id viene SOLO dalla sessione. Oggi api.js lo manda nel payload (api.js:135):
     // accettarlo dal client significherebbe permettere di scrivere case per conto d'altri.
-    const info = getDb()
+    const db = await getDb();
+    const info = await db
       .prepare(
         `INSERT INTO houses (user_id, name, location, notes, fiscal_start_month, import_parties)
          VALUES (?, ?, ?, ?, ?, ?)`
@@ -45,12 +46,13 @@ housesRouter.post(
 housesRouter.put(
   '/:houseId',
   loadHouse,
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const body = req.body || {};
     const name = String(body.name || '').trim();
     if (!name) throw badRequest("Il nome dell'immobile è obbligatorio.");
 
-    getDb()
+    const db = await getDb();
+    await db
       .prepare(
         `UPDATE houses
             SET name = ?, location = ?, notes = ?, fiscal_start_month = ?, import_parties = ?
@@ -73,9 +75,10 @@ housesRouter.put(
 housesRouter.patch(
   '/:houseId/calendar',
   loadHouse,
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const body = req.body || {};
-    getDb()
+    const db = await getDb();
+    await db
       .prepare(
         `UPDATE houses
             SET calendar_reminder_cadence = ?, calendar_reminder_lead_days = ?
@@ -108,19 +111,21 @@ housesRouter.patch(
 housesRouter.delete(
   '/:houseId',
   loadHouse,
-  asyncRoute((req, res) => {
-    const db = getDb();
+  asyncRoute(async (req, res) => {
+    const db = await getDb();
 
-    const run = db.transaction(() => {
+    const run = db.transaction(async (tx) => {
       for (const table of ['payments', 'bank_movements', 'dues', 'prior_balances', 'fiscal_periods']) {
-        db.prepare(`DELETE FROM ${table} WHERE house_id = ?`).run(req.houseId);
+        await tx.prepare(`DELETE FROM ${table} WHERE house_id = ?`).run(req.houseId);
       }
       // `AND user_id = ?` è indispensabile: la versione Supabase cancellava per solo id
       // ed era la policy RLS a impedire di colpire la casa di un altro utente.
-      db.prepare('DELETE FROM houses WHERE id = ? AND user_id = ?').run(req.houseId, req.user.id);
+      await tx
+        .prepare('DELETE FROM houses WHERE id = ? AND user_id = ?')
+        .run(req.houseId, req.user.id);
     });
 
-    run();
+    await run();
     res.status(204).end();
   })
 );
@@ -129,8 +134,8 @@ housesRouter.delete(
 housesRouter.get(
   '/:houseId',
   loadHouse,
-  asyncRoute((req, res) => {
-    res.json(houseTree(getDb(), req.house));
+  asyncRoute(async (req, res) => {
+    res.json(await houseTree(await getDb(), req.house));
   })
 );
 
@@ -143,7 +148,7 @@ housesRouter.get(
 housesRouter.post(
   '/:houseId/fiscal-periods',
   loadHouse,
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const body = req.body || {};
     const label = String(body.label || '').trim();
     const startDate = String(body.start_date || '').trim();
@@ -152,9 +157,9 @@ housesRouter.post(
       throw badRequest("Esercizio fiscale incompleto (label, start_date, end_date).");
     }
 
-    const db = getDb();
-    const upsert = db.transaction(() => {
-      const info = db
+    const db = await getDb();
+    const upsert = db.transaction(async (tx) => {
+      const info = await tx
         .prepare(
           `INSERT INTO fiscal_periods (house_id, label, start_date, end_date)
            VALUES (?, ?, ?, ?)
@@ -162,14 +167,14 @@ housesRouter.post(
         )
         .run(req.houseId, label, startDate, endDate);
 
-      const row = db
+      const row = await tx
         .prepare('SELECT * FROM fiscal_periods WHERE house_id = ? AND label = ?')
         .get(req.houseId, label);
 
       return { row, isNew: info.changes > 0 };
     });
 
-    const { row, isNew } = upsert();
+    const { row, isNew } = await upsert();
     if (!row) throw notFound('Esercizio fiscale non trovato dopo la creazione.');
     res.status(isNew ? 201 : 200).json({ period: serializeFiscalPeriod(row), isNew });
   })

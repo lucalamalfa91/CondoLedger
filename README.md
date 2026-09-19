@@ -7,8 +7,8 @@ rendiconto e promemoria su calendario.
 ## Stack
 
 - **Frontend**: HTML/CSS/JS puro, moduli ES nativi, nessun build step
-- **Backend**: Node + Express
-- **Database**: SQLite (un file), via better-sqlite3
+- **Backend**: Node + Express, su funzioni serverless Vercel
+- **Database**: Turso (SQLite gestito), via `@libsql/client`
 - **Autenticazione**: email e password, sessione su cookie HttpOnly
 
 Il server espone la REST API e serve anche i file statici, quindi tutto vive su una sola
@@ -25,7 +25,8 @@ origine: niente CORS e nessun token nel browser.
 | `server/schema.sql` | Schema del database, applicato all'avvio |
 | `scripts/` | CLI utenti, migrazione dati, smoke test |
 | `data/` | Il file `.db` (non versionato) |
-| `Dockerfile`, `railway.json`, `fly.toml` | Deploy |
+| `api/index.js`, `vercel.json` | Entry point serverless e routing |
+| `Dockerfile`, `fly.toml` | Deploy alternativo su container |
 | `references/intesa-format.md` | Formato dell'export Excel di Banca Intesa |
 
 ---
@@ -53,7 +54,9 @@ Tutte hanno un default sensato; vedi `.env.example`.
 | Variabile | Default | Note |
 |---|---|---|
 | `PORT` | `3000` | |
-| `DB_PATH` | `./data/condoledger.db` | In produzione punta al volume persistente |
+| `TURSO_DATABASE_URL` | — | Se impostata, il database è su Turso e non serve un disco |
+| `TURSO_AUTH_TOKEN` | — | Token del database Turso |
+| `DB_PATH` | `./data/condoledger.db` | File locale, usato quando `TURSO_DATABASE_URL` è vuota |
 | `COOKIE_SECURE` | `false` | **`true` in produzione**: su HTTPS il cookie va marcato Secure |
 | `SESSION_TTL_DAYS` | `30` | Durata della sessione, rinnovata a scorrimento |
 | `NODE_ENV` | `development` | |
@@ -151,70 +154,73 @@ volume non arriva mai.
 
 ---
 
-## Deploy
+## Deploy su Vercel + Turso
 
-Il database è un file, quindi serve un host con **disco persistente**. Su piattaforme con
-filesystem effimero (Vercel, o Railway senza volume) il file viene ricreato a ogni deploy e
-**i dati si perdono**.
+Il database vive su **Turso** (SQLite gestito), quindi all'app non serve alcun disco e può
+girare su funzioni serverless. Entrambi i servizi hanno un piano gratuito.
 
-Il file `.db` **non va mai committato**: a ogni deploy il container riparte da un checkout
-pulito del repository, quindi il database tornerebbe alla versione nel commit, perdendo
-tutto ciò che è stato inserito nel frattempo. `.gitignore` lo esclude apposta.
+### 1. Il database
 
-### Railway
+Su [turso.tech](https://turso.tech) crea un database e prendi nota di **URL** (`libsql://…`)
+e **auth token**.
 
-Un solo servizio: app e database nello stesso container, il file sul volume.
+Limiti del piano gratuito: 5 GB di storage, 500 milioni di righe lette e 10 milioni scritte
+al mese — tre ordini di grandezza sopra l'uso di questa applicazione.
 
-1. **New Project → Deploy from GitHub repo**, scegli questo repository. Railway rileva il
-   `Dockerfile` e `railway.json`.
-2. **Settings → Volumes → New Volume**, mount path `/data`. Senza questo passo l'app
-   funziona ma si svuota a ogni deploy.
-3. **Variables**:
-   ```
-   DB_PATH=/data/condoledger.db
-   COOKIE_SECURE=true
-   NODE_ENV=production
-   ```
-   `PORT` la inietta Railway da sé.
-4. Migra i dati (sezione sopra) oppure, per partire da zero, crea il primo utente con
-   `railway ssh` → `npm run create-user -- tua@email.it`.
+### 2. L'applicazione
 
-**Mai più di una replica**: il volume è agganciato a una sola macchina e SQLite ammette un
-solo scrittore. `railway.json` tiene `numReplicas: 1`.
+Su Vercel, **Add New → Project**, scegli il repository. Non serve alcuna configurazione di
+build: `vercel.json` instrada `/api/*` alla funzione e tutto il resto ai file statici,
+serviti dalla CDN senza consumare invocazioni.
 
-### Fly.io
+Variabili d'ambiente:
 
-Configurazione equivalente in `fly.toml`, con volume su `/data`:
-
-```bash
-fly launch --no-deploy --copy-config
-fly volumes create condoledger_data --size 1 --region cdg
-fly deploy
-fly ssh console -C "node scripts/create-user.mjs tua@email.it"
+```
+TURSO_DATABASE_URL=libsql://xxxx.turso.io
+TURSO_AUTH_TOKEN=...
+COOKIE_SECURE=true
+NODE_ENV=production
 ```
 
-Vanno bene allo stesso modo Render con Persistent Disk o Docker su un VPS: il `Dockerfile`
-è lo stesso.
+### 3. Primo accesso
 
-### CI
+Aggiungi temporaneamente queste due, fai partire un deploy, accedi, poi **rimuovile**:
 
-`.github/workflows/deploy.yml` esegue i test su ogni push e pull request. Il job di deploy
-è scritto per Fly (`FLY_API_TOKEN`); su Railway il deploy parte da sé a ogni push, quindi
-quel job va rimosso o lasciato disabilitato.
+```
+BOOTSTRAP_USER_EMAIL=tua@email.it
+BOOTSTRAP_USER_PASSWORD=scegline-una
+```
+
+### Cosa cambia rispetto a un server tradizionale
+
+Su serverless non esiste un processo che resta vivo fra una richiesta e l'altra. Due
+conseguenze, entrambe già gestite nel codice:
+
+- Il **rate limit sul login** non può stare in memoria, perché ogni richiesta può girare in
+  un processo diverso: vive nella tabella `login_attempts`.
+- La **pulizia delle sessioni scadute** non può essere un timer: avviene in modo pigro, su
+  una piccola frazione delle richieste. Le sessioni scadute vengono comunque rifiutate al
+  momento dell'uso, indipendentemente dalla pulizia.
+
+### Alternative
+
+Il `Dockerfile` e `fly.toml` restano validi per chi preferisce un container a lungo
+termine (Fly.io, Render, Koyeb, un VPS). In quel caso `TURSO_DATABASE_URL` è facoltativa:
+senza, l'app usa un file locale in `DB_PATH` e serve un disco persistente.
+
+---
 
 ### Backup
 
-Il file `.db` è tutto il database.
+Con il database su Turso, i backup li gestisce Turso (point-in-time restore incluso nel
+piano gratuito). Per una copia locale:
 
 ```bash
-railway ssh    # oppure: fly ssh console
-sqlite3 /data/condoledger.db ".backup /data/backup.db"
+turso db shell <nome-db> .dump > backup.sql
 ```
 
-Per qualcosa di più solido vale la pena aggiungere [Litestream](https://litestream.io/),
-che replica il WAL su S3 o R2 in continuo. La funzione Backup dentro l'app
-(Impostazioni → Backup) esporta un JSON ed è la seconda rete di sicurezza — nota però che
-**non include i movimenti bancari**.
+La funzione Backup dentro l'app (Impostazioni → Backup) esporta un JSON ed è la seconda
+rete di sicurezza — nota però che **non include i movimenti bancari**.
 
 ---
 

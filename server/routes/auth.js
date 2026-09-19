@@ -27,13 +27,14 @@ authRouter.get('/session', (req, res) => {
 
 authRouter.post(
   '/login',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const email = String(req.body?.email || '').trim();
     const password = String(req.body?.password || '');
     if (!email || !password) throw badRequest('Inserisci email e password');
 
+    const db = await getDb();
     const rateKey = `${req.ip}|${email.toLowerCase()}`;
-    const limit = loginRateLimit(rateKey);
+    const limit = await loginRateLimit(db, rateKey);
     if (!limit.allowed) {
       throw new AppError(
         429,
@@ -42,8 +43,7 @@ authRouter.post(
       );
     }
 
-    const db = getDb();
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email);
 
     // Messaggio identico per utente inesistente e password errata: non rivela quali
     // indirizzi sono registrati.
@@ -51,8 +51,8 @@ authRouter.post(
       throw unauthorized('Credenziali non valide');
     }
 
-    resetLoginRateLimit(rateKey);
-    const { token, expiresAt } = createSession(db, user.id, req.headers['user-agent'] || null);
+    await resetLoginRateLimit(db, rateKey);
+    const { token, expiresAt } = await createSession(db, user.id, req.headers['user-agent'] || null);
     setSessionCookie(res, token, expiresAt);
     res.json({ user: { id: user.id, email: user.email } });
   })
@@ -60,8 +60,8 @@ authRouter.post(
 
 authRouter.post(
   '/logout',
-  asyncRoute((req, res) => {
-    destroySession(getDb(), req.sessionToken);
+  asyncRoute(async (req, res) => {
+    await destroySession(await getDb(), req.sessionToken);
     clearSessionCookie(res);
     res.status(204).end();
   })
@@ -70,17 +70,17 @@ authRouter.post(
 authRouter.post(
   '/password',
   requireAuth,
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const password = String(req.body?.password || '');
     if (password.length < 6) throw badRequest('La password deve avere almeno 6 caratteri');
 
-    const db = getDb();
-    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(
+    const db = await getDb();
+    await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(
       hashPassword(password),
       req.user.id
     );
     // Come faceva Supabase: il cambio password sfratta le altre sessioni.
-    destroyOtherSessions(db, req.user.id, req.sessionToken);
+    await destroyOtherSessions(db, req.user.id, req.sessionToken);
     res.status(204).end();
   })
 );

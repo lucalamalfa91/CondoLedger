@@ -1,9 +1,8 @@
 /**
  * Hashing password e gestione sessioni. Sostituisce Supabase Auth.
  *
- * Hashing: scrypt di node:crypto. È adeguato per questa applicazione e soprattutto evita
- * una seconda dipendenza nativa (better-sqlite3 è già un modulo nativo: aggiungere bcrypt
- * significherebbe un secondo toolchain di compilazione in Docker).
+ * Hashing: scrypt di node:crypto. È adeguato per questa applicazione ed è l'unica scelta
+ * praticabile su funzioni serverless, dove bcrypt — modulo nativo — non è utilizzabile.
  */
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 
@@ -61,10 +60,10 @@ function ttlMs() {
   return config.sessionTtlDays * 24 * 60 * 60 * 1000;
 }
 
-export function createSession(db, userId, userAgent = null) {
+export async function createSession(db, userId, userAgent = null) {
   const token = randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + ttlMs()).toISOString();
-  db.prepare(
+  await db.prepare(
     'INSERT INTO sessions (token, user_id, expires_at, user_agent) VALUES (?, ?, ?, ?)'
   ).run(token, userId, expiresAt, userAgent);
   return { token, expiresAt };
@@ -75,9 +74,9 @@ export function createSession(db, userId, userAgent = null) {
  * è ciò che faceva persistSession del client Supabase).
  * Ritorna `{ user, renewed }` oppure null.
  */
-export function resolveSession(db, token) {
+export async function resolveSession(db, token) {
   if (!token) return null;
-  const row = db
+  const row = await db
     .prepare(
       `SELECT s.token, s.expires_at, u.id AS user_id, u.email
          FROM sessions s
@@ -89,32 +88,34 @@ export function resolveSession(db, token) {
 
   const expiresAt = Date.parse(row.expires_at);
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-    db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    await db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
     return null;
   }
 
   let renewed = null;
   if (expiresAt - Date.now() < REFRESH_THRESHOLD_MS) {
     const next = new Date(Date.now() + ttlMs()).toISOString();
-    db.prepare('UPDATE sessions SET expires_at = ? WHERE token = ?').run(next, token);
+    await db.prepare('UPDATE sessions SET expires_at = ? WHERE token = ?').run(next, token);
     renewed = next;
   }
 
   return { user: { id: row.user_id, email: row.email }, renewed };
 }
 
-export function destroySession(db, token) {
-  if (token) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+export async function destroySession(db, token) {
+  if (token) await db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
 }
 
 /** Usata al cambio password: invalida ogni altra sessione dell'utente. */
-export function destroyOtherSessions(db, userId, keepToken) {
-  db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(userId, keepToken);
+export async function destroyOtherSessions(db, userId, keepToken) {
+  await db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(userId, keepToken);
 }
 
-export function purgeExpiredSessions(db) {
-  return db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(new Date().toISOString())
-    .changes;
+export async function purgeExpiredSessions(db) {
+  const info = await db
+    .prepare('DELETE FROM sessions WHERE expires_at <= ?')
+    .run(new Date().toISOString());
+  return info.changes;
 }
 
 // --- Cookie ---------------------------------------------------------------
@@ -154,30 +155,42 @@ export function clearSessionCookie(res) {
 
 /**
  * Supabase Auth limitava i tentativi di accesso; senza un equivalente, /api/auth/login
- * esposto su internet è forzabile. Contatore in memoria, sufficiente per un'istanza singola
- * (che è comunque il vincolo imposto da SQLite).
+ * esposto su internet è forzabile.
+ *
+ * Il contatore vive nel database e non in memoria: su funzioni serverless ogni richiesta
+ * può girare in un processo diverso, quindi una Map si azzererebbe di continuo e la
+ * protezione sarebbe solo apparente.
  */
 const MAX_ATTEMPTS = 10;
 const WINDOW_MS = 15 * 60 * 1000;
-const attempts = new Map();
 
-export function loginRateLimit(key) {
+export async function loginRateLimit(db, key) {
   const now = Date.now();
-  const entry = attempts.get(key);
+  const row = await db.prepare('SELECT count, first_at FROM login_attempts WHERE key = ?').get(key);
 
-  if (!entry || now - entry.first > WINDOW_MS) {
-    attempts.set(key, { count: 1, first: now });
+  const firstAt = row ? Date.parse(row.first_at) : NaN;
+  const windowExpired = !row || !Number.isFinite(firstAt) || now - firstAt > WINDOW_MS;
+
+  if (windowExpired) {
+    await db
+      .prepare(
+        `INSERT INTO login_attempts (key, count, first_at) VALUES (?, 1, ?)
+         ON CONFLICT (key) DO UPDATE SET count = 1, first_at = excluded.first_at`
+      )
+      .run(key, new Date(now).toISOString());
     return { allowed: true };
   }
 
-  entry.count += 1;
-  if (entry.count > MAX_ATTEMPTS) {
-    const retryAfterSec = Math.ceil((entry.first + WINDOW_MS - now) / 1000);
-    return { allowed: false, retryAfterSec };
+  const count = Number(row.count) + 1;
+  await db.prepare('UPDATE login_attempts SET count = ? WHERE key = ?').run(count, key);
+
+  if (count > MAX_ATTEMPTS) {
+    return { allowed: false, retryAfterSec: Math.ceil((firstAt + WINDOW_MS - now) / 1000) };
   }
   return { allowed: true };
 }
 
-export function resetLoginRateLimit(key) {
-  attempts.delete(key);
+/** Un accesso riuscito azzera il conteggio per quella chiave. */
+export async function resetLoginRateLimit(db, key) {
+  await db.prepare('DELETE FROM login_attempts WHERE key = ?').run(key);
 }

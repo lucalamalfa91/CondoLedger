@@ -27,9 +27,10 @@ function paymentPayload(body) {
 
 paymentsRouter.post(
   '/',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const p = paymentPayload(req.body || {});
-    const info = getDb()
+    const db = await getDb();
+    const info = await db
       .prepare(
         `INSERT INTO payments (house_id, fiscal_period_id, amount, date, method, installment_key,
                                prior_balance_id, carry_from_period_id, is_carry_forward,
@@ -54,9 +55,10 @@ paymentsRouter.post(
 
 paymentsRouter.put(
   '/:paymentId',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const p = paymentPayload(req.body || {});
-    const info = getDb()
+    const db = await getDb();
+    const info = await db
       .prepare(
         `UPDATE payments
             SET fiscal_period_id = ?, amount = ?, date = ?, method = ?, installment_key = ?,
@@ -89,29 +91,33 @@ paymentsRouter.put(
  */
 paymentsRouter.delete(
   '/:paymentId',
-  asyncRoute((req, res) => {
-    const db = getDb();
+  asyncRoute(async (req, res) => {
+    const db = await getDb();
     const paymentId = Number(req.params.paymentId);
 
-    const run = db.transaction(() => {
-      const payment = db
+    const run = db.transaction(async (tx) => {
+      const payment = await tx
         .prepare('SELECT * FROM payments WHERE id = ? AND house_id = ?')
         .get(paymentId, req.houseId);
       if (!payment) return false;
 
-      db.prepare('DELETE FROM payments WHERE id = ? AND house_id = ?').run(paymentId, req.houseId);
+      await tx
+        .prepare('DELETE FROM payments WHERE id = ? AND house_id = ?')
+        .run(paymentId, req.houseId);
 
       if (payment.bank_movement_id) {
-        db.prepare(
-          `UPDATE bank_movements
-              SET status = 'unlinked', linked_payment_id = NULL, fiscal_period_id = NULL
-            WHERE id = ? AND house_id = ?`
-        ).run(payment.bank_movement_id, req.houseId);
+        await tx
+          .prepare(
+            `UPDATE bank_movements
+                SET status = 'unlinked', linked_payment_id = NULL, fiscal_period_id = NULL
+              WHERE id = ? AND house_id = ?`
+          )
+          .run(payment.bank_movement_id, req.houseId);
       }
       return true;
     });
 
-    if (!run()) throw notFound('Versamento non trovato.');
+    if (!(await run())) throw notFound('Versamento non trovato.');
     res.status(204).end();
   })
 );

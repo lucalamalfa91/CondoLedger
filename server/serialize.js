@@ -50,21 +50,32 @@ const QUERIES = {
 };
 
 /** Albero completo di una casa, nella forma che loadFromSupabase() consuma. */
-export function houseTree(db, houseRow) {
+export async function houseTree(db, houseRow) {
   const hid = houseRow.id;
+
+  // Le cinque relazioni sono indipendenti: su un database remoto lanciarle insieme
+  // risparmia quattro round-trip di rete rispetto a farle in sequenza.
+  const [fiscalPeriods, dues, payments, bankMovements, priorBalances] = await Promise.all([
+    db.prepare(QUERIES.fiscalPeriods).all(hid),
+    db.prepare(QUERIES.dues).all(hid),
+    db.prepare(QUERIES.payments).all(hid),
+    db.prepare(QUERIES.bankMovements).all(hid),
+    db.prepare(QUERIES.priorBalances).all(hid)
+  ]);
+
   return {
     house: serializeHouse(houseRow),
-    fiscalPeriods: db.prepare(QUERIES.fiscalPeriods).all(hid).map(serializeFiscalPeriod),
-    dues: db.prepare(QUERIES.dues).all(hid).map(serializeDue),
-    payments: db.prepare(QUERIES.payments).all(hid).map(serializePayment),
-    bankMovements: db.prepare(QUERIES.bankMovements).all(hid).map(serializeBankMovement),
-    priorBalances: db.prepare(QUERIES.priorBalances).all(hid).map(serializePriorBalance)
+    fiscalPeriods: fiscalPeriods.map(serializeFiscalPeriod),
+    dues: dues.map(serializeDue),
+    payments: payments.map(serializePayment),
+    bankMovements: bankMovements.map(serializeBankMovement),
+    priorBalances: priorBalances.map(serializePriorBalance)
   };
 }
 
-export function allHouseTrees(db, userId) {
-  const houses = db
+export async function allHouseTrees(db, userId) {
+  const houses = await db
     .prepare('SELECT * FROM houses WHERE user_id = ? ORDER BY created_at ASC, id ASC')
     .all(userId);
-  return houses.map((h) => houseTree(db, h));
+  return Promise.all(houses.map((h) => houseTree(db, h)));
 }

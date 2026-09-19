@@ -56,13 +56,13 @@ export function requireEmailArg(usage) {
 }
 
 export async function createUser(email) {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const db = await getDb();
+  const existing = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
   if (existing) throw new Error(`Esiste già un utente con l'email ${email}.`);
 
   const password = await readNewPassword();
   const id = newUserId();
-  db.prepare('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)').run(
+  await db.prepare('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)').run(
     id,
     email,
     hashPassword(password)
@@ -71,15 +71,17 @@ export async function createUser(email) {
 }
 
 export async function setPassword(email) {
-  const db = getDb();
-  const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const db = await getDb();
+  const user = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
   if (!user) throw new Error(`Nessun utente con l'email ${email}.`);
 
   const password = await readNewPassword();
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), user.id);
+  await db
+    .prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+    .run(hashPassword(password), user.id);
   // Come il cambio password dall'app: le sessioni aperte vengono invalidate.
-  const closed = db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id).changes;
-  return { id: user.id, closedSessions: closed };
+  const info = await db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+  return { id: user.id, closedSessions: info.changes };
 }
 
 export async function runCli(fn) {
@@ -89,6 +91,6 @@ export async function runCli(fn) {
     console.error(`\nErrore: ${err.message}`);
     process.exitCode = 1;
   } finally {
-    closeDb();
+    await closeDb();
   }
 }

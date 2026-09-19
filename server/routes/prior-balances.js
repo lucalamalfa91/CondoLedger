@@ -31,35 +31,38 @@ function priorBalancePayload(body) {
  */
 priorBalancesRouter.post(
   '/',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const p = priorBalancePayload(req.body || {});
-    const db = getDb();
+    const db = await getDb();
 
-    const upsert = db.transaction(() => {
-      db.prepare(
-        `INSERT INTO prior_balances (house_id, fiscal_period_id, source_period_id, amount, description)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT (house_id, fiscal_period_id)
-         DO UPDATE SET source_period_id = excluded.source_period_id,
-                       amount           = excluded.amount,
-                       description      = excluded.description`
-      ).run(req.houseId, p.fiscal_period_id, p.source_period_id, p.amount, p.description);
+    const upsert = db.transaction(async (tx) => {
+      await tx
+        .prepare(
+          `INSERT INTO prior_balances (house_id, fiscal_period_id, source_period_id, amount, description)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (house_id, fiscal_period_id)
+           DO UPDATE SET source_period_id = excluded.source_period_id,
+                         amount           = excluded.amount,
+                         description      = excluded.description`
+        )
+        .run(req.houseId, p.fiscal_period_id, p.source_period_id, p.amount, p.description);
 
-      return db
+      return tx
         .prepare('SELECT id FROM prior_balances WHERE house_id = ? AND fiscal_period_id = ?')
         .get(req.houseId, p.fiscal_period_id);
     });
 
-    const row = upsert();
+    const row = await upsert();
     res.status(201).json({ id: Number(row.id) });
   })
 );
 
 priorBalancesRouter.put(
   '/:priorBalanceId',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const p = priorBalancePayload(req.body || {});
-    const info = getDb()
+    const db = await getDb();
+    const info = await db
       .prepare(
         `UPDATE prior_balances
             SET fiscal_period_id = ?, source_period_id = ?, amount = ?, description = ?
@@ -83,8 +86,9 @@ priorBalancesRouter.put(
 
 priorBalancesRouter.delete(
   '/:priorBalanceId',
-  asyncRoute((req, res) => {
-    getDb()
+  asyncRoute(async (req, res) => {
+    const db = await getDb();
+    await db
       .prepare('DELETE FROM prior_balances WHERE id = ? AND house_id = ?')
       .run(Number(req.params.priorBalanceId), req.houseId);
     res.status(204).end();

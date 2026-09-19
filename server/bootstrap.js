@@ -40,7 +40,7 @@ export async function maybeMigrateOnBoot(db) {
     return;
   }
 
-  const houses = db.prepare('SELECT count(*) AS c FROM houses').get().c;
+  const { c: houses } = await db.prepare('SELECT count(*) AS c FROM houses').get();
   if (houses > 0) {
     banner([
       'MIGRAZIONE SALTATA',
@@ -95,7 +95,7 @@ export async function maybeMigrateOnBoot(db) {
  * Come la migrazione, è pensata per essere usata una volta e poi rimossa. Non viene mai
  * registrata la password nei log, solo l'indirizzo.
  */
-export function maybeBootstrapUser(db) {
+export async function maybeBootstrapUser(db) {
   const email = (process.env.BOOTSTRAP_USER_EMAIL || '').trim();
   const password = process.env.BOOTSTRAP_USER_PASSWORD || '';
 
@@ -119,12 +119,14 @@ export function maybeBootstrapUser(db) {
     return;
   }
 
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const existing = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
 
   if (existing) {
-    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), existing.id);
+    await db
+      .prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+      .run(hashPassword(password), existing.id);
     // Come il cambio password dall'app: le sessioni aperte decadono.
-    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(existing.id);
+    await db.prepare('DELETE FROM sessions WHERE user_id = ?').run(existing.id);
     banner([
       `PASSWORD AGGIORNATA per ${email}`,
       '',
@@ -134,7 +136,7 @@ export function maybeBootstrapUser(db) {
     return;
   }
 
-  db.prepare('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)').run(
+  await db.prepare('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)').run(
     newUserId(),
     email,
     hashPassword(password)

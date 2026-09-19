@@ -53,6 +53,17 @@ CREATE TABLE IF NOT EXISTS sessions (
   user_agent TEXT
 );
 
+-- Tentativi di accesso falliti, per il rate limit.
+--
+-- Sta nel database e non in memoria perché su funzioni serverless ogni richiesta può
+-- girare in un processo diverso: un contatore in memoria si azzererebbe di continuo e la
+-- protezione contro i tentativi a forza bruta sarebbe solo apparente.
+CREATE TABLE IF NOT EXISTS login_attempts (
+  key      TEXT PRIMARY KEY,
+  count    INTEGER NOT NULL DEFAULT 0,
+  first_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id    ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 

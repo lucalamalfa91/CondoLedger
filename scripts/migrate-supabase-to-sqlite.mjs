@@ -25,7 +25,7 @@ try {
   const result = await migrateFromSupabase({
     supabaseUrl: process.env.SUPABASE_URL,
     serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    db: getDb(),
+    db: await getDb(),
     dryRun
   });
 
@@ -40,5 +40,5 @@ try {
   }
   process.exitCode = 1;
 } finally {
-  closeDb();
+  await closeDb();
 }

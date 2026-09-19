@@ -1,9 +1,13 @@
-import { createApp, startSessionCleanup } from './app.js';
+import { createApp } from './app.js';
 import { maybeBootstrapUser, maybeMigrateOnBoot } from './bootstrap.js';
 import { closeDb, describeDatabase, getDb } from './db.js';
 import { config } from './env.js';
 
-const db = getDb(); // apre il DB e applica lo schema prima di accettare richieste
+/**
+ * Avvio come processo autonomo (sviluppo locale, o un host a container).
+ * Su Vercel l'entry point è invece api/index.js, che esporta l'app come handler.
+ */
+const db = await getDb();
 
 // Migrazione una-tantum da Supabase, se richiesta esplicitamente: va fatta prima di
 // aprire la porta, così nessuna richiesta vede un database a metà.
@@ -11,9 +15,7 @@ await maybeMigrateOnBoot(db);
 
 // Password del primo utente, sempre dopo la migrazione: se l'utente arriva da Supabase
 // esiste già e va solo dotato di una password utilizzabile.
-maybeBootstrapUser(db);
-
-startSessionCleanup();
+await maybeBootstrapUser(db);
 
 const app = createApp();
 const server = app.listen(config.port, () => {
@@ -23,8 +25,8 @@ const server = app.listen(config.port, () => {
 
 function shutdown(signal) {
   console.log(`\n${signal}: chiusura in corso...`);
-  server.close(() => {
-    closeDb();
+  server.close(async () => {
+    await closeDb();
     process.exit(0);
   });
 }

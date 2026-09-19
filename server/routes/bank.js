@@ -30,30 +30,28 @@ function chunk(list, size = CHUNK) {
  */
 bankRouter.post(
   '/import',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const body = req.body || {};
     const batchId = String(body.import_batch_id || '').trim();
     const rows = Array.isArray(body.rows) ? body.rows : null;
     if (!batchId) throw badRequest('import_batch_id mancante.');
     if (!rows) throw badRequest('Nessuna riga da importare.');
 
-    const db = getDb();
+    const db = await getDb();
 
-    const insertMovement = db.prepare(
-      `INSERT INTO bank_movements (house_id, import_batch_id, movement_date, operation, details,
-                                   amount, currency, source_hash, fiscal_period_id,
-                                   suggested_fiscal_period_id, match_confidence, match_reason, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (house_id, source_hash) DO NOTHING`
-    );
-    const insertPayment = db.prepare(
-      `INSERT INTO payments (house_id, fiscal_period_id, amount, date, method, bank_movement_id,
-                             installment_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    );
-    const backLink = db.prepare('UPDATE bank_movements SET linked_payment_id = ? WHERE id = ?');
+    const INSERT_MOVEMENT = `
+      INSERT INTO bank_movements (house_id, import_batch_id, movement_date, operation, details,
+                                  amount, currency, source_hash, fiscal_period_id,
+                                  suggested_fiscal_period_id, match_confidence, match_reason, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (house_id, source_hash) DO NOTHING`;
+    const INSERT_PAYMENT = `
+      INSERT INTO payments (house_id, fiscal_period_id, amount, date, method, bank_movement_id,
+                            installment_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`;
+    const BACK_LINK = 'UPDATE bank_movements SET linked_payment_id = ? WHERE id = ?';
 
-    const run = db.transaction(() => {
+    const run = db.transaction(async (tx) => {
       let inserted = 0;
       let skipped = 0;
       let linked = 0;
@@ -65,7 +63,7 @@ bankRouter.post(
           throw badRequest('Movimento da associare senza esercizio fiscale.');
         }
 
-        const info = insertMovement.run(
+        const info = await tx.prepare(INSERT_MOVEMENT).run(
           req.houseId,
           batchId,
           row.movement_date,
@@ -92,7 +90,7 @@ bankRouter.post(
         if (!wantsLink) continue;
 
         const movementId = Number(info.lastInsertRowid);
-        const payInfo = insertPayment.run(
+        const payInfo = await tx.prepare(INSERT_PAYMENT).run(
           req.houseId,
           periodId,
           money(row.payment_amount),
@@ -101,31 +99,31 @@ bankRouter.post(
           movementId,
           row.installment_key || null
         );
-        backLink.run(Number(payInfo.lastInsertRowid), movementId);
+        await tx.prepare(BACK_LINK).run(Number(payInfo.lastInsertRowid), movementId);
         linked += 1;
       }
 
       return { inserted, skipped, linked };
     });
 
-    res.status(201).json(run());
+    res.status(201).json(await run());
   })
 );
 
 /** Usata da deleteBankImportBatch/deleteAllBankImports per classificare lato client. */
 bankRouter.get(
   '/',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const batchId = req.query.import_batch_id;
-    const db = getDb();
+    const db = await getDb();
     const rows = batchId
-      ? db
+      ? await db
           .prepare(
             `SELECT id, linked_payment_id, status FROM bank_movements
               WHERE house_id = ? AND import_batch_id = ? ORDER BY id ASC`
           )
           .all(req.houseId, String(batchId))
-      : db
+      : await db
           .prepare(
             `SELECT id, linked_payment_id, status FROM bank_movements
               WHERE house_id = ? ORDER BY id ASC`
@@ -142,7 +140,7 @@ bankRouter.get(
  */
 bankRouter.post(
   '/delete',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const body = req.body || {};
     const movementIds = (Array.isArray(body.movement_ids) ? body.movement_ids : [])
       .map(Number)
@@ -151,28 +149,30 @@ bankRouter.post(
       .map(Number)
       .filter(Number.isInteger);
 
-    const db = getDb();
-    const run = db.transaction(() => {
+    const db = await getDb();
+    const run = db.transaction(async (tx) => {
       let deletedPayments = 0;
       let deletedMovements = 0;
 
       for (const part of chunk(paymentIds)) {
         const placeholders = part.map(() => '?').join(',');
-        deletedPayments += db
+        const info = await tx
           .prepare(`DELETE FROM payments WHERE house_id = ? AND id IN (${placeholders})`)
-          .run(req.houseId, ...part).changes;
+          .run(req.houseId, ...part);
+        deletedPayments += info.changes;
       }
       for (const part of chunk(movementIds)) {
         const placeholders = part.map(() => '?').join(',');
-        deletedMovements += db
+        const info = await tx
           .prepare(`DELETE FROM bank_movements WHERE house_id = ? AND id IN (${placeholders})`)
-          .run(req.houseId, ...part).changes;
+          .run(req.houseId, ...part);
+        deletedMovements += info.changes;
       }
 
       return { deletedMovements, deletedPayments };
     });
 
-    res.json(run());
+    res.json(await run());
   })
 );
 
@@ -184,21 +184,21 @@ bankRouter.post(
  */
 bankRouter.post(
   '/:movementId/link',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const body = req.body || {};
     const periodId = Number(body.fiscal_period_id);
     if (!Number.isInteger(periodId)) throw badRequest('Esercizio fiscale mancante.');
 
-    const db = getDb();
+    const db = await getDb();
     const movementId = Number(req.params.movementId);
 
-    const run = db.transaction(() => {
-      const movement = db
+    const run = db.transaction(async (tx) => {
+      const movement = await tx
         .prepare('SELECT * FROM bank_movements WHERE id = ? AND house_id = ?')
         .get(movementId, req.houseId);
       if (!movement) return null;
 
-      const payInfo = db
+      const payInfo = await tx
         .prepare(
           `INSERT INTO payments (house_id, fiscal_period_id, amount, date, method,
                                  bank_movement_id, installment_key)
@@ -214,16 +214,18 @@ bankRouter.post(
           body.installment_key || null
         );
 
-      db.prepare(
-        `UPDATE bank_movements
-            SET fiscal_period_id = ?, linked_payment_id = ?, status = 'linked'
-          WHERE id = ? AND house_id = ?`
-      ).run(periodId, Number(payInfo.lastInsertRowid), movement.id, req.houseId);
+      await tx
+        .prepare(
+          `UPDATE bank_movements
+              SET fiscal_period_id = ?, linked_payment_id = ?, status = 'linked'
+            WHERE id = ? AND house_id = ?`
+        )
+        .run(periodId, Number(payInfo.lastInsertRowid), movement.id, req.houseId);
 
       return { payment_id: Number(payInfo.lastInsertRowid) };
     });
 
-    const out = run();
+    const out = await run();
     if (!out) throw notFound('Movimento bancario non trovato.');
     res.status(201).json(out);
   })

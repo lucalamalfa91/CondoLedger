@@ -16,7 +16,7 @@
     "migrate:supabase": "node scripts/migrate-supabase-to-sqlite.mjs"
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "libsql": "^0.5.29"
   }
 }

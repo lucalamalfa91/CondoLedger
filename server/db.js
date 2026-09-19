@@ -1,11 +1,18 @@
 /**
- * Apertura e inizializzazione del database SQLite.
+ * Apertura e inizializzazione del database.
  *
- * better-sqlite3 è sincrono: ogni query ritorna direttamente il risultato. Questo rende
- * naturale l'uso di db.transaction(), ma impone una regola: dentro il corpo di una
- * transazione non ci deve mai essere un `await`, altrimenti l'atomicità salta in silenzio.
+ * Due modalità, decise dall'ambiente:
+ *  - **Turso** se è impostata TURSO_DATABASE_URL: il database vive sul servizio gestito e
+ *    all'applicazione non serve un disco persistente, il che la rende ospitabile su
+ *    qualunque host gratuito con filesystem effimero.
+ *  - **File locale** altrimenti: è la modalità usata in sviluppo e dai test, che restano
+ *    veloci e senza rete.
+ *
+ * Si usa il pacchetto `libsql` e non `@libsql/client` perché espone la stessa API
+ * sincrona di better-sqlite3 — anche verso un database remoto. È la ragione per cui
+ * rotte, serializzazione e migrazione non hanno dovuto cambiare nel passaggio a Turso.
  */
-import Database from 'better-sqlite3';
+import Database from 'libsql';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 
@@ -15,16 +22,58 @@ const SCHEMA_VERSION = 1;
 
 let db = null;
 
-function applyPragmas(connection) {
-  // WAL: letture concorrenti mentre una scrittura è in corso.
-  connection.pragma('journal_mode = WAL');
+/**
+ * libsql aggiunge un campo `_metadata` a ogni riga restituita. Senza toglierlo finirebbe
+ * in ogni risposta JSON dell'API, perché la serializzazione fa `{...row}`.
+ */
+function stripMetadata(row) {
+  if (row && typeof row === 'object' && '_metadata' in row) {
+    delete row._metadata;
+  }
+  return row;
+}
+
+/** Avvolge prepare() perché nessun chiamante debba ricordarsi di ripulire le righe. */
+function wrapPrepare(connection) {
+  const original = connection.prepare.bind(connection);
+  connection.prepare = (sql) => {
+    const stmt = original(sql);
+    const get = stmt.get.bind(stmt);
+    const all = stmt.all.bind(stmt);
+    stmt.get = (...args) => stripMetadata(get(...args));
+    stmt.all = (...args) => all(...args).map(stripMetadata);
+    return stmt;
+  };
+  return connection;
+}
+
+function applyPragmas(connection, { remote }) {
+  // WAL e synchronous riguardano un file su disco: su Turso non hanno senso.
+  if (!remote) {
+    connection.pragma('journal_mode = WAL');
+    connection.pragma('synchronous = NORMAL');
+    connection.pragma('busy_timeout = 5000');
+  }
+
   // NON è persistente nel file: va impostato su ogni connessione. Senza, tutti gli
   // ON DELETE CASCADE vengono ignorati in silenzio.
-  connection.pragma('foreign_keys = ON');
-  // Evita SQLITE_BUSY immediato quando due scritture si accavallano.
-  connection.pragma('busy_timeout = 5000');
-  // Sicuro in combinazione con WAL, molto più veloce di FULL.
-  connection.pragma('synchronous = NORMAL');
+  try {
+    connection.pragma('foreign_keys = ON');
+  } catch (err) {
+    console.warn(`[db] impossibile impostare foreign_keys: ${err.message}`);
+  }
+
+  // Verifica esplicita invece di darlo per scontato: se i vincoli non fossero applicati,
+  // cancellare una casa lascerebbe righe orfane senza alcun errore.
+  const value = connection.pragma('foreign_keys');
+  const enabled = Array.isArray(value) ? value[0]?.foreign_keys : value?.foreign_keys ?? value;
+  if (Number(enabled) !== 1) {
+    console.warn(
+      '\n[db] ATTENZIONE: i vincoli di chiave esterna NON risultano attivi.\n' +
+        "     Le cancellazioni a cascata non funzioneranno e l'eliminazione di un\n" +
+        '     immobile lascerebbe righe orfane. Verifica prima di usare in produzione.\n'
+    );
+  }
 }
 
 function applySchema(connection) {
@@ -37,12 +86,27 @@ function applySchema(connection) {
   }
 }
 
-export function openDatabase(dbPath = config.dbPath) {
-  mkdirSync(dirname(dbPath), { recursive: true });
-  const connection = new Database(dbPath);
-  applyPragmas(connection);
+export function openDatabase() {
+  const remoteUrl = process.env.TURSO_DATABASE_URL;
+  let connection;
+
+  if (remoteUrl) {
+    connection = new Database(remoteUrl, { authToken: process.env.TURSO_AUTH_TOKEN });
+  } else {
+    mkdirSync(dirname(config.dbPath), { recursive: true });
+    connection = new Database(config.dbPath);
+  }
+
+  wrapPrepare(connection);
+  applyPragmas(connection, { remote: Boolean(remoteUrl) });
   applySchema(connection);
   return connection;
+}
+
+/** Descrive la sorgente dati per i log di avvio, senza mai stampare il token. */
+export function describeDatabase() {
+  const remoteUrl = process.env.TURSO_DATABASE_URL;
+  return remoteUrl ? `Turso (${remoteUrl.replace(/\?.*$/, '')})` : config.dbPath;
 }
 
 export function getDb() {

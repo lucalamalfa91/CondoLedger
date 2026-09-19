@@ -1,6 +1,6 @@
 import { createApp, startSessionCleanup } from './app.js';
 import { maybeBootstrapUser, maybeMigrateOnBoot } from './bootstrap.js';
-import { closeDb, getDb } from './db.js';
+import { closeDb, describeDatabase, getDb } from './db.js';
 import { config } from './env.js';
 
 const db = getDb(); // apre il DB e applica lo schema prima di accettare richieste
@@ -18,7 +18,7 @@ startSessionCleanup();
 const app = createApp();
 const server = app.listen(config.port, () => {
   console.log(`CondoLedger in ascolto sulla porta ${config.port}`);
-  console.log(`Database: ${config.dbPath}`);
+  console.log(`Database: ${describeDatabase()}`);
 });
 
 function shutdown(signal) {

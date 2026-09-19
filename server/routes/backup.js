@@ -77,8 +77,8 @@ backupRouter.post(
           if (!pid) continue; // come oggi: senza esercizio risolvibile la riga si salta
           await tx.prepare(
             `INSERT INTO dues (house_id, fiscal_period_id, amount, description, split_mode,
-                               split_custom, split_amounts, due_kind)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+                               split_custom, split_amounts, due_kind, voice)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).run(
             houseId,
             pid,
@@ -87,7 +87,8 @@ backupRouter.post(
             d.split_mode || 'monthly',
             toJsonColumn(d.split_custom ?? null),
             toJsonColumn(d.split_amounts ?? null),
-            d.due_kind || 'preventivo'
+            d.due_kind || 'preventivo',
+            d.voice || null
           );
           createdDues += 1;
         }

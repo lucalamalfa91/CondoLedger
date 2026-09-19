@@ -13,7 +13,12 @@ export const state = {
   houseDataLoadError: null,
   houseFormMode: 'edit',
   pendingSituazionePeriodId: null,
-  postImportPaymentHint: null
+  postImportPaymentHint: null,
+  // v3: l'anno aperto nei Resoconti, le voci spuntate nel modulo del pagamento e
+  // se l'elenco delle prossime rate è aperto per intero.
+  resocontoPeriodId: null,
+  paymentSelection: null,
+  pagamentiShowAllRate: false
 };
 
 export function activeHouse() {
@@ -69,6 +74,7 @@ export function mapHouseFromDb(house, dues, payments, periods, movements, priorB
       splitCustom: Array.isArray(d.split_custom) ? d.split_custom : null,
       splitAmounts: Array.isArray(d.split_amounts) ? d.split_amounts : null,
       dueKind: d.due_kind || 'preventivo',
+      voice: d.voice || null,
       carryFromPeriodId: d.carry_from_period_id ? String(d.carry_from_period_id) : null,
       date: d.created_at?.slice(0, 10) || today
     })),

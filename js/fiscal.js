@@ -1,3 +1,4 @@
+import { isOrdinarioDue, isStraordinarioDue } from './voci.js';
 import { pad2, toIsoDate, today } from './utils.js';
 
 export const DUE_KINDS = {
@@ -127,6 +128,8 @@ function emptyPeriodRow(p) {
     startDate: p.startDate,
     endDate: p.endDate,
     preventivo: 0,
+    ordinario: 0,
+    straordinari: 0,
     consuntivo: 0,
     due: 0,
     paid: 0,
@@ -155,8 +158,12 @@ export function periodSummary(house) {
       c.consuntivo += amount;
       c.due += amount;
     } else if (isPreventivoDue(item)) {
+      // `preventivo` resta la somma di tutto ciò che è dovuto a preventivo, così i
+      // conti di prima non cambiano; ordinario e straordinari la dividono per voce.
       c.preventivo += amount;
       c.due += amount;
+      if (isStraordinarioDue(item)) c.straordinari = (c.straordinari || 0) + amount;
+      else c.ordinario = (c.ordinario || 0) + amount;
     }
     map.set(item.fiscalPeriodId, c);
   }
@@ -197,6 +204,31 @@ export function sumConsuntivoDue(house, periodId) {
   return house.dues
     .filter(d => d.fiscalPeriodId === periodId && isConsuntivoDue(d))
     .reduce((s, d) => s + Number(d.amount || 0), 0);
+}
+
+export function sumOrdinarioDue(house, periodId) {
+  return house.dues
+    .filter(d => String(d.fiscalPeriodId) === String(periodId) && isOrdinarioDue(d))
+    .reduce((s, d) => s + Number(d.amount || 0), 0);
+}
+
+export function sumStraordinariDue(house, periodId) {
+  return house.dues
+    .filter(d => String(d.fiscalPeriodId) === String(periodId) && isStraordinarioDue(d))
+    .reduce((s, d) => s + Number(d.amount || 0), 0);
+}
+
+/**
+ * Il conguaglio di un anno: consuntivo − pagato. Positivo = a debito (devi ancora
+ * qualcosa), negativo = a credito. Null finché il consuntivo non c'è: prima di
+ * allora non c'è niente da conguagliare.
+ */
+export function computeConguaglio(house, periodId) {
+  const consuntivo = sumConsuntivoDue(house, periodId);
+  if (consuntivo === 0) return null;
+  const amount = Math.round((consuntivo - sumPaid(house, periodId)) * 100) / 100;
+  const direction = amount > 0.005 ? 'debito' : amount < -0.005 ? 'credito' : 'pari';
+  return { amount, direction, consuntivo, paid: sumPaid(house, periodId) };
 }
 
 export function sumPreventivoDue(house, periodId) {

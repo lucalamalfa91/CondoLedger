@@ -100,7 +100,10 @@ async function createConnection() {
  * va aggiunta a parte: qui, leggendo prima `PRAGMA table_info` così l'operazione è ripetibile
  * a ogni avvio senza errori (SQLite non ha `ADD COLUMN IF NOT EXISTS`).
  */
-const ADDED_COLUMNS = [{ table: 'payments', column: 'note', definition: 'TEXT' }];
+const ADDED_COLUMNS = [
+  { table: 'payments', column: 'note', definition: 'TEXT' },
+  { table: 'dues', column: 'voice', definition: 'TEXT' }
+];
 
 async function applyAddedColumns(handle) {
   for (const { table, column, definition } of ADDED_COLUMNS) {

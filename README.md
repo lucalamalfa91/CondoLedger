@@ -25,7 +25,7 @@ origine: niente CORS e nessun token nel browser.
 | `server/schema.sql` | Schema del database, applicato all'avvio |
 | `scripts/` | CLI utenti, migrazione dati, smoke test |
 | `data/` | Il file `.db` (non versionato) |
-| `Dockerfile`, `fly.toml` | Deploy |
+| `Dockerfile`, `railway.json`, `fly.toml` | Deploy |
 | `references/intesa-format.md` | Formato dell'export Excel di Banca Intesa |
 
 ---
@@ -91,36 +91,90 @@ password. Non serve nessun servizio esterno.
 
 ## Migrazione da Supabase
 
-Se stai arrivando dalla versione che usava Supabase, i dati si importano una volta sola:
+Se stai arrivando dalla versione che usava Supabase, i dati si importano una volta sola.
+Lo script legge l'API REST di Supabase in diretta: **non serve un backup**, e funziona anche
+sul piano gratuito.
 
-```bash
-SUPABASE_URL=https://xxxx.supabase.co \
-SUPABASE_SERVICE_ROLE_KEY=... \
-npm run migrate:supabase -- --dry-run     # legge e conta, non scrive
+Serve la `service_role` key (Supabase → Project Settings → API), perché scavalca le policy
+RLS: con la `anon` key si esporterebbero solo le righe di un utente **senza che nulla lo
+segnali**. Rimuovila dall'ambiente appena finito.
+
+### Sull'host, senza aprire una shell (consigliato su Railway)
+
+Imposta tre variabili nel pannello dell'host e fai partire un deploy:
+
+```
+MIGRATE_FROM_SUPABASE=true
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
-Verificati i conteggi, rilancia senza `--dry-run` su un database **vuoto**. Lo script
-preserva gli id, verifica l'integrità referenziale alla fine e confronta le righe lette con
-quelle scritte.
+Al primo avvio il server migra da solo e scrive il diario nei log: conteggi letti contro
+scritti, verifica dell'integrità referenziale, e l'elenco dei comandi `set-password` da
+eseguire. Poi **rimuovi le tre variabili**.
 
-La `service_role` key serve perché scavalca le policy RLS: con la `anon` key si
-esporterebbero solo le righe di un singolo utente. Prendila da Supabase → Project Settings →
-API e cancellala dall'ambiente dopo la migrazione.
+È sicuro anche se te le dimentichi: non parte se il database contiene già delle case,
+scrive dentro una transazione, e se fallisce lascia il database vuoto e il server si avvia
+comunque, così puoi leggere i log.
 
-Le password non sono migrabili (sono hash bcrypt interni a Supabase): al termine lo script
-elenca i comandi `set-password` da eseguire.
+### Da riga di comando
 
-Dopo il passaggio, **metti in pausa il progetto Supabase e ruota le chiavi**: la vecchia
-`anon` key resta nella cronologia git di questo repository.
+```bash
+npm run migrate:supabase -- --dry-run     # legge e conta, non scrive
+npm run migrate:supabase
+```
+
+Da eseguire **dove vive il database**: in locale se il DB è in locale, oppure dentro il
+container (`railway ssh`, `fly ssh console`). Attenzione: `railway run <comando>` esegue il
+comando **sul tuo computer** con le variabili remote — scriverebbe un `.db` locale che sul
+volume non arriva mai.
+
+### Dopo, in quest'ordine
+
+1. `npm run set-password -- tua@email.it` per ogni utente: gli hash bcrypt interni a
+   Supabase non sono esportabili, quindi finché non lo fai nessuno può accedere.
+2. Apri **Situazione** su una casa con storico e confronta saldi e conguagli con quelli che
+   vedi oggi su Supabase: la logica di calcolo non è cambiata, quindi **devono coincidere al
+   centesimo**.
+3. Solo a verifica passata: metti in pausa Supabase e **ruota le chiavi** — la vecchia
+   `anon` key resta nella cronologia git di questo repository.
 
 ---
 
 ## Deploy
 
-Serve un host con **disco persistente**: SQLite è un file, e su piattaforme serverless con
-filesystem effimero (come Vercel, usato in precedenza) il database verrebbe perso.
+Il database è un file, quindi serve un host con **disco persistente**. Su piattaforme con
+filesystem effimero (Vercel, o Railway senza volume) il file viene ricreato a ogni deploy e
+**i dati si perdono**.
 
-La configurazione inclusa è per Fly.io:
+Il file `.db` **non va mai committato**: a ogni deploy il container riparte da un checkout
+pulito del repository, quindi il database tornerebbe alla versione nel commit, perdendo
+tutto ciò che è stato inserito nel frattempo. `.gitignore` lo esclude apposta.
+
+### Railway
+
+Un solo servizio: app e database nello stesso container, il file sul volume.
+
+1. **New Project → Deploy from GitHub repo**, scegli questo repository. Railway rileva il
+   `Dockerfile` e `railway.json`.
+2. **Settings → Volumes → New Volume**, mount path `/data`. Senza questo passo l'app
+   funziona ma si svuota a ogni deploy.
+3. **Variables**:
+   ```
+   DB_PATH=/data/condoledger.db
+   COOKIE_SECURE=true
+   NODE_ENV=production
+   ```
+   `PORT` la inietta Railway da sé.
+4. Migra i dati (sezione sopra) oppure, per partire da zero, crea il primo utente con
+   `railway ssh` → `npm run create-user -- tua@email.it`.
+
+**Mai più di una replica**: il volume è agganciato a una sola macchina e SQLite ammette un
+solo scrittore. `railway.json` tiene `numReplicas: 1`.
+
+### Fly.io
+
+Configurazione equivalente in `fly.toml`, con volume su `/data`:
 
 ```bash
 fly launch --no-deploy --copy-config
@@ -129,31 +183,28 @@ fly deploy
 fly ssh console -C "node scripts/create-user.mjs tua@email.it"
 ```
 
-`fly.toml` tiene `min_machines_running = 1` e il volume montato su `/data`. **Non scalare
-oltre una istanza**: il volume è agganciato a una sola macchina e SQLite ammette un solo
-scrittore.
+Vanno bene allo stesso modo Render con Persistent Disk o Docker su un VPS: il `Dockerfile`
+è lo stesso.
 
-Vanno bene allo stesso modo Railway o Render con un disco persistente, o Docker su un VPS:
-il `Dockerfile` è lo stesso.
+### CI
 
-La CI (`.github/workflows/deploy.yml`) esegue i test su ogni push e pull request, e fa il
-deploy su `main` usando il secret `FLY_API_TOKEN`.
+`.github/workflows/deploy.yml` esegue i test su ogni push e pull request. Il job di deploy
+è scritto per Fly (`FLY_API_TOKEN`); su Railway il deploy parte da sé a ogni push, quindi
+quel job va rimosso o lasciato disabilitato.
 
 ### Backup
 
-Il file `.db` è tutto il database. Il volume Fly ha snapshot automatici, ma sono a livello
-di blocco: per qualcosa di più solido vale la pena aggiungere
-[Litestream](https://litestream.io/), che replica il WAL su S3 o R2 in continuo.
-
-In alternativa, a mano:
+Il file `.db` è tutto il database.
 
 ```bash
-fly ssh console -C "sqlite3 /data/condoledger.db \".backup /data/backup.db\""
-fly sftp get /data/backup.db
+railway ssh    # oppure: fly ssh console
+sqlite3 /data/condoledger.db ".backup /data/backup.db"
 ```
 
-La funzione Backup dentro l'app (Impostazioni → Backup) esporta un JSON ed è la seconda
-rete di sicurezza.
+Per qualcosa di più solido vale la pena aggiungere [Litestream](https://litestream.io/),
+che replica il WAL su S3 o R2 in continuo. La funzione Backup dentro l'app
+(Impostazioni → Backup) esporta un JSON ed è la seconda rete di sicurezza — nota però che
+**non include i movimenti bancari**.
 
 ---
 

@@ -37,6 +37,17 @@ export function createApp() {
   // --- API ---------------------------------------------------------------
   const api = express.Router();
   api.use(originCheck);
+  // Sonda per gli health check della piattaforma di hosting: non tocca il database
+  // pesantemente, ma verifica che sia apribile.
+  api.get('/health', (_req, res) => {
+    try {
+      getDb().prepare('SELECT 1').get();
+      res.json({ ok: true });
+    } catch {
+      res.status(503).json({ ok: false });
+    }
+  });
+
   api.use('/auth', authRouter);
 
   // Ogni rotta dati è autenticata. `loadHouse`, montato una volta sul router figlio,

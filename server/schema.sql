@@ -157,6 +157,7 @@ CREATE TABLE IF NOT EXISTS payments (
   amount               REAL NOT NULL,
   date                 TEXT,
   method               TEXT,
+  note                 TEXT,
   installment_key      TEXT,
   carry_from_period_id INTEGER REFERENCES fiscal_periods(id) ON DELETE SET NULL,
   is_carry_forward     INTEGER NOT NULL DEFAULT 0,

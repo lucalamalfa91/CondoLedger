@@ -93,8 +93,26 @@ async function createConnection() {
   return createClient({ url: `file:${config.dbPath}` });
 }
 
+/**
+ * Colonne aggiunte dopo il consolidamento dello schema.
+ *
+ * `CREATE TABLE IF NOT EXISTS` non tocca le tabelle già esistenti, quindi una colonna nuova
+ * va aggiunta a parte: qui, leggendo prima `PRAGMA table_info` così l'operazione è ripetibile
+ * a ogni avvio senza errori (SQLite non ha `ADD COLUMN IF NOT EXISTS`).
+ */
+const ADDED_COLUMNS = [{ table: 'payments', column: 'note', definition: 'TEXT' }];
+
+async function applyAddedColumns(handle) {
+  for (const { table, column, definition } of ADDED_COLUMNS) {
+    const columns = await handle.pragma(`table_info(${table})`);
+    if (columns.some((c) => c.name === column)) continue;
+    await handle.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 async function applySchema(handle) {
   await handle.exec(readFileSync(resolve(rootDir, 'server/schema.sql'), 'utf8'));
+  await applyAddedColumns(handle);
   const row = await handle.prepare('SELECT version FROM schema_version LIMIT 1').get();
   if (!row) {
     await handle.prepare('INSERT INTO schema_version (version) VALUES (?)').run(SCHEMA_VERSION);

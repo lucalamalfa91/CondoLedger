@@ -30,6 +30,7 @@ export function exportBackup(data) {
         amount: p.amount,
         date: p.date || '',
         method: p.method || '',
+        note: p.note || '',
         installmentKey: p.installmentKey || null,
         carryFromPeriodId: p.carryFromPeriodId || null,
         isCarryForward: Boolean(p.isCarryForward),
@@ -100,6 +101,7 @@ function migrateV2ToV3(raw) {
       })),
       payments: (h.payments || []).map(p => ({
         ...p,
+        note: p.note ?? '',
         installmentKey: p.installmentKey ?? null,
         carryFromPeriodId: p.carryFromPeriodId ?? null,
         isCarryForward: Boolean(p.isCarryForward)

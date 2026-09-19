@@ -173,7 +173,7 @@ export function createRenderer(els) {
   function periodOptions(house, selectedId) {
     if (!house.fiscalPeriods.length) return '';
     return house.fiscalPeriods.map(p =>
-      `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${p.label} (${p.startDate} → ${p.endDate})</option>`
+      `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${p.label} · ${fmtDate(p.startDate)} – ${fmtDate(p.endDate)}</option>`
     ).join('');
   }
 
@@ -181,12 +181,27 @@ export function createRenderer(els) {
     if (!els.paymentDate || !els.paymentPeriod) return;
     const date = els.paymentDate.value || today;
     const period = findPeriodByDate(house, date);
-    const existingId = period.id || house.fiscalPeriods.find(p => p.label === period.label)?.id || '';
+    let existingId = period.id || house.fiscalPeriods.find(p => p.label === period.label)?.id || '';
+
+    // L'anno della data può non avere ancora niente da pagare (tipico a inizio anno
+    // nuovo, quando il preventivo non è ancora stato approvato): in quel caso si parte
+    // dall'anno che ha ancora rate aperte, invece che da un modulo senza scelte.
+    const openHere = existingId
+      && (pendingInstallments(house, existingId).length || getPriorBalanceForPeriod(house, existingId));
+    if (!openHere) {
+      const withOpen = [...house.fiscalPeriods]
+        .sort((a, b) => String(b.startDate || b.label).localeCompare(String(a.startDate || a.label)))
+        .find(p => pendingInstallments(house, p.id).length);
+      if (withOpen) existingId = withOpen.id;
+    }
+
     let html = periodOptions(house, existingId);
     if (!existingId && period.label) {
       html = `<option value="" selected>${period.label} (creato al salvataggio)</option>` + html;
+    } else if (period.label && !house.fiscalPeriods.some(p => p.label === period.label)) {
+      html += `<option value="">${period.label} (creato al salvataggio)</option>`;
     }
-    if (!html) html = '<option value="">— registra un dovuto o importa movimenti —</option>';
+    if (!html) html = '<option value="">— registra prima il preventivo dell’anno —</option>';
     els.paymentPeriod.innerHTML = html;
     if (existingId) els.paymentPeriod.value = existingId;
     syncPaymentInstallmentSelect(house);
@@ -279,22 +294,14 @@ export function createRenderer(els) {
     return { covered: keys.size, total: allSlots.length };
   }
 
+  /**
+   * Carica nell'editor le rate del dovuto in modifica (o quelle generate dal totale).
+   * Il nome resta quello storico perché è il punto in cui main.js entra.
+   */
   function renderDueSplitAmountsFields(due) {
-    if (!els.dueSplitAmountsWrap || !els.dueSplitAmountsFields) return;
-    const amounts = Array.isArray(due?.splitAmounts) ? due.splitAmounts : [];
-    if (!amounts.length) {
-      els.dueSplitAmountsWrap.classList.add('hidden');
-      els.dueSplitAmountsFields.innerHTML = '';
-      return;
-    }
-    els.dueSplitAmountsWrap.classList.remove('hidden');
-    els.dueSplitAmountsFields.innerHTML = amounts.map((row, i) => `
-      <div class="field-grid" data-split-amount-row data-slot-index="${row.slotIndex ?? i}">
-        <div><label>${row.label || row.periodStart || `Rata ${i + 1}`}</label>
-          <input type="number" step="0.01" data-split-amount-value value="${Number(row.amount ?? 0)}" />
-        </div>
-      </div>
-    `).join('');
+    const house = activeHouse();
+    if (!house || !els.dueRateList) return;
+    loadDueRates(house, due);
   }
 
   function syncDuePeriodSelect(house, preferredId = null) {
@@ -303,10 +310,10 @@ export function createRenderer(els) {
     const sel = preferredId || els.duePeriod.value;
     let html = periodOptions(house, sel);
     if (!house.fiscalPeriods.length) {
-      html = `<option value="__new__" selected>Nuovo esercizio…</option>`;
+      html = `<option value="__new__" selected>Nuovo anno condominiale…</option>`;
       els.duePeriodNewWrap?.classList.remove('hidden');
     } else {
-      html = `<option value="__new__">+ Nuovo esercizio…</option>` + html;
+      html = `<option value="__new__">+ Nuovo anno condominiale…</option>` + html;
       if (!sel || sel === '__new__') {
         els.duePeriodNewWrap?.classList.toggle('hidden', els.duePeriod.value !== '__new__');
       } else {
@@ -317,10 +324,14 @@ export function createRenderer(els) {
     if (sel && sel !== '__new__' && house.fiscalPeriods.some(p => p.id === sel)) {
       els.duePeriod.value = sel;
     }
+    els.duePeriodNewWrap?.classList.toggle('hidden', els.duePeriod.value !== '__new__');
+    // Il nome dell'anno nuovo arriva già scritto: è quello che l'app propone, e le
+    // scadenze delle rate si calcolano da lì.
+    if (els.duePeriodNew && !els.duePeriodNew.value.trim()) els.duePeriodNew.value = suggested;
     if (els.duePeriodHint) {
       els.duePeriodHint.textContent = house.fiscalPeriods.length
-        ? `Suggerito per nuovo: ${suggested}`
-        : `Inserisci es. ${suggested} (mese inizio ${house.fiscalStartMonth ?? 6})`;
+        ? `Per un anno nuovo, l’app propone ${suggested}.`
+        : `Scrivilo così: ${suggested}. L’anno inizia a ${MONTH_SHORT[(house.fiscalStartMonth || 6) - 1]}.`;
     }
   }
 
@@ -614,7 +625,7 @@ export function createRenderer(els) {
         ${badge}
       </div>
       <div class="list-rows">
-        ${rows.slice(0, 4).map(r => `<div class="list-row"><span>${r.slot.label}${overdue.length ? `<span class="list-row-sub">scaduta il ${fmtDate(r.dueBy)}</span>` : ''}</span><span>${fmt(r.gap)}</span></div>`).join('')}
+        ${rows.slice(0, 4).map(r => `<div class="list-row"><span>${installmentTitle(r.slot)}${overdue.length ? `<span class="list-row-sub">scaduta il ${fmtDate(r.dueBy)}</span>` : ''}</span><span>${fmt(r.gap)}</span></div>`).join('')}
         ${rows.length > 4 ? `<div class="list-row"><span class="muted">e altre ${rows.length - 4} rate</span><span class="muted">${fmt(rows.slice(4).reduce((sum, r) => sum + r.gap, 0))}</span></div>` : ''}
         ${rows.length > 1 ? `<div class="list-row list-row--total"><span>Totale</span><span>${fmt(totalRows)}</span></div>` : ''}
       </div>
@@ -711,7 +722,9 @@ export function createRenderer(els) {
       const key = p.installmentKey || inferInstallmentKey(house, p);
       entries.push({
         date: String(p.date || '').slice(0, 10),
-        title: p.priorBalanceId ? 'Pagamento del saldo iniziale' : (key ? installmentShortLabel(house, key) : 'Pagamento'),
+        title: p.priorBalanceId
+          ? 'Pagamento del saldo iniziale'
+          : (key ? installmentTitle(findInstallment(house, key)) : 'Pagamento'),
         sub: p.method || 'Pagamento registrato',
         badge: ['Pagamento', 'success'],
         amount: fmt(p.amount)
@@ -765,6 +778,387 @@ export function createRenderer(els) {
     renderPanoramicaRate(house, periodId);
     renderPanoramicaSummary(house, periodId);
     renderPanoramicaMovements(house, periodId);
+  }
+
+  // —— Registra · Pagamento: le scelte in linguaggio comune e il riquadro «dopo» ——
+
+  const MONTH_LONG = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
+    'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+
+  /** «Rata 4 · settembre 2025»: come la chiama chi paga, non come la salva il database. */
+  function installmentTitle(slot) {
+    if (!slot) return 'Rata';
+    const month = Number(String(slot.periodStart || '').slice(5, 7));
+    const year = String(slot.periodStart || '').slice(0, 4);
+    const when = month ? ` · ${MONTH_LONG[month - 1]} ${year}` : '';
+    return `Rata ${Number(slot.slotIndex ?? 0) + 1}${when}`;
+  }
+
+  function paymentChoice() {
+    return els.paymentTargetOptions?.querySelector('input[name="paymentChoice"]:checked')?.value || 'rata';
+  }
+
+  /** Rata suggerita: la più vecchia scaduta, altrimenti la prima in arrivo. */
+  function recommendedInstallment(house, periodId) {
+    const pending = pendingInstallments(house, periodId);
+    if (!pending.length) return null;
+    return pending.find(r => r.dueBy < today) || pending[0];
+  }
+
+  function priorBalanceResidual(house, periodId) {
+    const balance = periodId ? getPriorBalanceForPeriod(house, periodId) : null;
+    if (!balance || Number(balance.amount) <= 0.005) return null;
+    const paid = sumPaidForPriorBalance(house, balance.id);
+    const residuo = Math.round((Number(balance.amount) - paid) * 100) / 100;
+    return residuo > 0.01 ? { balance, residuo } : null;
+  }
+
+  function optionRow({ value, checked, title, badge, sub, amount, chevron }) {
+    return `
+      <label class="option-row${checked ? ' option-row--on' : ''}">
+        <input type="radio" name="paymentChoice" value="${value}"${checked ? ' checked' : ''} />
+        <span class="option-main">
+          <span class="option-title">${title}${badge ? ` <span class="badge info">${badge}</span>` : ''}</span>
+          ${sub ? `<span class="option-sub">${sub}</span>` : ''}
+        </span>
+        ${amount ? `<span class="option-amount">${amount}</span>` : ''}
+        ${chevron ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>' : ''}
+      </label>`;
+  }
+
+  function renderPaymentTargetOptions(house, preferredChoice = null) {
+    if (!els.paymentTargetOptions) return;
+    const periodId = els.paymentPeriod?.value || null;
+    const pending = pendingInstallments(house, periodId);
+    const recommended = recommendedInstallment(house, periodId);
+    const prior = priorBalanceResidual(house, periodId);
+    const choice = preferredChoice || paymentChoice();
+
+    const rows = [];
+    if (recommended) {
+      const late = recommended.dueBy < today;
+      rows.push(optionRow({
+        value: 'rata',
+        checked: choice === 'rata',
+        title: installmentTitle(recommended.slot),
+        badge: late ? null : 'Consigliata',
+        sub: late ? `Scaduta il ${fmtDate(recommended.dueBy)}` : `Scade il ${fmtDate(recommended.dueBy)}`,
+        amount: fmt(recommended.gap)
+      }));
+    }
+    if (prior) {
+      rows.push(optionRow({
+        value: 'prior',
+        checked: choice === 'prior',
+        title: `Saldo iniziale ${periodLabel(house, periodId)}`,
+        sub: prior.balance.description || 'Quello che arriva dall’anno prima',
+        amount: fmt(prior.residuo)
+      }));
+    }
+    const otherRate = Math.max(pending.length - (recommended ? 1 : 0), 0);
+    rows.push(optionRow({
+      value: 'altra-rata',
+      checked: choice === 'altra-rata' || (!recommended && choice === 'rata'),
+      title: 'Un’altra rata',
+      sub: pending.length
+        ? `Scegli tra le ${otherRate || pending.length} rate non ancora pagate`
+        : 'Nessuna rata aperta: registra prima il preventivo',
+      chevron: true
+    }));
+    rows.push(optionRow({
+      value: 'altro',
+      checked: choice === 'altro',
+      title: 'Un altro importo',
+      sub: 'Per esempio spese straordinarie o un acconto',
+      chevron: true
+    }));
+
+    els.paymentTargetOptions.innerHTML = rows.join('');
+    els.paymentTargetOptions.dataset.recommendedKey = recommended?.slot.key || '';
+  }
+
+  /** Traduce la scelta in linguaggio comune nei campi che il salvataggio già conosce. */
+  function applyPaymentChoice(house, { prefill = true } = {}) {
+    const choice = paymentChoice();
+    const isPrior = choice === 'prior';
+    if (els.paymentTarget) els.paymentTarget.value = isPrior ? 'prior' : 'rata';
+
+    els.paymentTargetOptions?.querySelectorAll('.option-row').forEach(row => {
+      row.classList.toggle('option-row--on', row.querySelector('input')?.checked);
+    });
+
+    els.paymentInstallmentField?.classList.toggle('hidden', choice !== 'altra-rata');
+    els.paymentPriorBalanceField?.classList.toggle('hidden', !isPrior);
+    if (els.paymentInstallment) els.paymentInstallment.required = choice === 'altra-rata';
+
+    const editing = Boolean(els.paymentEditId?.value);
+
+    if (choice === 'rata') {
+      const key = els.paymentTargetOptions?.dataset.recommendedKey || '';
+      if (key && els.paymentInstallment) els.paymentInstallment.value = key;
+      if (prefill && !editing) applyPaymentSmartAmount(house);
+      if (els.paymentAmountHint) els.paymentAmountHint.textContent = 'Precompilato con quello che resta della rata.';
+    } else if (choice === 'altra-rata') {
+      if (prefill && !editing) applyPaymentSmartAmount(house);
+      if (els.paymentAmountHint) els.paymentAmountHint.textContent = 'Precompilato con quello che resta della rata scelta.';
+    } else if (isPrior) {
+      syncPaymentPriorBalanceInfo(house);
+      if (els.paymentAmountHint) els.paymentAmountHint.textContent = 'Precompilato con il residuo del saldo iniziale.';
+    } else {
+      if (prefill && !editing && els.paymentAmount) els.paymentAmount.value = '';
+      if (els.paymentAmountHint) els.paymentAmountHint.textContent = 'Scrivi tu l’importo: non verrà abbinato a nessuna rata.';
+    }
+    renderPaymentAfterCard(house);
+  }
+
+  function syncPaymentMethodPills() {
+    if (!els.paymentMethodPills) return;
+    const current = (els.paymentMethod?.value || '').trim();
+    const known = [...els.paymentMethodPills.querySelectorAll('[data-method]')];
+    const match = known.find(b => b.dataset.method && b.dataset.method === current);
+    // «Altro» resta premuto anche a campo vuoto: è una scelta, non l'assenza di scelta.
+    const other = !match && (els.paymentMethodPills.dataset.other === '1' || Boolean(current));
+    known.forEach(b => {
+      const on = b.dataset.method ? b === match : other;
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.classList.toggle('pill--on', on);
+    });
+    els.paymentMethod?.classList.toggle('hidden', !other);
+  }
+
+  function renderPaymentAfterCard(house) {
+    if (!els.paymentAfterCard) return;
+    const periodId = els.paymentPeriod?.value || null;
+    const ctx = periodId ? panoramicaContext(house, periodId) : null;
+    if (!ctx) {
+      els.paymentAfterCard.innerHTML = '';
+      return;
+    }
+    const amount = Number(els.paymentAmount?.value || 0);
+    const valid = Number.isFinite(amount) && amount > 0;
+    const residualAfter = Math.round(Math.max(ctx.residual - (valid ? amount : 0), 0) * 100) / 100;
+
+    const { slots } = installmentSummaryForPeriod(house, periodId);
+    const covered = slots.filter(s => s.paid >= s.amountDue - 0.01).length;
+    const choice = paymentChoice();
+    const chosenKey = choice === 'rata'
+      ? els.paymentTargetOptions?.dataset.recommendedKey
+      : choice === 'altra-rata' ? els.paymentInstallment?.value : null;
+    const chosen = chosenKey ? slots.find(s => s.key === chosenKey) : null;
+    const closes = chosen && valid && amount >= (chosen.amountDue - chosen.paid) - 0.01;
+    const coveredAfter = covered + (closes ? 1 : 0);
+
+    const pending = pendingInstallments(house, periodId).filter(r => r.slot.key !== (closes ? chosenKey : null));
+    const nextRow = pending.find(r => r.dueBy >= today);
+    const overdueAfter = pending.filter(r => r.dueBy < today);
+    const prior = priorBalanceResidual(house, periodId);
+
+    const rows = [];
+    if (slots.length) rows.push(['Rate pagate', `${coveredAfter} di ${slots.length}`]);
+    if (overdueAfter.length) {
+      rows.push(['Resta scaduto', `${overdueAfter.length} ${overdueAfter.length > 1 ? 'rate' : 'rata'}<span class="row-sub">${fmt(overdueAfter.reduce((s, r) => s + r.gap, 0))}</span>`]);
+    }
+    if (prior && choice !== 'prior') {
+      rows.push(['Resta il saldo iniziale', `${fmt(prior.residuo)}`]);
+    }
+    if (nextRow) {
+      rows.push(['Prossima rata', `${fmtDate(nextRow.dueBy)}<span class="row-sub">${fmt(nextRow.gap)}</span>`]);
+    }
+
+    els.paymentAfterCard.innerHTML = `
+      <div class="panel-head"><div><h2>Dopo questo pagamento</h2></div></div>
+      <div class="after-amount">
+        <span class="residual-label">Ancora da pagare nel ${ctx.label}</span>
+        <span class="after-value">${fmt(residualAfter)}</span>
+      </div>
+      ${rows.length ? `<dl class="summary-dl">${rows.map(([dt, dd]) =>
+        `<div class="summary-row"><dt>${dt}</dt><dd>${dd}</dd></div>`).join('')}</dl>` : ''}`;
+
+    if (els.paymentFootHint) {
+      els.paymentFootHint.textContent = chosen && closes
+        ? `${installmentTitle(chosen)} risulterà pagata e il residuo dell’anno si aggiorna da solo.`
+        : 'Il residuo dell’anno si aggiorna da solo appena salvi.';
+    }
+  }
+
+  // —— Registra · Preventivo: cadenza e editor delle rate ——
+
+  const CADENCES = [
+    { id: 'monthly', label: '12 rate mensili', slots: 12, step: 1 },
+    { id: 'bimonthly', label: '6 rate bimestrali', slots: 6, step: 2 },
+    { id: 'semiannual', label: '2 rate semestrali', slots: 2, step: 6 },
+    { id: 'single', label: 'Rata unica', slots: 1, step: 12 }
+  ];
+
+  /** Stato dell'editor: le righe sono la verità, `manual` dice se le ha toccate l'utente. */
+  const rateEditor = { cadence: 'monthly', manual: false, rows: [] };
+
+  function duePeriodStart(house) {
+    const id = els.duePeriod?.value;
+    if (id && id !== '__new__') {
+      const period = house.fiscalPeriods.find(p => String(p.id) === String(id));
+      return period?.startDate ? String(period.startDate).slice(0, 10) : null;
+    }
+    // Anno ancora da creare: le scadenze partono dal mese d'inizio della casa,
+    // nell'anno scritto nell'etichetta (2026/2027 → giugno 2026).
+    const label = String(els.duePeriodNew?.value || defaultFiscalLabel(house) || '');
+    const year = Number(label.slice(0, 4));
+    if (!Number.isFinite(year) || year < 1900) return null;
+    const month = Number(house.fiscalStartMonth || 6);
+    return `${year}-${String(month).padStart(2, '0')}-01`;
+  }
+
+  function monthsOfYear(startIso) {
+    if (!startIso) return [];
+    const [y, m] = startIso.split('-').map(Number);
+    return Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(y, m - 1 + i, 1);
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+      return { value: iso, label: `${MONTH_SHORT[d.getMonth()]} ${d.getFullYear()}` };
+    });
+  }
+
+  function monthEndIso(startIso) {
+    const [y, m] = startIso.split('-').map(Number);
+    const last = new Date(y, m, 0).getDate();
+    return `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
+  }
+
+  /** Divide `total` in `n` rate: i centesimi di resto finiscono sull'ultima. */
+  function splitEqually(total, n) {
+    const cents = Math.round(Number(total || 0) * 100);
+    const base = Math.floor(cents / n);
+    return Array.from({ length: n }, (_, i) => (i === n - 1 ? cents - base * (n - 1) : base) / 100);
+  }
+
+  function generateDueRates(house, cadence = rateEditor.cadence) {
+    const months = monthsOfYear(duePeriodStart(house));
+    const spec = CADENCES.find(c => c.id === cadence) || CADENCES[0];
+    const total = Number(els.dueAmount?.value || 0);
+    const amounts = splitEqually(total, spec.slots);
+    rateEditor.rows = amounts.map((amount, i) => ({
+      start: months[i * spec.step]?.value || months[0]?.value || '',
+      amount
+    }));
+    rateEditor.cadence = cadence;
+    rateEditor.manual = false;
+  }
+
+  function renderDueCadenceButtons() {
+    if (!els.dueCadenceButtons) return;
+    const total = Number(els.dueAmount?.value || 0);
+    els.dueCadenceButtons.innerHTML = CADENCES.map(c => {
+      const on = !rateEditor.manual && rateEditor.cadence === c.id;
+      const each = total > 0
+        ? (c.slots === 1 ? fmt(total) : `${fmt(Math.round((total / c.slots) * 100) / 100)} ciascuna`)
+        : '—';
+      return `<button type="button" class="cadence-btn${on ? ' cadence-btn--on' : ''}" data-cadence="${c.id}" aria-pressed="${on}">
+        <span class="cadence-label">${c.label}</span>
+        <span class="cadence-sub">${each}</span>
+      </button>`;
+    }).join('') + `<button type="button" class="cadence-btn cadence-btn--custom${rateEditor.manual ? ' cadence-btn--on' : ''}" data-cadence="custom" aria-pressed="${rateEditor.manual}">
+        <span class="cadence-label">Personalizza</span>
+        <span class="cadence-sub">Scegli tu mesi e importi</span>
+      </button>`;
+  }
+
+  function renderDueRateEditor(house) {
+    if (!els.dueRateList) return;
+    const months = monthsOfYear(duePeriodStart(house));
+    if (!months.length) {
+      els.dueRateList.innerHTML = '<p class="hint">Scegli prima l’anno condominiale: le scadenze partono dal suo primo mese.</p>';
+      if (els.dueRateCount) els.dueRateCount.textContent = '—';
+      if (els.dueRateTotal) els.dueRateTotal.textContent = '—';
+      return;
+    }
+    els.dueRateList.innerHTML = rateEditor.rows.map((row, i) => `
+      <div class="rate-row" data-rate-index="${i}">
+        <span class="rate-row-label">Rata ${i + 1}</span>
+        <label class="sr-only" for="rateMonth${i}">Mese della rata ${i + 1}</label>
+        <select id="rateMonth${i}" class="rate-month" data-rate-month="${i}">
+          ${months.map(m => `<option value="${m.value}"${m.value === row.start ? ' selected' : ''}>${m.label}</option>`).join('')}
+        </select>
+        <label class="sr-only" for="rateAmount${i}">Importo della rata ${i + 1}</label>
+        <div class="input-euro input-euro--sm">
+          <span aria-hidden="true">€</span>
+          <input id="rateAmount${i}" class="rate-amount-input" type="number" step="0.01" data-rate-amount="${i}" value="${row.amount}" />
+        </div>
+        <button type="button" class="icon-btn icon-btn--sm" data-rate-remove="${i}" aria-label="Elimina la rata ${i + 1}"${rateEditor.rows.length < 2 ? ' disabled' : ''}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7h14"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg>
+        </button>
+      </div>`).join('');
+    syncDueRateTotals();
+  }
+
+  function syncDueRateTotals() {
+    const sum = rateEditor.rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+    const total = Number(els.dueAmount?.value || 0);
+    const n = rateEditor.rows.length;
+    if (els.dueRateCount) {
+      const equal = n && rateEditor.rows.every(r => Math.abs(r.amount - rateEditor.rows[0].amount) < 0.005);
+      els.dueRateCount.textContent = n === 1
+        ? 'una sola'
+        : equal ? `${n} da ${fmt(rateEditor.rows[0].amount)}` : `${n}, di importo diverso`;
+    }
+    if (els.dueRateTotal) els.dueRateTotal.textContent = fmt(sum);
+
+    const diff = Math.round((sum - total) * 100) / 100;
+    if (els.dueRateWarning) {
+      const off = Math.abs(diff) > 0.01 && total > 0;
+      els.dueRateWarning.classList.toggle('hidden', !off);
+      if (off) {
+        els.dueRateWarning.innerHTML = `Le rate sommano ${fmt(sum)}, il totale dice ${fmt(total)}: ${diff > 0 ? 'ci sono' : 'mancano'} ${fmt(Math.abs(diff))}.
+          <button type="button" class="link-more" id="dueRateUseSum">Usa ${fmt(sum)} come totale</button>`;
+      }
+    }
+  }
+
+  function collectDueSplitAmounts() {
+    return rateEditor.rows
+      .filter(r => r.start)
+      .slice()
+      .sort((a, b) => a.start.localeCompare(b.start))
+      .map((r, i) => ({
+        periodStart: r.start,
+        periodEnd: monthEndIso(r.start),
+        amount: Math.round(Number(r.amount || 0) * 100) / 100,
+        label: `Rata ${i + 1} · ${MONTH_SHORT[Number(r.start.slice(5, 7)) - 1]} ${r.start.slice(0, 4)}`
+      }));
+  }
+
+  /** Riporta nell'editor le rate di un dovuto esistente. */
+  function loadDueRates(house, due) {
+    if (Array.isArray(due?.splitAmounts) && due.splitAmounts.length) {
+      rateEditor.rows = due.splitAmounts.map(r => ({
+        start: String(r.periodStart || '').slice(0, 10),
+        amount: Number(r.amount || 0)
+      }));
+      rateEditor.manual = true;
+      rateEditor.cadence = 'custom';
+    } else {
+      const byMode = { monthly: 'monthly', bimonthly: 'bimonthly', semiannual: 'semiannual' };
+      generateDueRates(house, byMode[due?.splitMode] || 'monthly');
+    }
+    syncDueRatesUI(house);
+  }
+
+  function syncDueRatesUI(house) {
+    renderDueCadenceButtons();
+    renderDueRateEditor(house);
+    if (els.dueSplitMode) els.dueSplitMode.value = rateEditor.manual ? 'custom' : rateEditor.cadence;
+    if (els.dueCadenceHint) {
+      const start = duePeriodStart(house);
+      els.dueCadenceHint.textContent = start
+        ? `Le scadenze partono dal ${fmtDate(start)}, inizio dell’anno condominiale.`
+        : 'Scegli l’anno condominiale per calcolare le scadenze.';
+    }
+    if (els.dueRailPeriod) {
+      const id = els.duePeriod?.value;
+      const period = id && id !== '__new__' ? house.fiscalPeriods.find(p => String(p.id) === String(id)) : null;
+      els.dueRailPeriod.textContent = period
+        ? `${period.label} · ${fmtDate(period.startDate)} – ${fmtDate(period.endDate)}`
+        : 'Nuovo anno condominiale';
+    }
   }
 
   function renderPanoramicaKpis(house) {
@@ -846,7 +1240,12 @@ export function createRenderer(els) {
     }
     const rows = dues.map(item => {
       const kind = DUE_KINDS[item.dueKind || 'preventivo']?.label || item.dueKind;
-      const splitLabel = item.dueKind === 'consuntivo' ? '—' : (SPLIT_MODES[item.splitMode]?.label || (item.splitMode === 'custom' ? 'Custom' : 'Mensile'));
+      const rateCount = item.dueKind === 'consuntivo' ? 0 : listInstallmentsForDue(house, item).length;
+      const splitLabel = item.dueKind === 'consuntivo'
+        ? '—'
+        : item.splitMode === 'custom' || Array.isArray(item.splitAmounts)
+          ? `${rateCount} rate su misura`
+          : `${SPLIT_MODES[item.splitMode]?.label || 'Mensile'} · ${rateCount} rate`;
       const carry = item.carryFromPeriodId ? ' <span class="badge warn">Riporto</span>' : '';
       const amtCls = Number(item.amount) < 0 ? 'negative' : '';
       const ex = periodLabel(house, item.fiscalPeriodId);
@@ -872,7 +1271,9 @@ export function createRenderer(els) {
       const inferred = !item.installmentKey && key;
       rataCell = inferred ? `${rata} <span class="hint">(stimata)</span>` : rata;
     }
-    return { ex: periodLabel(house, item.fiscalPeriodId), rataCell, date: item.date || '—', method: item.method || '—', amt, amtCls, id: item.id };
+    const note = (item.note || '').trim();
+    const method = `${item.method || '—'}${note ? `<span class="row-sub">${note}</span>` : ''}`;
+    return { ex: periodLabel(house, item.fiscalPeriodId), rataCell, date: item.date ? fmtDate(item.date) : '—', method, amt, amtCls, id: item.id };
   }
 
   function paymentRowHtml(house, item) {
@@ -1175,8 +1576,35 @@ export function createRenderer(els) {
 
   function syncDueKindFields() {
     const isCons = els.dueKind?.value === 'consuntivo';
-    els.dueSplitFields?.classList.toggle('hidden', isCons);
-    els.dueSplitCustomWrap?.classList.toggle('hidden', isCons || els.dueSplitMode?.value !== 'custom');
+    // Il conguaglio non ha rate: i passi 2 e 3 spariscono e resta solo l'importo.
+    els.dueSplitStep?.classList.toggle('hidden', isCons);
+    els.dueRateStep?.classList.toggle('hidden', isCons);
+    if (els.dueFormTitle) els.dueFormTitle.textContent = isCons ? 'Conguaglio del consuntivo' : 'Preventivo dell’anno';
+    if (els.dueFormSubtitle) {
+      els.dueFormSubtitle.textContent = isCons
+        ? 'La differenza fra preventivo e consuntivo, a debito o a credito.'
+        : 'L’importo approvato in assemblea e le rate con cui lo paghi.';
+    }
+    if (els.dueAmountLabel) {
+      els.dueAmountLabel.textContent = isCons
+        ? 'Quanto è il conguaglio?'
+        : 'Quanto è il preventivo totale dell’anno?';
+    }
+    if (els.dueAmountHint) {
+      els.dueAmountHint.textContent = isCons
+        ? 'Come sul consuntivo dell’amministratore: positivo se devi un extra.'
+        : 'La tua quota, come scritta nel preventivo approvato in assemblea.';
+    }
+    if (els.dueSubmitLabel && !els.dueEditId?.value) {
+      els.dueSubmitLabel.textContent = isCons ? 'Salva conguaglio' : 'Salva preventivo';
+    }
+    els.dueRailNext?.classList.toggle('hidden', isCons);
+    els.dueRailNextCons?.classList.toggle('hidden', !isCons);
+    if (els.dueFormFootHint) {
+      els.dueFormFootHint.textContent = isCons
+        ? 'Il conguaglio entra nel totale dovuto dell’anno.'
+        : 'Ogni rata comparirà in Panoramica con la sua scadenza.';
+    }
   }
 
   function renderHouseDrawerList() {
@@ -1491,6 +1919,16 @@ export function createRenderer(els) {
     safe('panoramicaKpis', () => renderAnnualBlocks(house));
     safe('houseDrawerList', () => renderHouseDrawerList());
     safe('paymentGuide', () => renderPaymentGuide(house));
+    safe('paymentChoices', () => {
+      renderPaymentTargetOptions(house);
+      applyPaymentChoice(house, { prefill: false });
+      syncPaymentMethodPills();
+    });
+    safe('dueRates', () => {
+      if (!rateEditor.rows.length) generateDueRates(house);
+      syncDueRatesUI(house);
+      syncDueKindFields();
+    });
     safe('postImportBanner', () => renderPostImportBanner());
     safe('dues', () => renderDues(house));
     safe('payments', () => renderPayments(house));
@@ -1509,6 +1947,17 @@ export function createRenderer(els) {
     setView,
     render,
     syncRegistraChoices,
+    renderPaymentTargetOptions,
+    applyPaymentChoice,
+    syncPaymentMethodPills,
+    renderPaymentAfterCard,
+    generateDueRates,
+    syncDueRatesUI,
+    syncDueRateTotals,
+    renderDueRateEditor,
+    renderDueCadenceButtons,
+    collectDueSplitAmounts,
+    dueRateState: () => rateEditor,
     renderBankImportPreview,
     renderUnlinkedMovements,
     syncPaymentPeriodSelect,
@@ -1561,10 +2010,6 @@ export function collectDom() {
     houseFormTitle: document.getElementById('houseFormTitle'),
     houseFormSubtitle: document.getElementById('houseFormSubtitle'),
     houseSubmitBtn: document.getElementById('houseSubmitBtn'),
-    quickAddFab: document.getElementById('quickAddFab'),
-    quickAddSheet: document.getElementById('quickAddSheet'),
-    quickAddBackdrop: document.getElementById('quickAddBackdrop'),
-    quickAddClose: document.getElementById('quickAddClose'),
     main: document.getElementById('mainContent'),
     complianceHero: document.getElementById('complianceHero'),
     panoramicaDeadlines: document.getElementById('panoramicaDeadlines'),
@@ -1572,6 +2017,34 @@ export function collectDom() {
     panoramicaSummary: document.getElementById('panoramicaSummary'),
     panoramicaMovements: document.getElementById('panoramicaMovements'),
     panoramicaOtherYears: document.getElementById('panoramicaOtherYears'),
+    paymentTargetOptions: document.getElementById('paymentTargetOptions'),
+    paymentMethodPills: document.getElementById('paymentMethodPills'),
+    paymentNote: document.getElementById('paymentNote'),
+    paymentAfterCard: document.getElementById('paymentAfterCard'),
+    paymentAmountHint: document.getElementById('paymentAmountHint'),
+    paymentFootHint: document.getElementById('paymentFootHint'),
+    dueSubmitLabel: document.getElementById('dueSubmitLabel'),
+    paymentSubmitLabel: document.getElementById('paymentSubmitLabel'),
+    priorBalanceSubmitLabel: document.getElementById('priorBalanceSubmitLabel'),
+    dueFormTitle: document.getElementById('dueFormTitle'),
+    dueFormSubtitle: document.getElementById('dueFormSubtitle'),
+    dueAmount: document.getElementById('dueAmount'),
+    dueAmountLabel: document.getElementById('dueAmountLabel'),
+    dueAmountHint: document.getElementById('dueAmountHint'),
+    dueFormFootHint: document.getElementById('dueFormFootHint'),
+    dueSplitStep: document.getElementById('dueSplitStep'),
+    dueRateStep: document.getElementById('dueRateStep'),
+    dueCadenceButtons: document.getElementById('dueCadenceButtons'),
+    dueCadenceHint: document.getElementById('dueCadenceHint'),
+    dueRateList: document.getElementById('dueRateList'),
+    dueRateCount: document.getElementById('dueRateCount'),
+    dueRateTotal: document.getElementById('dueRateTotal'),
+    dueRateAdd: document.getElementById('dueRateAdd'),
+    dueRateReset: document.getElementById('dueRateReset'),
+    dueRateWarning: document.getElementById('dueRateWarning'),
+    dueRailPeriod: document.getElementById('dueRailPeriod'),
+    dueRailNext: document.getElementById('dueRailNext'),
+    dueRailNextCons: document.getElementById('dueRailNextCons'),
     sideHouseBtn: document.getElementById('sideHouseBtn'),
     sideLogoutBtn: document.getElementById('sideLogoutBtn'),
     sideAvatar: document.getElementById('sideAvatar'),
@@ -1613,13 +2086,7 @@ export function collectDom() {
     houseDrawerBackdrop: document.getElementById('houseDrawerBackdrop'),
     houseDrawerList: document.getElementById('houseDrawerList'),
     openHouseDrawerBtn: document.getElementById('openHouseDrawerBtn'),
-    openDueFormSheet: document.getElementById('openDueFormSheet'),
     dueSuggestCarryoverBtn: document.getElementById('dueSuggestCarryoverBtn'),
-    closeDueFormSheet: document.getElementById('closeDueFormSheet'),
-    dueFormPaneBackdrop: document.getElementById('dueFormPaneBackdrop'),
-    openPaymentFormSheet: document.getElementById('openPaymentFormSheet'),
-    closePaymentFormSheet: document.getElementById('closePaymentFormSheet'),
-    paymentFormPaneBackdrop: document.getElementById('paymentFormPaneBackdrop'),
     houseDrawerClose: document.getElementById('houseDrawerClose'),
     houseDrawerAdd: document.getElementById('houseDrawerAdd'),
     dueEditId: document.getElementById('dueEditId'),
@@ -1628,6 +2095,7 @@ export function collectDom() {
     duesTable: document.getElementById('duesTable'),
     paymentPeriod: document.getElementById('paymentPeriod'),
     paymentAmount: document.getElementById('paymentAmount'),
+    paymentMethod: document.getElementById('paymentMethod'),
     paymentDate: document.getElementById('paymentDate'),
     paymentEditId: document.getElementById('paymentEditId'),
     paymentSubmitBtn: document.getElementById('paymentSubmitBtn'),
@@ -1648,21 +2116,13 @@ export function collectDom() {
     priorBalanceSubmitBtn: document.getElementById('priorBalanceSubmitBtn'),
     priorBalanceFormCancel: document.getElementById('priorBalanceFormCancel'),
     priorBalancesTable: document.getElementById('priorBalancesTable'),
-    openPriorBalanceFormSheet: document.getElementById('openPriorBalanceFormSheet'),
-    closePriorBalanceFormSheet: document.getElementById('closePriorBalanceFormSheet'),
-    priorBalanceFormPaneBackdrop: document.getElementById('priorBalanceFormPaneBackdrop'),
     dashboardPayments: document.getElementById('dashboardPayments'),
     situazionePeriod: document.getElementById('situazionePeriod'),
     situazioneSummary: document.getElementById('situazioneSummary'),
     situazioneSections: document.getElementById('situazioneSections'),
     situazionePdfBtn: document.getElementById('situazionePdfBtn'),
     dueSplitMode: document.getElementById('dueSplitMode'),
-    dueSplitCustom: document.getElementById('dueSplitCustom'),
-    dueSplitCustomWrap: document.getElementById('dueSplitCustomWrap'),
     dueKind: document.getElementById('dueKind'),
-    dueSplitFields: document.getElementById('dueSplitFields'),
-    dueSplitAmountsWrap: document.getElementById('dueSplitAmountsWrap'),
-    dueSplitAmountsFields: document.getElementById('dueSplitAmountsFields'),
     navButtons: [...document.querySelectorAll('.nav-rail [data-view], .bottom-nav [data-view]')],
     subviewTabs: [...document.querySelectorAll('[data-subview]')],
     subviewPanels: [...document.querySelectorAll('[data-subview-panel]')],

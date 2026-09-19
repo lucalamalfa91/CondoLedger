@@ -56,7 +56,10 @@ const {
   setView, render: baseRender, syncPaymentPeriodSelect,
   syncPaymentInstallmentSelect, syncDueKindFields, syncDuePeriodSelect, applyPaymentSmartAmount,
   syncPaymentTargetFields, syncPaymentPriorBalanceInfo, renderDueSplitAmountsFields,
-  syncPriorBalancePeriodSelect, syncPriorBalanceSourceSelect, syncRegistraChoices
+  syncPriorBalancePeriodSelect, syncPriorBalanceSourceSelect, syncRegistraChoices,
+  renderPaymentTargetOptions, applyPaymentChoice, syncPaymentMethodPills, renderPaymentAfterCard,
+  generateDueRates, syncDueRatesUI, syncDueRateTotals, renderDueRateEditor, renderDueCadenceButtons,
+  collectDueSplitAmounts, dueRateState
 } = createRenderer(els);
 let renderedHouseId = null;
 function render(...args) {
@@ -248,6 +251,7 @@ function applyPaymentGuideToForm() {
   syncPaymentInstallmentSelect(house, g.installmentKey);
   if (els.paymentAmount) els.paymentAmount.value = String(g.gap);
   if (els.paymentDate) els.paymentDate.value = today;
+  if (els.paymentMethodPills) els.paymentMethodPills.dataset.other = '0';
   showToast('Versamento precompilato.');
 }
 
@@ -260,53 +264,42 @@ async function ensureHousePersisted(house) {
 }
 
 function resetDueForm() {
+  const kind = els.dueKind?.value || 'preventivo';
   els.dueForm.reset();
+  if (els.dueKind) els.dueKind.value = kind;
   if (els.dueEditId) els.dueEditId.value = '';
-  if (els.dueSubmitBtn) els.dueSubmitBtn.textContent = 'Salva';
+  if (els.dueSubmitLabel) els.dueSubmitLabel.textContent = kind === 'consuntivo' ? 'Salva conguaglio' : 'Salva preventivo';
   els.dueFormCancel?.classList.add('hidden');
-  renderDueSplitAmountsFields(null);
+  const house = activeHouse();
+  if (house) {
+    generateDueRates(house);
+    syncDueRatesUI(house);
+  }
+  syncDueKindFields();
 }
 
 function resetPaymentForm(house) {
   els.paymentForm.reset();
   if (els.paymentEditId) els.paymentEditId.value = '';
-  if (els.paymentSubmitBtn) els.paymentSubmitBtn.textContent = 'Salva pagamento';
+  if (els.paymentSubmitLabel) els.paymentSubmitLabel.textContent = 'Salva pagamento';
   els.paymentFormCancel?.classList.add('hidden');
-  syncPaymentTargetFields();
-  if (house) syncPaymentPeriodSelect(house);
+  if (els.paymentDate) els.paymentDate.value = today;
+  if (house) {
+    syncPaymentPeriodSelect(house);
+    syncPaymentInstallmentSelect(house);
+    renderPaymentTargetOptions(house, 'rata');
+    applyPaymentChoice(house);
+  }
+  syncPaymentMethodPills();
 }
 
 function resetPriorBalanceForm(house) {
   els.priorBalanceForm?.reset();
   if (els.priorBalanceEditId) els.priorBalanceEditId.value = '';
-  if (els.priorBalanceSubmitBtn) els.priorBalanceSubmitBtn.textContent = 'Salva saldo iniziale';
+  if (els.priorBalanceSubmitLabel) els.priorBalanceSubmitLabel.textContent = 'Salva saldo iniziale';
   els.priorBalanceFormCancel?.classList.add('hidden');
   if (els.priorBalancePeriod) els.priorBalancePeriod.disabled = false;
   if (house) syncPriorBalancePeriodSelect(house);
-}
-
-function openFormSheet(paneId) {
-  const pane = document.getElementById(paneId);
-  const backdrop = document.getElementById(`${paneId}Backdrop`);
-  pane?.classList.add('form-sheet--open');
-  backdrop?.classList.remove('hidden');
-  document.body.classList.add('form-sheet-open');
-}
-
-function closeFormSheet(paneId) {
-  const pane = document.getElementById(paneId);
-  const backdrop = document.getElementById(`${paneId}Backdrop`);
-  pane?.classList.remove('form-sheet--open');
-  backdrop?.classList.add('hidden');
-  if (!document.querySelector('.split-form-pane.form-sheet--open')) {
-    document.body.classList.remove('form-sheet-open');
-  }
-}
-
-function closeAllFormSheets() {
-  closeFormSheet('dueFormPane');
-  closeFormSheet('paymentFormPane');
-  closeFormSheet('priorBalanceFormPane');
 }
 
 function startEditDue(house, due) {
@@ -316,46 +309,45 @@ function startEditDue(house, due) {
   els.dueForm.description.value = due.description || '';
   if (els.dueKind) els.dueKind.value = due.dueKind || 'preventivo';
   if (els.dueSplitMode) els.dueSplitMode.value = due.splitMode || 'monthly';
-  if (els.dueSplitCustom) {
-    els.dueSplitCustom.value = Array.isArray(due.splitCustom) ? due.splitCustom.join(',') : '';
-  }
-  syncDueKindFields();
   if (els.dueEditId) els.dueEditId.value = due.id;
-  if (els.dueSubmitBtn) els.dueSubmitBtn.textContent = 'Aggiorna dovuto';
+  if (els.dueSubmitLabel) {
+    els.dueSubmitLabel.textContent = due.dueKind === 'consuntivo' ? 'Aggiorna conguaglio' : 'Aggiorna preventivo';
+  }
   els.dueFormCancel?.classList.remove('hidden');
   renderDueSplitAmountsFields(due);
+  syncDueKindFields();
   navigate('registra', 'dovuti');
-  if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('dueFormPane');
-  else els.dueForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  syncRegistraChoices();
+  els.dueForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function startEditPayment(house, payment) {
   els.paymentForm.amount.value = String(payment.amount);
   els.paymentDate.value = payment.date || today;
   els.paymentForm.method.value = payment.method || '';
+  if (els.paymentNote) els.paymentNote.value = payment.note || '';
   if (els.paymentEditId) els.paymentEditId.value = payment.id;
-  if (els.paymentSubmitBtn) els.paymentSubmitBtn.textContent = 'Aggiorna versamento';
+  if (els.paymentSubmitLabel) els.paymentSubmitLabel.textContent = 'Aggiorna pagamento';
   els.paymentFormCancel?.classList.remove('hidden');
   syncPaymentPeriodSelect(house);
   if (payment.fiscalPeriodId) els.paymentPeriod.value = payment.fiscalPeriodId;
-  if (els.paymentTarget) els.paymentTarget.value = payment.priorBalanceId ? 'prior' : 'rata';
-  syncPaymentTargetFields();
   syncPaymentInstallmentSelect(house, payment.installmentKey || null);
+  const choice = payment.priorBalanceId ? 'prior' : payment.installmentKey ? 'altra-rata' : 'altro';
+  renderPaymentTargetOptions(house, choice);
+  applyPaymentChoice(house, { prefill: false });
   syncPaymentPriorBalanceInfo(house);
+  syncPaymentMethodPills();
   navigate('registra', 'versamenti');
-  if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('paymentFormPane');
-  else els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function startPayPriorBalance(house, priorBalance) {
   resetPaymentForm(house);
   if (els.paymentPeriod) els.paymentPeriod.value = priorBalance.fiscalPeriodId;
-  if (els.paymentTarget) els.paymentTarget.value = 'prior';
-  syncPaymentTargetFields();
-  syncPaymentPriorBalanceInfo(house);
+  renderPaymentTargetOptions(house, 'prior');
+  applyPaymentChoice(house);
   navigate('registra', 'versamenti');
-  if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('paymentFormPane');
-  else els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  els.paymentForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function startEditPriorBalance(house, priorBalance) {
@@ -364,11 +356,10 @@ function startEditPriorBalance(house, priorBalance) {
   if (els.priorBalanceAmount) els.priorBalanceAmount.value = String(priorBalance.amount);
   if (els.priorBalanceDescription) els.priorBalanceDescription.value = priorBalance.description || '';
   if (els.priorBalanceEditId) els.priorBalanceEditId.value = priorBalance.id;
-  if (els.priorBalanceSubmitBtn) els.priorBalanceSubmitBtn.textContent = 'Aggiorna saldo';
+  if (els.priorBalanceSubmitLabel) els.priorBalanceSubmitLabel.textContent = 'Aggiorna saldo iniziale';
   els.priorBalanceFormCancel?.classList.remove('hidden');
   if (els.priorBalancePeriod) els.priorBalancePeriod.disabled = true;
-  if (window.matchMedia('(max-width: 860px)').matches) openFormSheet('priorBalanceFormPane');
-  else els.priorBalanceForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  els.priorBalanceForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function deletePriorBalance(house, priorBalanceId) {
@@ -621,7 +612,6 @@ function closeQuickAddSheet() {
 function closeAllOverlays() {
   closeQuickAddSheet();
   closeHouseDrawer();
-  closeAllFormSheets();
   els.userMenu?.classList.add('hidden');
   els.userMenuBtn?.setAttribute('aria-expanded', 'false');
 }
@@ -661,12 +651,6 @@ function wireNavigation() {
     if (btn.dataset.houseMode === 'new') startNewHouseForm();
     else {
       navigate(btn.dataset.navTarget, btn.dataset.navSubview || null);
-      if (btn.dataset.navSubview === 'dovuti' && window.matchMedia('(max-width: 860px)').matches) {
-        openFormSheet('dueFormPane');
-      }
-      if (btn.dataset.navSubview === 'versamenti' && window.matchMedia('(max-width: 860px)').matches) {
-        openFormSheet('paymentFormPane');
-      }
     }
     if (btn.dataset.closeSheet) closeQuickAddSheet();
   });
@@ -711,19 +695,10 @@ els.duePeriod?.addEventListener('change', () => {
   if (!house) return;
   const isNew = els.duePeriod.value === '__new__';
   els.duePeriodNewWrap?.classList.toggle('hidden', !isNew);
+  // Cambiare anno sposta i mesi delle scadenze: le rate non toccate si rigenerano.
+  if (!dueRateState().manual) generateDueRates(house);
+  syncDueRatesUI(house);
 });
-els.openDueFormSheet?.addEventListener('click', () => openFormSheet('dueFormPane'));
-els.closeDueFormSheet?.addEventListener('click', () => closeFormSheet('dueFormPane'));
-els.dueFormPaneBackdrop?.addEventListener('click', () => closeFormSheet('dueFormPane'));
-els.openPaymentFormSheet?.addEventListener('click', () => openFormSheet('paymentFormPane'));
-els.closePaymentFormSheet?.addEventListener('click', () => closeFormSheet('paymentFormPane'));
-els.paymentFormPaneBackdrop?.addEventListener('click', () => closeFormSheet('paymentFormPane'));
-els.openPriorBalanceFormSheet?.addEventListener('click', () => {
-  resetPriorBalanceForm(activeHouse());
-  openFormSheet('priorBalanceFormPane');
-});
-els.closePriorBalanceFormSheet?.addEventListener('click', () => closeFormSheet('priorBalanceFormPane'));
-els.priorBalanceFormPaneBackdrop?.addEventListener('click', () => closeFormSheet('priorBalanceFormPane'));
 els.priorBalancePeriod?.addEventListener('change', () => {
   const house = activeHouse();
   if (house) syncPriorBalanceSourceSelect(house);
@@ -792,7 +767,6 @@ els.priorBalanceForm?.addEventListener('submit', async e => {
       else house.priorBalances.push({ ...priorBalance, id: uid('prior') });
     }
     render();
-    closeFormSheet('priorBalanceFormPane');
     showToast(editId ? 'Saldo precedente aggiornato.' : 'Saldo precedente salvato.');
   } catch (err) {
     toastError(err.message);
@@ -800,13 +774,36 @@ els.priorBalanceForm?.addEventListener('submit', async e => {
 });
 els.priorBalanceFormCancel?.addEventListener('click', () => {
   resetPriorBalanceForm(activeHouse());
-  closeFormSheet('priorBalanceFormPane');
   render();
 });
 els.paymentInstallment?.addEventListener('change', () => {
   const house = activeHouse();
-  if (house) applyPaymentSmartAmount(house);
+  if (!house) return;
+  applyPaymentSmartAmount(house);
+  renderPaymentAfterCard(house);
 });
+
+els.paymentTargetOptions?.addEventListener('change', () => {
+  const house = activeHouse();
+  if (house) applyPaymentChoice(house);
+});
+
+els.paymentAmount?.addEventListener('input', () => {
+  const house = activeHouse();
+  if (house) renderPaymentAfterCard(house);
+});
+
+// Le pillole scrivono nel campo «metodo»: «Altro» lo scopre per farlo scrivere a mano.
+els.paymentMethodPills?.addEventListener('click', e => {
+  const btn = e.target.closest('[data-method]');
+  if (!btn || !els.paymentMethod) return;
+  const isOther = !btn.dataset.method;
+  els.paymentMethodPills.dataset.other = isOther ? '1' : '0';
+  els.paymentMethod.value = btn.dataset.method;
+  syncPaymentMethodPills();
+  if (isOther) els.paymentMethod.focus();
+});
+els.paymentMethod?.addEventListener('change', syncPaymentMethodPills);
 document.addEventListener('click', e => {
   if (e.target.id === 'paymentGuideApply') applyPaymentGuideToForm();
   if (e.target.id === 'paymentGuideCopyCausale') {
@@ -816,7 +813,6 @@ document.addEventListener('click', e => {
   if (e.target.id === 'postImportRegisterPay') {
     navigate('registra', 'versamenti');
     applyPaymentGuideToForm();
-    openFormSheet('paymentFormPane');
     state.postImportPaymentHint = null;
     render();
   }
@@ -1012,11 +1008,8 @@ els.paymentPeriod?.addEventListener('change', () => {
   if (!house) return;
   syncPaymentInstallmentSelect(house);
   syncPaymentPriorBalanceInfo(house);
-});
-els.paymentTarget?.addEventListener('change', () => {
-  syncPaymentTargetFields();
-  const house = activeHouse();
-  if (house) syncPaymentPriorBalanceInfo(house);
+  renderPaymentTargetOptions(house);
+  applyPaymentChoice(house);
 });
 els.situazionePeriod?.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
 els.situazionePdfBtn?.addEventListener('click', async () => {
@@ -1029,7 +1022,95 @@ els.situazionePdfBtn?.addEventListener('click', async () => {
   }
 });
 els.dueKind?.addEventListener('change', () => { syncDueKindFields(); syncRegistraChoices(); });
-els.dueSplitMode?.addEventListener('change', syncDueKindFields);
+
+els.dueAmount?.addEventListener('input', () => {
+  const house = activeHouse();
+  if (!house) return;
+  // Finché non tocchi le rate, il totale le ridivide; dopo resta la tua ripartizione.
+  if (!dueRateState().manual) {
+    generateDueRates(house);
+    syncDueRatesUI(house);
+  } else {
+    renderDueCadenceButtons();
+    syncDueRateTotals();
+  }
+});
+
+els.dueCadenceButtons?.addEventListener('click', e => {
+  const btn = e.target.closest('[data-cadence]');
+  const house = activeHouse();
+  if (!btn || !house) return;
+  if (btn.dataset.cadence === 'custom') {
+    dueRateState().manual = true;
+  } else {
+    generateDueRates(house, btn.dataset.cadence);
+  }
+  syncDueRatesUI(house);
+});
+
+els.dueRateList?.addEventListener('change', e => {
+  const monthSel = e.target.closest('[data-rate-month]');
+  const house = activeHouse();
+  if (!monthSel || !house) return;
+  const state = dueRateState();
+  state.rows[Number(monthSel.dataset.rateMonth)].start = monthSel.value;
+  state.manual = true;
+  syncDueRatesUI(house);
+});
+
+els.dueRateList?.addEventListener('input', e => {
+  const amountInput = e.target.closest('[data-rate-amount]');
+  if (!amountInput) return;
+  const state = dueRateState();
+  state.rows[Number(amountInput.dataset.rateAmount)].amount = Number(amountInput.value || 0);
+  state.manual = true;
+  renderDueCadenceButtons();
+  syncDueRateTotals();
+});
+
+els.dueRateList?.addEventListener('click', e => {
+  const removeBtn = e.target.closest('[data-rate-remove]');
+  const house = activeHouse();
+  if (!removeBtn || !house) return;
+  const state = dueRateState();
+  if (state.rows.length < 2) return;
+  state.rows.splice(Number(removeBtn.dataset.rateRemove), 1);
+  state.manual = true;
+  syncDueRatesUI(house);
+});
+
+els.dueRateAdd?.addEventListener('click', () => {
+  const house = activeHouse();
+  if (!house) return;
+  const state = dueRateState();
+  const last = state.rows[state.rows.length - 1];
+  const next = last?.start ? new Date(`${last.start}T00:00:00`) : null;
+  if (next) next.setMonth(next.getMonth() + 1);
+  state.rows.push({
+    start: next ? `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01` : (last?.start || ''),
+    amount: 0
+  });
+  state.manual = true;
+  syncDueRatesUI(house);
+});
+
+els.dueRateReset?.addEventListener('click', () => {
+  const house = activeHouse();
+  if (!house) return;
+  generateDueRates(house, dueRateState().cadence === 'custom' ? 'monthly' : dueRateState().cadence);
+  syncDueRatesUI(house);
+});
+
+// «Usa la somma come totale»: compare solo quando rate e totale non tornano.
+els.dueRateWarning?.addEventListener('click', e => {
+  if (e.target.id !== 'dueRateUseSum') return;
+  const house = activeHouse();
+  if (!house || !els.dueAmount) return;
+  const sum = dueRateState().rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
+  els.dueAmount.value = String(Math.round(sum * 100) / 100);
+  renderDueCadenceButtons();
+  syncDueRateTotals();
+});
 els.logoutBtn.addEventListener('click', auth.logout);
 els.sideLogoutBtn?.addEventListener('click', auth.logout);
 
@@ -1110,15 +1191,18 @@ els.dueForm.addEventListener('submit', async e => {
     const fd = new FormData(els.dueForm);
     const editId = String(fd.get('editId') || els.dueEditId?.value || '').trim();
     const due = createLocalDue(fd);
-    if (due.splitMode === 'custom') {
-      const cleaned = Array.isArray(due.splitCustom)
-        ? [...new Set(due.splitCustom)].filter(n => Number.isInteger(n) && n >= 0 && n < 12)
-        : [];
-      if (!cleaned.length) {
-        toastError('Inserisci almeno un mese valido (0-11) per la ripartizione personalizzata.');
+    if (due.dueKind !== 'consuntivo') {
+      const rates = collectDueSplitAmounts();
+      if (!rates.length) {
+        toastError('Serve almeno una rata: usa «Ridividi in parti uguali».');
         return;
       }
-      due.splitCustom = cleaned;
+      const custom = dueRateState().manual || dueRateState().cadence === 'single';
+      // Le rate esatte viaggiano sempre: così un arrotondamento del condominio resta
+      // com'è scritto qui, invece di essere ricalcolato dalla cadenza.
+      due.splitAmounts = rates;
+      due.splitMode = custom ? 'custom' : dueRateState().cadence;
+      due.splitCustom = null;
     }
     const periodSel = els.duePeriod?.value;
     if (periodSel && periodSel !== '__new__') {
@@ -1131,20 +1215,7 @@ els.dueForm.addEventListener('submit', async e => {
         return;
       }
     }
-    if (editId) {
-      due.id = editId;
-      const existingDue = house.dues.find(d => d.id === editId);
-      if (existingDue?.splitAmounts) {
-        const edited = [...(els.dueSplitAmountsFields?.querySelectorAll('[data-split-amount-row]') || [])];
-        due.splitAmounts = edited.length === existingDue.splitAmounts.length
-          ? existingDue.splitAmounts.map((row, i) => {
-            const input = edited[i]?.querySelector('[data-split-amount-value]');
-            const amount = Number(input?.value);
-            return Number.isFinite(amount) ? { ...row, amount } : row;
-          })
-          : existingDue.splitAmounts;
-      }
-    }
+    if (editId) due.id = editId;
     let newPeriodId = null;
     if (state.user) {
       if (due.fiscalPeriodLabel) {
@@ -1164,6 +1235,7 @@ els.dueForm.addEventListener('submit', async e => {
         existing.description = due.description;
         existing.splitMode = due.splitMode;
         existing.splitCustom = due.splitCustom;
+        existing.splitAmounts = due.splitAmounts ?? null;
         existing.dueKind = due.dueKind;
         existing.fiscalPeriodId = due.fiscalPeriodLabel;
       }
@@ -1171,8 +1243,8 @@ els.dueForm.addEventListener('submit', async e => {
       house.dues.push({ ...due, id: uid('due'), fiscalPeriodId: due.fiscalPeriodLabel });
     }
     render();
-    closeFormSheet('dueFormPane');
-    showToast(editId ? 'Dovuto aggiornato.' : 'Dovuto salvato.');
+    const kindLabel = due.dueKind === 'consuntivo' ? 'Conguaglio' : 'Preventivo';
+    showToast(editId ? `${kindLabel} aggiornato.` : `${kindLabel} salvato.`);
   } catch (err) {
     toastError(err.message);
   }
@@ -1180,7 +1252,6 @@ els.dueForm.addEventListener('submit', async e => {
 
 els.dueFormCancel?.addEventListener('click', () => {
   resetDueForm();
-  closeFormSheet('dueFormPane');
   render();
 });
 
@@ -1197,19 +1268,21 @@ els.paymentForm.addEventListener('submit', async e => {
       const { period } = await ensureFiscalPeriod(house, els.paymentDate.value || today);
       periodId = period.id;
     }
+    const choice = String(fd.get('paymentChoice') || 'rata');
     const paymentTarget = String(fd.get('paymentTarget') || els.paymentTarget?.value || 'rata');
     let installmentKey = null;
     let priorBalanceId = null;
     if (paymentTarget === 'prior') {
       priorBalanceId = String(fd.get('priorBalanceId') || els.paymentPriorBalanceId?.value || '').trim();
       if (!priorBalanceId) {
-        toastError('Nessun saldo anno precedente a debito da coprire per questo esercizio.');
+        toastError('Nessun saldo iniziale a debito da coprire per quest’anno.');
         return;
       }
-    } else {
+    } else if (choice !== 'altro') {
+      // «Un altro importo» resta senza rata: il pagamento entra comunque nel totale.
       installmentKey = String(fd.get('installmentKey') || els.paymentInstallment?.value || '').trim();
       if (!installmentKey) {
-        toastError('Seleziona la rata da associare al versamento.');
+        toastError('Scegli la rata che stai pagando.');
         return;
       }
     }
@@ -1230,8 +1303,7 @@ els.paymentForm.addEventListener('submit', async e => {
       house.payments.push({ ...payment, id: uid('pay') });
     }
     render();
-    closeFormSheet('paymentFormPane');
-    showToast(editId ? 'Versamento aggiornato.' : 'Versamento registrato.');
+    showToast(editId ? 'Pagamento aggiornato.' : 'Pagamento registrato.');
   } catch (err) {
     toastError(err.message);
   }
@@ -1240,7 +1312,6 @@ els.paymentForm.addEventListener('submit', async e => {
 els.paymentFormCancel?.addEventListener('click', () => {
   const house = activeHouse();
   resetPaymentForm(house);
-  closeFormSheet('paymentFormPane');
   render();
 });
 

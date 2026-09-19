@@ -78,6 +78,7 @@ export function mapHouseFromDb(house, dues, payments, periods, movements, priorB
       amount: Number(p.amount),
       date: p.date || '',
       method: p.method || '',
+      note: p.note || '',
       installmentKey: p.installment_key || null,
       priorBalanceId: p.prior_balance_id ? String(p.prior_balance_id) : null,
       carryFromPeriodId: p.carry_from_period_id ? String(p.carry_from_period_id) : null,

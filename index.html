@@ -203,6 +203,10 @@
         </section>
       </section>
       <section class="view" data-view-panel="registra">
+        <button class="link-back" type="button" data-nav-target="panoramica">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg>
+          Panoramica
+        </button>
         <nav class="sub-nav sub-nav--choices" role="tablist" aria-label="Cosa vuoi registrare">
           <button class="sub-nav-btn active" type="button" role="tab" data-view="registra" data-subview="versamenti" aria-selected="true">
             <span class="choice-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M16 15h2"/></svg></span>
@@ -226,143 +230,297 @@
           </button>
         </nav>
         <div class="subview active" data-subview-panel="dovuti" role="tabpanel">
-          <div class="form-sheet-backdrop hidden" id="dueFormPaneBackdrop" aria-hidden="true"></div>
-          <div class="split-layout split-layout--list-first">
-            <aside class="split-form-pane card stack" id="dueFormPane">
-              <div class="panel-head form-sheet-head">
-                <div><h2>Preventivo o conguaglio</h2><p class="subtle">L'importo dell'anno approvato in assemblea, oppure il conguaglio del consuntivo.</p></div>
-                <button class="icon-btn form-sheet-close hidden" type="button" id="closeDueFormSheet" aria-label="Chiudi modulo">×</button>
-              </div>
-              <form id="dueForm" class="stack">
-                <div class="field-grid">
-                  <div class="due-period-field">
-                    <label for="duePeriod">Anno condominiale</label>
-                    <select id="duePeriod" name="fiscalPeriodId" required></select>
-                    <div id="duePeriodNewWrap" class="hidden stack" style="margin-top:.5rem;">
-                      <label for="duePeriodNew">Nome del nuovo anno</label>
-                      <input id="duePeriodNew" name="fiscalPeriodLabel" type="text" inputmode="numeric" placeholder="es. 2024/2025" />
-                    </div>
-                    <p class="hint" id="duePeriodHint"></p>
-                  </div>
-                  <div><label for="dueKind">Che cosa registri</label><select id="dueKind" name="dueKind"><option value="preventivo">Preventivo dell'anno</option><option value="consuntivo">Conguaglio (consuntivo)</option></select></div>
-                  <div><label for="dueAmount">Importo</label><input id="dueAmount" name="amount" type="number" step="0.01" required /><p class="hint">Per un credito o un debito che arriva dall'anno prima usa «Saldo iniziale».</p></div>
-                </div>
-                <div><label for="dueDescription">Descrizione</label><input id="dueDescription" name="description" type="text" placeholder="Preventivo 2026/27, conguaglio consuntivo..." /></div>
-                <div class="field-grid due-split-fields" id="dueSplitFields">
-                  <div><label for="dueSplitMode">Come lo paghi?</label><select id="dueSplitMode" name="splitMode"><option value="monthly">12 rate mensili</option><option value="bimonthly">6 rate bimestrali</option><option value="semiannual">2 rate semestrali</option><option value="custom">Personalizzato</option></select></div>
-                  <div class="due-split-custom-wrap hidden" id="dueSplitCustomWrap"><label for="dueSplitCustom">Mesi scelti (0–11 dall’inizio dell’anno)</label><input id="dueSplitCustom" name="splitCustom" type="text" placeholder="es. 0,2,4,6,8,10" /><p class="hint">Numero dei mesi separati da virgola: 0 è il mese di inizio.</p></div>
-                </div>
-                <div class="due-split-amounts-wrap hidden" id="dueSplitAmountsWrap">
-                  <label>Le rate: correggi gli importi</label>
-                  <div id="dueSplitAmountsFields" class="stack"></div>
-                  <p class="hint">Rate create da un import con importi disomogenei: qui puoi correggere solo gli importi, non le date.</p>
-                </div>
-                <input id="dueEditId" name="editId" type="hidden" />
-                <div class="form-actions">
-                  <button class="btn btn-primary" id="dueSubmitBtn" type="submit">Salva</button>
-                  <button class="btn btn-secondary hidden" id="dueFormCancel" type="button">Annulla modifica</button>
-                </div>
-              </form>
-            </aside>
-            <section class="split-content-pane card stack data-panel">
+          <div class="registra-layout">
+            <form id="dueForm" class="card stack registra-form">
               <div class="panel-head">
-                <div><h2>Preventivi e conguagli</h2><p class="subtle">Quello che hai registrato, anno per anno.</p></div>
-                <div class="toolbar">
-                  <button class="btn btn-secondary" type="button" id="dueSuggestCarryoverBtn">Riporta dall’anno precedente</button>
-                  <button class="btn btn-primary form-sheet-open-btn" type="button" id="openDueFormSheet">+ Aggiungi</button>
+                <div>
+                  <h2 id="dueFormTitle">Preventivo dell'anno</h2>
+                  <p class="subtle" id="dueFormSubtitle">L'importo approvato in assemblea e le rate con cui lo paghi.</p>
                 </div>
               </div>
-              <div class="data-table-wrap" id="duesTable"></div>
-            </section>
+
+              <div class="field-row">
+                <div class="due-period-field">
+                  <label for="duePeriod">Anno condominiale</label>
+                  <select id="duePeriod" name="fiscalPeriodId" required></select>
+                  <div id="duePeriodNewWrap" class="hidden">
+                    <label for="duePeriodNew">Nome del nuovo anno</label>
+                    <input id="duePeriodNew" name="fiscalPeriodLabel" type="text" inputmode="numeric" placeholder="es. 2026/2027" />
+                  </div>
+                  <p class="hint" id="duePeriodHint"></p>
+                </div>
+                <div class="due-kind-field">
+                  <label for="dueKind">Che cosa registri</label>
+                  <select id="dueKind" name="dueKind">
+                    <option value="preventivo">Preventivo dell'anno</option>
+                    <option value="consuntivo">Conguaglio (consuntivo)</option>
+                  </select>
+                </div>
+              </div>
+
+              <ol class="steps">
+                <li class="step">
+                  <span class="step-num" aria-hidden="true">1</span>
+                  <div class="step-body">
+                    <label class="step-title" for="dueAmount" id="dueAmountLabel">Quanto è il preventivo totale?</label>
+                    <div class="amount-row">
+                      <div class="input-euro input-euro--lg">
+                        <span aria-hidden="true">€</span>
+                        <input id="dueAmount" name="amount" type="number" step="0.01" required placeholder="0,00" />
+                      </div>
+                      <span class="hint" id="dueAmountHint">La tua quota, come scritta nel preventivo approvato in assemblea.</span>
+                    </div>
+                    <div>
+                      <label for="dueDescription">Descrizione <span class="hint">(facoltativa)</span></label>
+                      <input id="dueDescription" name="description" type="text" placeholder="Preventivo 2026/27, conguaglio consuntivo..." />
+                    </div>
+                  </div>
+                </li>
+
+                <li class="step" id="dueSplitStep">
+                  <span class="step-num" aria-hidden="true">2</span>
+                  <div class="step-body">
+                    <span class="step-title">Come lo paghi?</span>
+                    <div class="cadence-grid" id="dueCadenceButtons" role="group" aria-label="Cadenza delle rate"></div>
+                    <span class="hint" id="dueCadenceHint"></span>
+                    <input id="dueSplitMode" name="splitMode" type="hidden" value="monthly" />
+                  </div>
+                </li>
+
+                <li class="step" id="dueRateStep">
+                  <span class="step-num" aria-hidden="true">3</span>
+                  <div class="step-body">
+                    <div class="step-title-row">
+                      <span class="step-title">Le rate: <span id="dueRateCount">—</span></span>
+                      <span class="hint">Totale <strong id="dueRateTotal">—</strong></span>
+                    </div>
+                    <div class="rate-editor" id="dueRateList"></div>
+                    <div class="rate-editor-foot">
+                      <button class="btn btn-secondary btn-sm" type="button" id="dueRateAdd">+ Aggiungi una rata</button>
+                      <button class="btn btn-secondary btn-sm" type="button" id="dueRateReset">Ridividi in parti uguali</button>
+                    </div>
+                    <p class="hint" id="dueRateHint">Cambia mese o importo di una rata quando il condominio ne arrotonda una: il resto non si muove.</p>
+                    <p class="rate-warning hidden" id="dueRateWarning" role="status"></p>
+                  </div>
+                </li>
+              </ol>
+
+              <input id="dueEditId" name="editId" type="hidden" />
+              <div class="form-foot">
+                <span class="hint" id="dueFormFootHint"></span>
+                <div class="form-actions">
+                  <button class="btn btn-secondary hidden" id="dueFormCancel" type="button">Annulla modifica</button>
+                  <button class="btn btn-primary" id="dueSubmitBtn" type="submit">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+                    <span id="dueSubmitLabel">Salva preventivo</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            <aside class="registra-rail">
+              <section class="panel" id="dueRailNext">
+                <div class="panel-head"><div><h2>Cosa succede dopo</h2></div></div>
+                <ol class="next-steps">
+                  <li><span>1</span>Ogni rata compare in Panoramica con la sua scadenza.</li>
+                  <li><span>2</span>Quando registri un pagamento, la rata risulta pagata.</li>
+                  <li><span>3</span>A fine anno registri il conguaglio del consuntivo: la differenza si somma o si sottrae da sola.</li>
+                </ol>
+              </section>
+              <section class="panel hidden" id="dueRailNextCons">
+                <div class="panel-head"><div><h2>Cosa succede dopo</h2></div></div>
+                <ol class="next-steps">
+                  <li><span>1</span>Il conguaglio si somma al preventivo nel totale dovuto dell'anno.</li>
+                  <li><span>2</span>Lo paghi come una rata, dalla scheda «Pagamento».</li>
+                  <li><span>3</span>Se è a credito, scrivilo con il meno davanti: abbassa il totale.</li>
+                </ol>
+              </section>
+              <section class="panel">
+                <div class="panel-head"><div><h2>Anno condominiale</h2></div></div>
+                <p id="dueRailPeriod">—</p>
+                <button class="link-more" type="button" data-nav-target="impostazioni" data-nav-subview="casa">Cambia nelle impostazioni della casa</button>
+              </section>
+            </aside>
           </div>
+
+          <section class="panel data-panel" style="margin-top: var(--space-5);">
+            <div class="panel-head">
+              <div><h2>Preventivi e conguagli</h2><p class="subtle">Quello che hai registrato, anno per anno.</p></div>
+              <div class="toolbar">
+                <button class="btn btn-secondary" type="button" id="dueSuggestCarryoverBtn">Riporta dall’anno precedente</button>
+              </div>
+            </div>
+            <div class="data-table-wrap" id="duesTable"></div>
+          </section>
         </div>
         <div class="subview" data-subview-panel="versamenti" role="tabpanel">
           <div id="postImportBanner" class="post-import-banner hidden" role="status"></div>
-          <div class="form-sheet-backdrop hidden" id="paymentFormPaneBackdrop" aria-hidden="true"></div>
-          <div class="split-layout versamenti-layout split-layout--list-first">
-            <aside class="split-form-pane versamenti-form-pane card stack" id="paymentFormPane">
-              <section id="paymentGuidePanel" class="payment-guide-panel" aria-live="polite"></section>
-              <div class="panel-head form-sheet-head">
-                <div><h2>Registra un pagamento</h2><p class="subtle">Una rata dell'anno, il conguaglio o un'altra somma.</p></div>
-                <button class="icon-btn form-sheet-close hidden" type="button" id="closePaymentFormSheet" aria-label="Chiudi modulo">×</button>
-              </div>
-              <form id="paymentForm" class="stack">
-                <div class="field-grid">
-                  <div><label for="paymentPeriod">Anno condominiale</label><select id="paymentPeriod" name="fiscalPeriodId" required></select></div>
-                  <div><label for="paymentTarget">Cosa stai pagando?</label><select id="paymentTarget" name="paymentTarget"><option value="rata">Una rata del preventivo</option><option value="prior">Il saldo iniziale</option></select></div>
-                </div>
-                <div class="field-grid" id="paymentInstallmentField">
-                  <div><label for="paymentInstallment">Rata</label><select id="paymentInstallment" name="installmentKey" required></select></div>
-                </div>
-                <div class="field-grid hidden" id="paymentPriorBalanceField">
-                  <div><p class="hint" id="paymentPriorBalanceInfo"></p><input id="paymentPriorBalanceId" name="priorBalanceId" type="hidden" /></div>
-                </div>
-                <div class="field-grid">
-                  <div><label for="paymentAmount">Importo</label><input id="paymentAmount" name="amount" type="number" step="0.01" required /><p class="hint">Negativo solo se hai versato più del dovuto.</p></div>
-                  <div><label for="paymentDate">Data del pagamento</label><input id="paymentDate" name="date" type="date" /></div>
-                </div>
-                <div><label for="paymentMethod">Come hai pagato</label><input id="paymentMethod" name="method" type="text" placeholder="Bonifico, addebito, contanti..." /></div>
-                <input id="paymentEditId" name="editId" type="hidden" />
-                <div class="form-actions">
-                  <button class="btn btn-primary" id="paymentSubmitBtn" type="submit">Salva pagamento</button>
-                  <button class="btn btn-secondary hidden" id="paymentFormCancel" type="button">Annulla modifica</button>
-                </div>
-              </form>
-            </aside>
-            <section class="split-content-pane versamenti-list-pane card stack data-panel">
+          <div class="registra-layout">
+            <form id="paymentForm" class="card stack registra-form">
               <div class="panel-head">
-                <div><h2>Pagamenti registrati</h2><p class="subtle">Tutti i pagamenti, con data e rata a cui sono abbinati.</p></div>
-                <button class="btn btn-primary form-sheet-open-btn" type="button" id="openPaymentFormSheet">+ Pagamento</button>
+                <div>
+                  <h2>Registra un pagamento</h2>
+                  <p class="subtle">Una rata dell'anno, il conguaglio o un'altra somma versata al condominio.</p>
+                </div>
               </div>
-              <div class="payments-toolbar field-grid">
-                <div><label for="paymentFilterPeriod">Anno condominiale</label><select id="paymentFilterPeriod"><option value="">Tutti</option></select></div>
+
+              <div class="field-row">
+                <div>
+                  <label for="paymentPeriod">Anno condominiale</label>
+                  <select id="paymentPeriod" name="fiscalPeriodId" required></select>
+                </div>
               </div>
-              <div class="payments-summary" id="paymentsSummary" aria-live="polite"></div>
-              <div class="data-table-wrap versamenti-table-scroll" id="paymentsTable"></div>
-            </section>
+
+              <fieldset class="fieldset">
+                <legend class="step-title">Cosa stai pagando?</legend>
+                <div class="option-list" id="paymentTargetOptions" role="radiogroup" aria-label="Cosa stai pagando"></div>
+                <input id="paymentTarget" name="paymentTarget" type="hidden" value="rata" />
+                <div id="paymentInstallmentField" class="option-extra hidden">
+                  <label for="paymentInstallment">Quale rata</label>
+                  <select id="paymentInstallment" name="installmentKey"></select>
+                </div>
+                <div id="paymentPriorBalanceField" class="option-extra hidden">
+                  <p class="hint" id="paymentPriorBalanceInfo"></p>
+                  <input id="paymentPriorBalanceId" name="priorBalanceId" type="hidden" />
+                </div>
+              </fieldset>
+
+              <fieldset class="fieldset">
+                <legend class="step-title">Dettagli</legend>
+                <div class="field-grid">
+                  <div>
+                    <label for="paymentAmount">Importo</label>
+                    <div class="input-euro">
+                      <span aria-hidden="true">€</span>
+                      <input id="paymentAmount" name="amount" type="number" step="0.01" required placeholder="0,00" />
+                    </div>
+                    <p class="hint" id="paymentAmountHint">Precompilato con l'importo della rata.</p>
+                  </div>
+                  <div>
+                    <label for="paymentDate">Data del pagamento</label>
+                    <input id="paymentDate" name="date" type="date" />
+                    <p class="hint">Oggi. Cambiala se hai pagato in un altro giorno.</p>
+                  </div>
+                </div>
+                <div>
+                  <span class="field-label">Come hai pagato</span>
+                  <div class="pill-group" id="paymentMethodPills" role="group" aria-label="Come hai pagato">
+                    <button class="pill" type="button" data-method="Bonifico" aria-pressed="false">Bonifico</button>
+                    <button class="pill" type="button" data-method="Addebito in conto" aria-pressed="false">Addebito in conto</button>
+                    <button class="pill" type="button" data-method="Contanti" aria-pressed="false">Contanti</button>
+                    <button class="pill" type="button" data-method="" aria-pressed="false">Altro</button>
+                  </div>
+                  <input id="paymentMethod" name="method" type="text" class="hidden" placeholder="Come hai pagato" aria-label="Come hai pagato" />
+                </div>
+                <div>
+                  <label for="paymentNote">Nota <span class="hint">(facoltativa)</span></label>
+                  <input id="paymentNote" name="note" type="text" placeholder="Per esempio il CRO del bonifico" />
+                </div>
+              </fieldset>
+
+              <input id="paymentEditId" name="editId" type="hidden" />
+              <div class="form-foot">
+                <span class="hint" id="paymentFootHint"></span>
+                <div class="form-actions">
+                  <button class="btn btn-secondary hidden" id="paymentFormCancel" type="button">Annulla modifica</button>
+                  <button class="btn btn-primary" id="paymentSubmitBtn" type="submit">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+                    <span id="paymentSubmitLabel">Salva pagamento</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            <aside class="registra-rail">
+              <section class="panel" id="paymentAfterCard" aria-live="polite"></section>
+              <section id="paymentGuidePanel" class="payment-guide-panel" aria-live="polite"></section>
+              <section class="panel panel--accent">
+                <div class="panel-accent-head">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9.5 9-6 9 6"/><path d="M5 10v8"/><path d="M9.7 10v8"/><path d="M14.3 10v8"/><path d="M19 10v8"/><path d="M3 21h18"/></svg>
+                  <h2>Paghi con bonifico?</h2>
+                </div>
+                <p>Importa l'estratto conto: i bonifici al condominio vengono abbinati alle rate e registrati tutti insieme, senza compilare nulla.</p>
+                <button class="link-more" type="button" data-nav-target="importa" data-nav-subview="import-banca">
+                  Importa estratto conto
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+                </button>
+              </section>
+            </aside>
           </div>
+
+          <section class="panel data-panel" style="margin-top: var(--space-5);">
+            <div class="panel-head">
+              <div><h2>Pagamenti registrati</h2><p class="subtle">Tutti i pagamenti, con data e rata a cui sono abbinati.</p></div>
+              <div class="payments-toolbar">
+                <label for="paymentFilterPeriod" class="sr-only">Anno condominiale</label>
+                <select id="paymentFilterPeriod" class="chip-select"><option value="">Tutti gli anni</option></select>
+              </div>
+            </div>
+            <div class="payments-summary" id="paymentsSummary" aria-live="polite"></div>
+            <div class="data-table-wrap versamenti-table-scroll" id="paymentsTable"></div>
+          </section>
         </div>
         <div class="subview" data-subview-panel="apertura-esercizio" role="tabpanel">
-          <div class="form-sheet-backdrop hidden" id="priorBalanceFormPaneBackdrop" aria-hidden="true"></div>
-          <div class="split-layout split-layout--list-first">
-            <aside class="split-form-pane card stack" id="priorBalanceFormPane">
-              <div class="panel-head form-sheet-head">
-                <div><h2>Saldo iniziale</h2><p class="subtle">Il credito o il debito che arriva dall'anno prima.</p></div>
-                <button class="icon-btn form-sheet-close hidden" type="button" id="closePriorBalanceFormSheet" aria-label="Chiudi modulo">×</button>
-              </div>
-              <form id="priorBalanceForm" class="stack">
-                <div class="field-grid">
-                  <div>
-                    <label for="priorBalancePeriod">Anno condominiale</label>
-                    <select id="priorBalancePeriod" name="fiscalPeriodId" required></select>
-                    <p class="hint">L'anno a cui si applica il saldo iniziale.</p>
-                  </div>
-                  <div>
-                    <label for="priorBalanceSourcePeriod">Da quale anno arriva (facoltativo)</label>
-                    <select id="priorBalanceSourcePeriod" name="sourcePeriodId"><option value="">— Non indicato —</option></select>
-                  </div>
-                  <div>
-                    <label for="priorBalanceAmount">Importo</label>
-                    <input id="priorBalanceAmount" name="amount" type="number" step="0.01" required />
-                    <p class="hint">Positivo se devi ancora qualcosa, negativo se hai un credito.</p>
-                  </div>
-                </div>
-                <div><label for="priorBalanceDescription">Descrizione</label><input id="priorBalanceDescription" name="description" type="text" placeholder="Saldo precedente, credito riportato..." /></div>
-                <input id="priorBalanceEditId" name="editId" type="hidden" />
-                <div class="form-actions">
-                  <button class="btn btn-primary" id="priorBalanceSubmitBtn" type="submit">Salva saldo</button>
-                  <button class="btn btn-secondary hidden" id="priorBalanceFormCancel" type="button">Annulla modifica</button>
-                </div>
-              </form>
-            </aside>
-            <section class="split-content-pane card stack data-panel">
+          <div class="registra-layout">
+            <form id="priorBalanceForm" class="card stack registra-form">
               <div class="panel-head">
-                <div><h2>Saldi iniziali</h2><p class="subtle">Uno per anno condominiale. Compare nei movimenti e nel PDF, separato da preventivo e pagamenti.</p></div>
-                <button class="btn btn-primary form-sheet-open-btn" type="button" id="openPriorBalanceFormSheet">+ Saldo iniziale</button>
+                <div>
+                  <h2>Saldo iniziale</h2>
+                  <p class="subtle">Il credito o il debito che arriva dall'anno prima, prima ancora del preventivo.</p>
+                </div>
               </div>
-              <div class="data-table-wrap" id="priorBalancesTable"></div>
-            </section>
+              <div class="field-row">
+                <div>
+                  <label for="priorBalancePeriod">Anno condominiale</label>
+                  <select id="priorBalancePeriod" name="fiscalPeriodId" required></select>
+                  <p class="hint">L'anno a cui si applica il saldo iniziale.</p>
+                </div>
+                <div>
+                  <label for="priorBalanceSourcePeriod">Da quale anno arriva <span class="hint">(facoltativo)</span></label>
+                  <select id="priorBalanceSourcePeriod" name="sourcePeriodId"><option value="">— Non indicato —</option></select>
+                </div>
+              </div>
+              <div class="field-grid">
+                <div>
+                  <label for="priorBalanceAmount">Importo</label>
+                  <div class="input-euro">
+                    <span aria-hidden="true">€</span>
+                    <input id="priorBalanceAmount" name="amount" type="number" step="0.01" required placeholder="0,00" />
+                  </div>
+                  <p class="hint">Positivo se devi ancora qualcosa, negativo se hai un credito.</p>
+                </div>
+                <div>
+                  <label for="priorBalanceDescription">Descrizione</label>
+                  <input id="priorBalanceDescription" name="description" type="text" placeholder="Conguaglio 2025/26 a debito..." />
+                </div>
+              </div>
+              <input id="priorBalanceEditId" name="editId" type="hidden" />
+              <div class="form-foot">
+                <span class="hint">Compare nei movimenti e nel PDF, separato da preventivo e pagamenti.</span>
+                <div class="form-actions">
+                  <button class="btn btn-secondary hidden" id="priorBalanceFormCancel" type="button">Annulla modifica</button>
+                  <button class="btn btn-primary" id="priorBalanceSubmitBtn" type="submit">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+                    <span id="priorBalanceSubmitLabel">Salva saldo iniziale</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            <aside class="registra-rail">
+              <section class="panel">
+                <div class="panel-head"><div><h2>Quando serve</h2></div></div>
+                <p class="subtle">Quando inizi a usare l'app ad anno già avviato, o quando il conguaglio dell'anno prima resta da pagare: il saldo iniziale lo porta dentro il totale dovuto senza confonderlo con il preventivo.</p>
+              </section>
+            </aside>
           </div>
+
+          <section class="panel data-panel" style="margin-top: var(--space-5);">
+            <div class="panel-head">
+              <div><h2>Saldi iniziali</h2><p class="subtle">Uno per anno condominiale.</p></div>
+            </div>
+            <div class="data-table-wrap" id="priorBalancesTable"></div>
+          </section>
         </div>
       </section>
 

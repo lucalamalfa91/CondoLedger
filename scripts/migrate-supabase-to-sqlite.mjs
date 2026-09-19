@@ -4,28 +4,34 @@
  *
  *   SUPABASE_URL=https://xxxx.supabase.co \
  *   SUPABASE_SERVICE_ROLE_KEY=... \
- *   DB_PATH=./data/condoledger.db \
+ *   TURSO_DATABASE_URL=libsql://xxxx.turso.io \
+ *   TURSO_AUTH_TOKEN=... \
  *   npm run migrate:supabase -- [--dry-run]
  *
- * La logica vive in server/migrate-from-supabase.js perché la condivide con il bootstrap
- * del server, che può eseguire la stessa migrazione al primo avvio su un host dove non
- * c'è modo di aprire una shell.
+ * Con TURSO_DATABASE_URL impostata la scrittura va direttamente sul database remoto: lo
+ * script gira sul tuo computer ma i dati finiscono su Turso, quindi non serve una shell
+ * sull'host. Senza quella variabile scrive nel file locale DB_PATH.
  *
- * Attenzione su Railway e simili: `railway run` esegue il comando sul TUO computer con le
- * variabili remote, quindi scriverebbe un .db locale che non arriva mai sul volume. Per
- * migrare sul volume serve una shell nel container (`railway ssh`) oppure la migrazione
- * all'avvio (MIGRATE_FROM_SUPABASE=true).
+ * Il primo output dice dove sta scrivendo: è il controllo che evita di migrare per errore
+ * in un file locale credendo di aver popolato il database di produzione.
+ *
+ * La logica vive in server/migrate-from-supabase.js perché la condivide con il bootstrap
+ * del server, che può eseguire la stessa migrazione al primo avvio (MIGRATE_FROM_SUPABASE=true)
+ * su un host dove non c'è modo di aprire una shell.
  */
-import { closeDb, getDb } from '../server/db.js';
+import { closeDb, describeDatabase, getDb } from '../server/db.js';
 import { migrateFromSupabase } from '../server/migrate-from-supabase.js';
 
 const dryRun = process.argv.includes('--dry-run');
 
 try {
+  const db = await getDb();
+  console.log(`Destinazione: ${describeDatabase()}\n`);
+
   const result = await migrateFromSupabase({
     supabaseUrl: process.env.SUPABASE_URL,
     serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    db: await getDb(),
+    db,
     dryRun
   });
 

@@ -102,9 +102,33 @@ Serve la `service_role` key (Supabase → Project Settings → API), perché sca
 RLS: con la `anon` key si esporterebbero solo le righe di un utente **senza che nulla lo
 segnali**. Rimuovila dall'ambiente appena finito.
 
-### Sull'host, senza aprire una shell (consigliato su Railway)
+### Dal tuo computer, scrivendo direttamente su Turso
 
-Imposta tre variabili nel pannello dell'host e fai partire un deploy:
+È la via più semplice: lo script gira in locale, ma con `TURSO_DATABASE_URL` impostata i
+dati finiscono sul database remoto. Non serve una shell sull'host.
+
+```bash
+export SUPABASE_URL=https://xxxx.supabase.co
+export SUPABASE_SERVICE_ROLE_KEY=...        # service_role, non anon
+export TURSO_DATABASE_URL=libsql://xxxx.turso.io
+export TURSO_AUTH_TOKEN=...
+
+npm run migrate:supabase -- --dry-run       # legge e conta, non scrive
+npm run migrate:supabase
+```
+
+La prima riga dell'output dice dove sta scrivendo (`Turso (libsql://…)` oppure `file locale
+(…)`): **leggila**. Se `TURSO_DATABASE_URL` non è arrivata all'ambiente, lo script popola un
+file locale e il database di produzione resta vuoto, senza che nulla dia errore.
+
+Alla fine lo script verifica l'integrità referenziale, confronta le righe lette con quelle
+scritte e stampa i comandi `set-password` da eseguire. Cancella le variabili dall'ambiente
+appena finito.
+
+### In alternativa: dall'host, senza aprire una shell
+
+Se preferisci non installare niente in locale, imposta tre variabili nel pannello dell'host
+e fai partire un deploy:
 
 ```
 MIGRATE_FROM_SUPABASE=true
@@ -112,31 +136,26 @@ SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
-Al primo avvio il server migra da solo e scrive il diario nei log: conteggi letti contro
-scritti, verifica dell'integrità referenziale, e l'elenco dei comandi `set-password` da
-eseguire. Poi **rimuovi le tre variabili**.
+Al primo avvio il server migra da solo e scrive lo stesso diario nei log. Poi **rimuovi le
+tre variabili**.
 
-È sicuro anche se te le dimentichi: non parte se il database contiene già delle case,
-scrive dentro una transazione, e se fallisce lascia il database vuoto e il server si avvia
-comunque, così puoi leggere i log.
-
-### Da riga di comando
-
-```bash
-npm run migrate:supabase -- --dry-run     # legge e conta, non scrive
-npm run migrate:supabase
-```
-
-Da eseguire **dove vive il database**: in locale se il DB è in locale, oppure dentro il
-container (`railway ssh`, `fly ssh console`). Attenzione: `railway run <comando>` esegue il
-comando **sul tuo computer** con le variabili remote — scriverebbe un `.db` locale che sul
-volume non arriva mai.
+È sicuro anche se te le dimentichi: non parte se il database contiene già delle case, scrive
+dentro una transazione, e se fallisce lascia il database vuoto e avvia comunque il server —
+un'app che non parte affatto è più difficile da diagnosticare di un'app vuota con i log in
+bella vista.
 
 ### Dopo, in quest'ordine
 
 1. **Imposta una password**: gli hash bcrypt interni a Supabase non sono riutilizzabili,
-   quindi finché non lo fai nessuno può accedere. Dal pannello dell'host, senza shell,
-   aggiungi due variabili e riavvia:
+   quindi finché non lo fai nessuno può accedere. Con le variabili `TURSO_*` ancora
+   nell'ambiente:
+
+   ```bash
+   npm run set-password -- tua@email.it
+   ```
+
+   Senza una shell, l'equivalente dal pannello dell'host: aggiungi queste due variabili,
+   riavvia, accedi, poi **rimuovile**.
 
    ```
    BOOTSTRAP_USER_EMAIL=tua@email.it
@@ -144,8 +163,7 @@ volume non arriva mai.
    ```
 
    Crea l'utente se non esiste, o ne reimposta la password se la migrazione l'ha già
-   portato. La password non finisce nei log. **Rimuovi le due variabili** dopo il primo
-   accesso. Con una shell a disposizione l'equivalente è `npm run set-password`.
+   portato. La password non finisce nei log.
 2. Apri **Situazione** su una casa con storico e confronta saldi e conguagli con quelli che
    vedi oggi su Supabase: la logica di calcolo non è cambiata, quindi **devono coincidere al
    centesimo**.

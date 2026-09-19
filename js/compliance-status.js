@@ -22,10 +22,10 @@ export function computeComplianceStatus(house) {
     return {
       level: 'vuoto',
       headline: 'Inizia da qui',
-      subline: 'Non hai ancora dati per questo immobile.',
-      detail: 'Registra il preventivo dell’amministratore come primo dovuto.',
+      subline: 'Non hai ancora registrato niente per questa casa.',
+      detail: 'Parti dal preventivo dell’anno che ti manda l’amministratore.',
       facts: [],
-      primaryCta: { label: 'Aggiungi dovuto', view: 'registra', subview: 'dovuti' },
+      primaryCta: { label: 'Registra il preventivo', view: 'registra', subview: 'dovuti' },
       secondaryCta: { label: 'Importa estratto conto', view: 'importa', subview: 'import-banca' }
     };
   }
@@ -34,11 +34,11 @@ export function computeComplianceStatus(house) {
   if (!period?.id) {
     return {
       level: 'vuoto',
-      headline: 'Esercizio da definire',
-      subline: 'Registra un preventivo o consuntivo per l’esercizio corrente.',
+      headline: 'Anno da definire',
+      subline: 'Registra il preventivo o il conguaglio dell’anno in corso.',
       detail: '',
       facts: [],
-      primaryCta: { label: 'Nuovo dovuto', view: 'registra', subview: 'dovuti' },
+      primaryCta: { label: 'Registra il preventivo', view: 'registra', subview: 'dovuti' },
       secondaryCta: { label: 'Importa estratto conto', view: 'importa', subview: 'import-banca' }
     };
   }
@@ -66,7 +66,7 @@ export function computeComplianceStatus(house) {
   const hasConsuntivo = inst.consuntivoDues?.length > 0;
 
   const facts = [
-    { label: 'Esercizio', value: period.label },
+    { label: 'Anno condominiale', value: period.label },
     { label: display.saldoLabel, value: formatEuro(netSaldo), tone: consInDebit ? 'negative' : 'positive' }
   ];
   if (upcoming[0]) {
@@ -82,11 +82,11 @@ export function computeComplianceStatus(house) {
     return {
       level: 'azione',
       headline: 'Intervento richiesto',
-      subline: `${overdue.length} rata${overdue.length > 1 ? 'e' : ''} scaduta${overdue.length > 1 ? 'e' : ''} · ${worst.slot.label}`,
+      subline: `${overdue.length} ${overdue.length > 1 ? 'rate scadute' : 'rata scaduta'} · la più vecchia è ${worst.slot.label}`,
       detail: `Mancano ${formatEuro(worst.gap)} sulla rata di ${worst.slot.label}.`,
       facts,
-      primaryCta: { label: 'Registra versamento', view: 'registra', subview: 'versamenti' },
-      secondaryCta: { label: 'Situazione', view: 'situazione', subview: 'rendiconto', situazionePeriod: period.id }
+      primaryCta: { label: 'Registra pagamento', view: 'registra', subview: 'versamenti' },
+      secondaryCta: { label: 'Vedi i movimenti', view: 'situazione', subview: 'rendiconto', situazionePeriod: period.id }
     };
   }
 
@@ -94,23 +94,23 @@ export function computeComplianceStatus(house) {
     return {
       level: 'azione',
       headline: 'Consuntivo in debito',
-      subline: `${display.saldoLabel} ${formatEuro(netSaldo)} sull’esercizio ${period.label}.`,
-      detail: 'Verifica i versamenti o salda il consuntivo dell’esercizio precedente.',
+      subline: `${display.saldoLabel} ${formatEuro(netSaldo)} sull’anno ${period.label}.`,
+      detail: 'Controlla i pagamenti o salda il conguaglio dell’anno precedente.',
       facts,
-      primaryCta: { label: 'Situazione', view: 'situazione', subview: 'rendiconto', situazionePeriod: period.id },
-      secondaryCta: { label: 'Registra versamento', view: 'registra', subview: 'versamenti' }
+      primaryCta: { label: 'Vedi i movimenti', view: 'situazione', subview: 'rendiconto', situazionePeriod: period.id },
+      secondaryCta: { label: 'Registra pagamento', view: 'registra', subview: 'versamenti' }
     };
   }
 
   if (!hasConsuntivo && house.dues.some(d => d.fiscalPeriodId === period.id)) {
     return {
       level: 'attenzione',
-      headline: 'Consuntivo mancante',
-      subline: `Hai il preventivo per ${period.label}, ma non il consuntivo.`,
-      detail: 'Registra il consuntivo quando l’amministratore lo pubblica.',
+      headline: 'Conguaglio mancante',
+      subline: `Hai il preventivo per ${period.label}, ma non il conguaglio del consuntivo.`,
+      detail: 'Registralo quando l’amministratore pubblica il consuntivo.',
       facts,
-      primaryCta: { label: 'Registra consuntivo', view: 'registra', subview: 'dovuti' },
-      secondaryCta: { label: 'Situazione', view: 'situazione', subview: 'rendiconto', situazionePeriod: period.id }
+      primaryCta: { label: 'Registra il conguaglio', view: 'registra', subview: 'dovuti' },
+      secondaryCta: { label: 'Vedi i movimenti', view: 'situazione', subview: 'rendiconto', situazionePeriod: period.id }
     };
   }
 
@@ -122,10 +122,10 @@ export function computeComplianceStatus(house) {
       level: 'attenzione',
       headline: 'Rata in scadenza',
       subline: `${next.slot.label} · ${formatEuro(next.gap)} entro ${days} giorn${days === 1 ? 'o' : 'i'}`,
-      detail: 'Registra il versamento appena effettui il bonifico.',
+      detail: 'Registra il pagamento appena fai il bonifico.',
       facts,
-      primaryCta: { label: 'Registra versamento', view: 'registra', subview: 'versamenti' },
-      secondaryCta: { label: 'Situazione', view: 'situazione', subview: 'rendiconto', situazionePeriod: period.id }
+      primaryCta: { label: 'Registra pagamento', view: 'registra', subview: 'versamenti' },
+      secondaryCta: { label: 'Vedi i movimenti', view: 'situazione', subview: 'rendiconto', situazionePeriod: period.id }
     };
   }
 
@@ -135,9 +135,9 @@ export function computeComplianceStatus(house) {
       level: 'in_regola',
       headline: 'Sei in regola',
       subline: `Prossima rata: ${next.slot.label} · ${formatEuro(next.gap)}`,
-      detail: `Consuntivo e rate dell’esercizio ${period.label} sono sotto controllo.`,
+      detail: `Rate e conguagli del ${period.label} sono sotto controllo.`,
       facts,
-      primaryCta: { label: 'Registra versamento', view: 'registra', subview: 'versamenti' },
+      primaryCta: { label: 'Registra pagamento', view: 'registra', subview: 'versamenti' },
       secondaryCta: { label: 'Importa estratto conto', view: 'importa', subview: 'import-banca' }
     };
   }
@@ -152,7 +152,7 @@ export function computeComplianceStatus(house) {
       ? `Hai un credito di ${formatEuro(netSaldo)}.`
       : 'Tutti i pagamenti risultano allineati.',
     facts,
-    primaryCta: { label: 'Situazione', view: 'situazione', subview: 'rendiconto', situazionePeriod: period.id },
+    primaryCta: { label: 'Vedi i movimenti', view: 'situazione', subview: 'rendiconto', situazionePeriod: period.id },
     secondaryCta: null
   };
 }

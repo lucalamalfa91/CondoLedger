@@ -114,19 +114,19 @@ export function computeSituazioneTotals(report, totalsRow) {
   let saldoHint = '';
   if (hasPrior && hasCons && report.balanceVsTotalConsuntivo != null) {
     saldo = report.balanceVsTotalConsuntivo;
-    saldoHint = 'Versato − (consuntivo + saldo precedente)';
+    saldoHint = 'Pagato − (conguaglio + saldo iniziale)';
   } else if (hasPrior && !hasCons && report.balanceVsTotalPreventivo != null) {
     saldo = report.balanceVsTotalPreventivo;
-    saldoHint = 'Versato − (preventivo + saldo precedente)';
+    saldoHint = 'Pagato − (preventivo + saldo iniziale)';
   } else if (hasPrior && report.totalToPayPreventivo != null && !hasCons) {
     saldo = report.balanceVsTotalPreventivo ?? Math.round((pagato - report.totalToPayPreventivo) * 100) / 100;
-    saldoHint = 'Versato − saldo di apertura';
+    saldoHint = 'Pagato − saldo iniziale';
   } else if (hasCons) {
     saldo = totalsRow?.balanceConsuntivo ?? Math.round((pagato - consuntivo) * 100) / 100;
-    saldoHint = 'Versato − consuntivo';
+    saldoHint = 'Pagato − conguaglio';
   } else if (preventivo > 0.005) {
     saldo = Math.round((pagato - preventivo) * 100) / 100;
-    saldoHint = 'Versato − preventivo';
+    saldoHint = 'Pagato − preventivo';
   } else {
     saldo = Math.round(pagato * 100) / 100;
     saldoHint = '';

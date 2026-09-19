@@ -4,7 +4,8 @@
 
 | Document | Summary | Tags |
 |----------|---------|------|
-| `../README.md` | Stack, setup Supabase/Vercel, funzionalità, import documento AI | setup, deploy, auth |
+| `../README.md` | Cosa fa l'applicazione: funzionalità, flusso dell'anno condominiale, schermate | prodotto, funzionalità |
+| `TECNICO.md` | Stack, avvio in locale, variabili d'ambiente, gestione utenti, test, deploy Vercel/Turso, migrazione da Supabase | setup, deploy, auth |
 | `../references/document-import.md` | Flusso import preventivo/consuntivo (utente + tecnico), setup Edge Function | import, AI, preventivo, consuntivo |
 | `../references/intesa-format.md` | Formato export Excel Banca Intesa | import, banca |
 | `../supabase-schema.sql` | Tabelle houses/dues/payments e policy RLS | database, security |

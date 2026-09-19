@@ -1,5 +1,5 @@
 import { createApp, startSessionCleanup } from './app.js';
-import { maybeMigrateOnBoot } from './bootstrap.js';
+import { maybeBootstrapUser, maybeMigrateOnBoot } from './bootstrap.js';
 import { closeDb, getDb } from './db.js';
 import { config } from './env.js';
 
@@ -8,6 +8,10 @@ const db = getDb(); // apre il DB e applica lo schema prima di accettare richies
 // Migrazione una-tantum da Supabase, se richiesta esplicitamente: va fatta prima di
 // aprire la porta, così nessuna richiesta vede un database a metà.
 await maybeMigrateOnBoot(db);
+
+// Password del primo utente, sempre dopo la migrazione: se l'utente arriva da Supabase
+// esiste già e va solo dotato di una password utilizzabile.
+maybeBootstrapUser(db);
 
 startSessionCleanup();
 

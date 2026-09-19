@@ -131,8 +131,18 @@ volume non arriva mai.
 
 ### Dopo, in quest'ordine
 
-1. `npm run set-password -- tua@email.it` per ogni utente: gli hash bcrypt interni a
-   Supabase non sono esportabili, quindi finché non lo fai nessuno può accedere.
+1. **Imposta una password**: gli hash bcrypt interni a Supabase non sono riutilizzabili,
+   quindi finché non lo fai nessuno può accedere. Dal pannello dell'host, senza shell,
+   aggiungi due variabili e riavvia:
+
+   ```
+   BOOTSTRAP_USER_EMAIL=tua@email.it
+   BOOTSTRAP_USER_PASSWORD=scegline-una
+   ```
+
+   Crea l'utente se non esiste, o ne reimposta la password se la migrazione l'ha già
+   portato. La password non finisce nei log. **Rimuovi le due variabili** dopo il primo
+   accesso. Con una shell a disposizione l'equivalente è `npm run set-password`.
 2. Apri **Situazione** su una casa con storico e confronta saldi e conguagli con quelli che
    vedi oggi su Supabase: la logica di calcolo non è cambiata, quindi **devono coincidere al
    centesimo**.

@@ -12,6 +12,7 @@
  *    non si avvia affatto è più difficile da diagnosticare di un'app vuota con i log in
  *    bella vista.
  */
+import { hashPassword, newUserId } from './auth-core.js';
 import { migrateFromSupabase } from './migrate-from-supabase.js';
 
 const RULE = '─'.repeat(72);
@@ -82,4 +83,66 @@ export async function maybeMigrateOnBoot(db) {
       'Correggi la causa e riavvia il servizio per riprovare.'
     ]);
   }
+}
+
+/**
+ * Imposta la password di un utente all'avvio, creandolo se non esiste.
+ *
+ * Serve sugli host dove non si può aprire una shell: senza questo, dopo la migrazione
+ * nessuno potrebbe accedere, perché gli hash di Supabase non sono riutilizzabili e
+ * `npm run set-password` richiede un terminale.
+ *
+ * Come la migrazione, è pensata per essere usata una volta e poi rimossa. Non viene mai
+ * registrata la password nei log, solo l'indirizzo.
+ */
+export function maybeBootstrapUser(db) {
+  const email = (process.env.BOOTSTRAP_USER_EMAIL || '').trim();
+  const password = process.env.BOOTSTRAP_USER_PASSWORD || '';
+
+  if (!email && !password) return;
+
+  if (!email || !password) {
+    banner([
+      'UTENTE NON CONFIGURATO',
+      '',
+      'Servono entrambe BOOTSTRAP_USER_EMAIL e BOOTSTRAP_USER_PASSWORD.'
+    ]);
+    return;
+  }
+
+  if (password.length < 6) {
+    banner([
+      'UTENTE NON CONFIGURATO',
+      '',
+      'La password deve avere almeno 6 caratteri.'
+    ]);
+    return;
+  }
+
+  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+
+  if (existing) {
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), existing.id);
+    // Come il cambio password dall'app: le sessioni aperte decadono.
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(existing.id);
+    banner([
+      `PASSWORD AGGIORNATA per ${email}`,
+      '',
+      'Ora puoi accedere. Rimuovi subito BOOTSTRAP_USER_EMAIL e',
+      'BOOTSTRAP_USER_PASSWORD dalle variabili dell\'host.'
+    ]);
+    return;
+  }
+
+  db.prepare('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)').run(
+    newUserId(),
+    email,
+    hashPassword(password)
+  );
+  banner([
+    `UTENTE CREATO: ${email}`,
+    '',
+    'Ora puoi accedere. Rimuovi subito BOOTSTRAP_USER_EMAIL e',
+    'BOOTSTRAP_USER_PASSWORD dalle variabili dell\'host.'
+  ]);
 }

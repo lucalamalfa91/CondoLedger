@@ -91,13 +91,36 @@ housesRouter.patch(
   })
 );
 
+/**
+ * Cancella l'immobile e tutto ciò che ne dipende.
+ *
+ * Le righe figlie vengono eliminate **esplicitamente**, invece di affidarsi agli
+ * ON DELETE CASCADE dello schema. Il motivo è che i CASCADE richiedono
+ * `PRAGMA foreign_keys = ON` su ogni connessione, e la documentazione di libsql-js
+ * elenca `pragma()` fra i metodi non supportati: verso un database remoto quel PRAGMA
+ * potrebbe non applicarsi, e allora la cancellazione lascerebbe righe orfane **senza
+ * alcun errore visibile**. Facendolo a mano il comportamento è identico ovunque, che il
+ * database sia un file locale o Turso.
+ *
+ * L'ordine non è arbitrario: dues e payments referenziano fiscal_periods con
+ * ON DELETE RESTRICT, quindi gli esercizi vanno cancellati per ultimi.
+ */
 housesRouter.delete(
   '/:houseId',
   loadHouse,
   asyncRoute((req, res) => {
-    // `AND user_id = ?` è indispensabile: oggi deleteHouseRemote (api.js:392) cancella per
-    // solo id ed è la policy RLS a impedire di colpire la casa di un altro utente.
-    getDb().prepare('DELETE FROM houses WHERE id = ? AND user_id = ?').run(req.houseId, req.user.id);
+    const db = getDb();
+
+    const run = db.transaction(() => {
+      for (const table of ['payments', 'bank_movements', 'dues', 'prior_balances', 'fiscal_periods']) {
+        db.prepare(`DELETE FROM ${table} WHERE house_id = ?`).run(req.houseId);
+      }
+      // `AND user_id = ?` è indispensabile: la versione Supabase cancellava per solo id
+      // ed era la policy RLS a impedire di colpire la casa di un altro utente.
+      db.prepare('DELETE FROM houses WHERE id = ? AND user_id = ?').run(req.houseId, req.user.id);
+    });
+
+    run();
     res.status(204).end();
   })
 );

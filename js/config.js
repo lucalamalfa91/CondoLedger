@@ -52,34 +52,34 @@ const SUBVIEW_ALIASES = {
 export const viewMeta = {
   panoramica: {
     title: 'Panoramica',
-    subtitle: 'Riepilogo della casa selezionata',
+    subtitle: 'La tua situazione, casa per casa',
     defaultSubview: null
   },
   registra: {
     title: 'Registra',
-    subtitle: 'Dovuti, versamenti e apertura esercizio',
-    defaultSubview: 'dovuti',
+    subtitle: 'Pagamenti, preventivo, conguaglio e saldo iniziale',
+    defaultSubview: 'versamenti',
     subviews: {
-      dovuti: ['Dovuti', 'Quote e annualità'],
-      versamenti: ['Versamenti', 'Pagamenti registrati'],
-      'apertura-esercizio': ['Apertura esercizio', 'Saldo di partenza per esercizio']
+      versamenti: ['Registra', 'Un pagamento versato al condominio'],
+      dovuti: ['Registra', 'Il preventivo dell’anno o il conguaglio del consuntivo'],
+      'apertura-esercizio': ['Registra', 'Il saldo iniziale che arriva dall’anno prima']
     }
   },
   importa: {
-    title: 'Importa',
-    subtitle: 'Estratto conto bancario',
+    title: 'Importa estratto conto',
+    subtitle: 'I bonifici al condominio, abbinati alle rate',
     defaultSubview: 'import-banca',
     subviews: {
-      'import-banca': ['Da banca', 'Estratto conto Banca Intesa']
+      'import-banca': ['Importa estratto conto', 'Export «Lista operazioni» di Banca Intesa']
     }
   },
   situazione: {
-    title: 'Situazione',
-    subtitle: 'Saldi per esercizio',
+    title: 'Movimenti',
+    subtitle: 'Saldi e registro dell’anno condominiale',
     defaultSubview: 'rendiconto',
     subviews: {
-      rendiconto: ['Situazione', 'Saldi per esercizio'],
-      registro: ['Registro dettagliato', 'Tutti i movimenti, sola lettura']
+      rendiconto: ['Movimenti', 'Riepilogo dell’anno condominiale'],
+      registro: ['Movimenti', 'Tutto quello che hai registrato']
     }
   },
   impostazioni: {
@@ -87,10 +87,10 @@ export const viewMeta = {
     subtitle: 'Casa e account',
     defaultSubview: 'casa',
     subviews: {
-      casa: ['Gestione immobili', 'Aggiungi, modifica ed elimina case'],
-      account: ['Account', 'Profilo e password'],
-      calendario: ['Calendario', 'Promemoria rate su Apple/Google Calendar'],
-      backup: ['Backup', 'Esporta e importa i dati']
+      casa: ['Impostazioni', 'Le tue case: aggiungi, modifica, elimina'],
+      account: ['Impostazioni', 'Profilo e password'],
+      calendario: ['Impostazioni', 'Promemoria delle rate su Apple o Google Calendar'],
+      backup: ['Impostazioni', 'Esporta e importa i dati']
     }
   }
 };

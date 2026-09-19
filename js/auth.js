@@ -19,6 +19,8 @@ export function createAuthHandlers(els, { setView, render, setTheme }) {
   function setStatus(message) {
     els.authStatus.textContent = message;
     els.userChip.title = message;
+    if (els.sideAccountEmail) els.sideAccountEmail.textContent = state.user?.email || 'Password, backup, calendario';
+    if (els.sideAvatar) els.sideAvatar.textContent = (state.user?.email || '?').trim().charAt(0).toUpperCase();
   }
 
   function showAuthMessage(el, message) {

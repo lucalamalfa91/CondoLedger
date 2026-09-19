@@ -56,7 +56,7 @@ const {
   setView, render: baseRender, syncPaymentPeriodSelect,
   syncPaymentInstallmentSelect, syncDueKindFields, syncDuePeriodSelect, applyPaymentSmartAmount,
   syncPaymentTargetFields, syncPaymentPriorBalanceInfo, renderDueSplitAmountsFields,
-  syncPriorBalancePeriodSelect, syncPriorBalanceSourceSelect
+  syncPriorBalancePeriodSelect, syncPriorBalanceSourceSelect, syncRegistraChoices
 } = createRenderer(els);
 let renderedHouseId = null;
 function render(...args) {
@@ -79,6 +79,8 @@ const onboardingStepLabel = document.getElementById('onboardingStepLabel');
 const onboardingFields = document.getElementById('onboardingFields');
 const onboardingNext = document.getElementById('onboardingNext');
 const onboardingSkip = document.getElementById('onboardingSkip');
+const onboardingStepper = document.getElementById('onboardingStepper');
+let onboardingDraftHouse = null;
 let onboardingStep = 0;
 
 function finishOnboarding() {
@@ -102,35 +104,65 @@ function maybeShowOnboarding() {
   onboardingDialog.showModal();
 }
 
+function onboardingYearRangeLabel(month) {
+  const MONTHS = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+  const now = new Date();
+  const year = now.getMonth() + 1 >= month ? now.getFullYear() : now.getFullYear() - 1;
+  if (month === 1) return `anno solare · gen–dic ${year}`;
+  const endMonth = month === 1 ? 12 : month - 1;
+  return `${MONTHS[month - 1].slice(0, 3)} ${year} – ${MONTHS[endMonth - 1].slice(0, 3)} ${year + 1}`;
+}
+
+function onboardingMonthOptions(selected) {
+  const options = [
+    { value: 1, label: 'Gennaio', tag: '' },
+    { value: 6, label: 'Giugno', tag: 'Il più comune' },
+    { value: 7, label: 'Luglio', tag: '' },
+    { value: 9, label: 'Settembre', tag: '' }
+  ];
+  return `<div class="stack" role="radiogroup" aria-label="Mese di inizio">${options.map(o => `
+    <label class="radio-option">
+      <input type="radio" name="onbFiscalMonth" value="${o.value}"${o.value === selected ? ' checked' : ''} />
+      <span>
+        <strong>${o.label}</strong>${o.tag ? ` <span class="badge info">${o.tag}</span>` : ''}
+        <span class="hint" style="display:block;">${onboardingYearRangeLabel(o.value)}</span>
+      </span>
+    </label>`).join('')}</div>`;
+}
+
 function showOnboardingStep() {
   const hasHouse = state.data.houses.length > 0;
   const steps = [
     {
       label: 'Passo 1 di 3',
-      title: 'Gestisci le spese di condominio',
-      body: 'Importa preventivo e consuntivo dall’amministratore, registra i versamenti e controlla se sei in regola — anche da telefono.',
-      fields: '',
-      next: 'Avanti'
+      title: hasHouse ? 'La tua casa è pronta' : 'Qual è la tua casa?',
+      body: hasHouse
+        ? `${state.data.houses[0].name} è già registrata. Puoi modificarla in qualsiasi momento da Impostazioni.`
+        : 'Il nome ti serve solo per riconoscerla: se ne gestisci più di una le trovi tutte nel selettore «Casa».',
+      fields: hasHouse ? '' : `
+        <div>
+          <label for="onbHouseName">Nome della casa</label>
+          <input id="onbHouseName" type="text" required placeholder="es. Appartamento via Roma" />
+        </div>
+        <div>
+          <label for="onbHouseLocation">Località <span class="hint">(facoltativa)</span></label>
+          <input id="onbHouseLocation" type="text" placeholder="es. Milano" />
+        </div>`,
+      next: 'Continua'
     },
     {
       label: 'Passo 2 di 3',
-      title: hasHouse ? 'Immobile pronto' : 'Aggiungi il tuo immobile',
-      body: hasHouse
-        ? `${state.data.houses[0].name} è configurato. Puoi modificarlo da Impostazioni.`
-        : 'Serve almeno un appartamento o ufficio per iniziare.',
-      fields: hasHouse ? '' : `
-        <label for="onbHouseName">Nome immobile</label>
-        <input id="onbHouseName" type="text" required placeholder="es. Appartamento via Roma" />
-        <label for="onbFiscalMonth">Inizio esercizio fiscale</label>
-        <select id="onbFiscalMonth"><option value="6">Giugno (standard)</option><option value="1">Gennaio</option></select>`,
-      next: hasHouse ? 'Avanti' : 'Salva e continua'
+      title: 'Quando inizia l’anno condominiale?',
+      body: 'Lo trovi sul preventivo o sul consuntivo che ti manda l’amministratore. Puoi cambiarlo quando vuoi dalle impostazioni.',
+      fields: hasHouse ? '' : onboardingMonthOptions(6),
+      next: hasHouse ? 'Continua' : 'Salva e continua'
     },
     {
       label: 'Passo 3 di 3',
-      title: 'Prossimo passo',
-      body: 'Carica il PDF o la foto del preventivo dall’amministratore: l’app estrae importi e rate.',
+      title: 'Registra il preventivo',
+      body: 'Inserisci l’importo dell’anno approvato in assemblea e scegli in quante rate lo paghi: le scadenze compaiono da sole in Panoramica. Puoi farlo anche più tardi.',
       fields: '',
-      next: 'Importa documento'
+      next: 'Vai al preventivo'
     }
   ];
   const s = steps[onboardingStep];
@@ -139,6 +171,12 @@ function showOnboardingStep() {
   if (onboardingBody) onboardingBody.textContent = s.body;
   if (onboardingFields) onboardingFields.innerHTML = s.fields;
   if (onboardingNext) onboardingNext.textContent = s.next;
+  if (onboardingSkip) onboardingSkip.textContent = onboardingStep === 2 ? 'Salta il preventivo' : 'Salta';
+  onboardingStepper?.querySelectorAll('[data-onb-step]').forEach(li => {
+    const idx = Number(li.dataset.onbStep);
+    li.classList.toggle('active', idx === onboardingStep);
+    li.classList.toggle('done', idx < onboardingStep);
+  });
 }
 
 function parseAppRouteHash() {
@@ -224,7 +262,7 @@ async function ensureHousePersisted(house) {
 function resetDueForm() {
   els.dueForm.reset();
   if (els.dueEditId) els.dueEditId.value = '';
-  if (els.dueSubmitBtn) els.dueSubmitBtn.textContent = 'Salva dovuto';
+  if (els.dueSubmitBtn) els.dueSubmitBtn.textContent = 'Salva';
   els.dueFormCancel?.classList.add('hidden');
   renderDueSplitAmountsFields(null);
 }
@@ -232,7 +270,7 @@ function resetDueForm() {
 function resetPaymentForm(house) {
   els.paymentForm.reset();
   if (els.paymentEditId) els.paymentEditId.value = '';
-  if (els.paymentSubmitBtn) els.paymentSubmitBtn.textContent = 'Salva versamento';
+  if (els.paymentSubmitBtn) els.paymentSubmitBtn.textContent = 'Salva pagamento';
   els.paymentFormCancel?.classList.add('hidden');
   syncPaymentTargetFields();
   if (house) syncPaymentPeriodSelect(house);
@@ -241,7 +279,7 @@ function resetPaymentForm(house) {
 function resetPriorBalanceForm(house) {
   els.priorBalanceForm?.reset();
   if (els.priorBalanceEditId) els.priorBalanceEditId.value = '';
-  if (els.priorBalanceSubmitBtn) els.priorBalanceSubmitBtn.textContent = 'Salva saldo';
+  if (els.priorBalanceSubmitBtn) els.priorBalanceSubmitBtn.textContent = 'Salva saldo iniziale';
   els.priorBalanceFormCancel?.classList.add('hidden');
   if (els.priorBalancePeriod) els.priorBalancePeriod.disabled = false;
   if (house) syncPriorBalancePeriodSelect(house);
@@ -603,7 +641,16 @@ function wireNavigation() {
     navigate(btn.dataset.view, sub || null);
   }));
   els.subviewTabs?.forEach(tab => {
-    tab.addEventListener('click', () => navigate(tab.dataset.view, tab.dataset.subview));
+    tab.addEventListener('click', () => {
+      // Le schede «Preventivo dell'anno» e «Conguaglio» aprono lo stesso modulo
+      // con il tipo giusto già scelto.
+      if (tab.dataset.dueKind && els.dueKind) {
+        els.dueKind.value = tab.dataset.dueKind;
+        syncDueKindFields();
+      }
+      navigate(tab.dataset.view, tab.dataset.subview);
+      syncRegistraChoices();
+    });
   });
   document.addEventListener('click', e => {
     const btn = e.target.closest('[data-nav-target]');
@@ -649,6 +696,7 @@ els.exportBtn?.addEventListener('click', exportJson);
 els.importFile?.addEventListener('change', e => importJson(e.target.files[0]));
 els.demoBtn?.addEventListener('click', () => toastError('Demo locale non disponibile.'));
 els.openHouseDrawerBtn?.addEventListener('click', openHouseDrawer);
+els.sideHouseBtn?.addEventListener('click', openHouseDrawer);
 els.houseDrawerClose?.addEventListener('click', closeHouseDrawer);
 els.houseDrawerBackdrop?.addEventListener('click', closeHouseDrawer);
 els.houseDrawerAdd?.addEventListener('click', () => { closeHouseDrawer(); startNewHouseForm(); });
@@ -783,17 +831,25 @@ wireNavigation();
 
 onboardingSkip?.addEventListener('click', () => finishOnboarding());
 onboardingNext?.addEventListener('click', async () => {
-  if (onboardingStep === 1 && !state.data.houses.length) {
+  if (onboardingStep === 0 && !state.data.houses.length) {
     const name = document.getElementById('onbHouseName')?.value?.trim();
-    if (!name) { toastError('Inserisci un nome per l’immobile.'); return; }
-    const month = Number(document.getElementById('onbFiscalMonth')?.value || 6);
-    const house = await createAndSaveHouse({ name, fiscalStartMonth: month });
+    if (!name) { toastError('Scrivi un nome per la casa.'); return; }
+    onboardingDraftHouse = {
+      name,
+      location: document.getElementById('onbHouseLocation')?.value?.trim() || ''
+    };
+  }
+  if (onboardingStep === 1 && !state.data.houses.length) {
+    if (!onboardingDraftHouse) { onboardingStep = 0; showOnboardingStep(); return; }
+    const month = Number(onboardingFields?.querySelector('input[name="onbFiscalMonth"]:checked')?.value || 6);
+    const house = await createAndSaveHouse({ ...onboardingDraftHouse, fiscalStartMonth: month });
     if (!house) return;
-    showToast('Immobile creato.');
+    onboardingDraftHouse = null;
+    showToast('Casa creata.');
   }
   if (onboardingStep >= 2) {
     finishOnboarding();
-    navigate('importa', 'import-banca');
+    navigate('registra', 'dovuti');
     return;
   }
   onboardingStep += 1;
@@ -972,9 +1028,10 @@ els.situazionePdfBtn?.addEventListener('click', async () => {
     toastError(err.message || 'Errore export PDF');
   }
 });
-els.dueKind?.addEventListener('change', syncDueKindFields);
+els.dueKind?.addEventListener('change', () => { syncDueKindFields(); syncRegistraChoices(); });
 els.dueSplitMode?.addEventListener('change', syncDueKindFields);
 els.logoutBtn.addEventListener('click', auth.logout);
+els.sideLogoutBtn?.addEventListener('click', auth.logout);
 
 els.quickAddFab?.addEventListener('click', openQuickAddSheet);
 els.quickAddClose?.addEventListener('click', closeQuickAddSheet);

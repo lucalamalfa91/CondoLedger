@@ -17,6 +17,7 @@ import {
   inferInstallmentKey,
   installmentShortLabel,
   installmentSummaryForPeriod,
+  listInstallmentsForDue,
   listInstallmentsForPeriod,
   listAllInstallments,
   paymentsSummaryForList
@@ -74,8 +75,13 @@ export function createRenderer(els) {
       els.subviewPanels?.forEach(panel => panel.classList.remove('active'));
       return;
     }
+    // «Preventivo dell'anno» e «Conguaglio» aprono la stessa scheda: a distinguerle
+    // è il tipo di dovuto selezionato nel modulo.
+    const dueKind = els.dueKind?.value || 'preventivo';
     els.subviewTabs?.forEach(tab => {
-      const active = tab.dataset.view === view && tab.dataset.subview === subview;
+      const active = tab.dataset.view === view
+        && tab.dataset.subview === subview
+        && (!tab.dataset.dueKind || tab.dataset.dueKind === dueKind);
       tab.classList.toggle('active', active);
       tab.setAttribute('aria-selected', active ? 'true' : 'false');
     });
@@ -83,6 +89,10 @@ export function createRenderer(els) {
     viewPanel?.querySelectorAll('[data-subview-panel]').forEach(panel => {
       panel.classList.toggle('active', panel.dataset.subviewPanel === subview);
     });
+  }
+
+  function syncRegistraChoices() {
+    syncSubviewUI(state.currentView, state.currentSubview);
   }
 
   function updateHeader(view, subview) {
@@ -114,13 +124,13 @@ export function createRenderer(els) {
   }
 
   function renderHouseCurrentName() {
-    if (!els.houseCurrentName) return;
-    if (state.houseFormMode === 'new') {
-      els.houseCurrentName.textContent = 'Nuova casa…';
-      return;
-    }
     const current = state.data.houses.find(h => h.id === state.selectedHouseId);
-    els.houseCurrentName.textContent = current ? current.name : 'Nessun immobile';
+    const isNew = state.houseFormMode === 'new';
+    const name = isNew ? 'Nuova casa…' : (current ? current.name : 'Nessuna casa');
+    const location = isNew ? '' : (current?.location || '');
+    if (els.houseCurrentName) els.houseCurrentName.textContent = name;
+    document.querySelectorAll('[data-house-name]').forEach(el => { el.textContent = name; });
+    document.querySelectorAll('[data-house-location]').forEach(el => { el.textContent = location; });
   }
 
   function renderHousesManageList() {
@@ -188,7 +198,7 @@ export function createRenderer(els) {
     const periodId = els.paymentPeriod.value;
     const slots = periodId ? listInstallmentsForPeriod(house, periodId) : listAllInstallments(house);
     if (!slots.length) {
-      els.paymentInstallment.innerHTML = '<option value="">— registra un dovuto per l’esercizio —</option>';
+      els.paymentInstallment.innerHTML = '<option value="">— registra prima il preventivo dell’anno —</option>';
       return;
     }
     const date = els.paymentDate?.value || today;
@@ -229,7 +239,7 @@ export function createRenderer(els) {
     const isDebt = balance && Number(balance.amount) > 0.005;
     if (!isDebt) {
       els.paymentPriorBalanceId.value = '';
-      els.paymentPriorBalanceInfo.textContent = 'Nessun saldo anno precedente a debito per questo esercizio.';
+      els.paymentPriorBalanceInfo.textContent = 'Nessun saldo iniziale a debito per quest’anno.';
       return;
     }
     const paid = sumPaidForPriorBalance(house, balance.id);
@@ -435,7 +445,7 @@ export function createRenderer(els) {
     const metricData = [
       ['Preventivo', fmt(t.preventivo), scope],
       ['Consuntivo', fmt(t.consuntivo), periodId ? 'Addebiti consuntivi' : `${t.dueCount} voci dovuto`],
-      ['Versato', fmt(t.paid), `${t.paymentCount} versamenti`],
+      ['Pagato', fmt(t.paid), `${t.paymentCount} pagamenti`],
       ['Saldo consuntivo', fmt(t.balanceConsuntivo), consFoot, t.balanceConsuntivo >= 0 ? 'positive' : 'negative']
     ];
     els.metrics.innerHTML = metricData.map(([label, value, foot, status]) =>
@@ -446,10 +456,315 @@ export function createRenderer(els) {
   function renderPanoramicaPeriodFilter(summary) {
     if (!els.periodFilter) return;
     const current = els.periodFilter.value || 'all';
-    els.periodFilter.innerHTML = '<option value="all">Esercizio in corso (auto)</option>' + summary.map(s =>
+    els.periodFilter.innerHTML = '<option value="all">Anno in corso</option>' + summary.map(s =>
       `<option value="${s.id}">${s.label}</option>`
     ).join('');
     els.periodFilter.value = summary.some(s => s.id === current) || current === 'all' ? current : 'all';
+  }
+
+  // —— Panoramica: residuo, scadenze, rate, riepilogo, ultimi movimenti ——
+
+  const DATE_FMT = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
+  const MONTH_SHORT = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+
+  function fmtDate(iso) {
+    const parts = String(iso || '').slice(0, 10).split('-').map(Number);
+    if (parts.length !== 3 || !parts[0]) return '—';
+    return DATE_FMT.format(new Date(parts[0], parts[1] - 1, parts[2]));
+  }
+
+  function daysBetween(fromIso, toIso) {
+    const a = new Date(`${String(fromIso).slice(0, 10)}T00:00:00`);
+    const b = new Date(`${String(toIso).slice(0, 10)}T00:00:00`);
+    return Math.round((b - a) / 86400000);
+  }
+
+  function monthShortFromIso(iso) {
+    const m = Number(String(iso || '').slice(5, 7));
+    return MONTH_SHORT[m - 1] || '—';
+  }
+
+  function fmtShort(value) {
+    const n = Math.round(Number(value || 0));
+    return `€ ${n.toLocaleString('it-IT')}`;
+  }
+
+  /** Rate non ancora coperte, ordinate per scadenza. */
+  function pendingInstallments(house, periodId) {
+    if (!periodId) return [];
+    const { slots } = installmentSummaryForPeriod(house, periodId);
+    return slots
+      .map(slot => ({ slot, gap: Math.round((slot.amountDue - slot.paid) * 100) / 100, dueBy: slot.periodEnd }))
+      .filter(row => row.gap > 0.01)
+      .sort((a, b) => String(a.dueBy).localeCompare(String(b.dueBy)));
+  }
+
+  function panoramicaContext(house, periodId) {
+    if (!periodId) return null;
+    const report = buildSituazioneReport(house, periodId);
+    const t = computeSituazioneTotals(report, report.totalsRow);
+    const totalDue = Number(t.totaleDaVersare || 0);
+    const paid = Number(t.pagato || 0);
+    const residual = Math.round(Math.max(totalDue - paid, 0) * 100) / 100;
+    return { report, t, totalDue, paid, residual, label: periodLabel(house, periodId) };
+  }
+
+  function renderResidualHero(house, periodId) {
+    if (!els.complianceHero) return;
+    const ctx = panoramicaContext(house, periodId);
+    if (!ctx) {
+      const s = computeComplianceStatus(house);
+      els.complianceHero.innerHTML = `
+        <article class="card residual-card" role="status">
+          <div class="residual-top">
+            <div>
+              <h2 class="residual-label">${s.headline}</h2>
+              <p class="compliance-subline">${s.subline}</p>
+              ${s.detail ? `<p class="compliance-detail">${s.detail}</p>` : ''}
+            </div>
+            <div class="compliance-icon" aria-hidden="true">${COMPLIANCE_ICONS[s.level] || COMPLIANCE_ICONS.vuoto}</div>
+          </div>
+          <div class="compliance-actions">
+            ${complianceCtaBtn(s.primaryCta)}
+            ${complianceCtaBtn(s.secondaryCta, 'btn btn-secondary')}
+          </div>
+        </article>`;
+      return;
+    }
+
+    const status = computeComplianceStatus(house);
+    const pending = pendingInstallments(house, periodId);
+    const overdue = pending.filter(r => r.dueBy < today);
+    const next = pending.find(r => r.dueBy >= today);
+    const pct = ctx.totalDue > 0.005 ? Math.min(100, Math.max(0, (ctx.paid / ctx.totalDue) * 100)) : 0;
+    const paidSlots = ctx.report?.slots?.filter?.(s => s.paid >= s.amountDue - 0.01)?.length ?? null;
+    const totalSlots = ctx.report?.slots?.length ?? 0;
+
+    let pillTone = 'success';
+    let pillText = 'Nessuna scadenza aperta';
+    if (overdue.length) {
+      pillTone = 'error';
+      pillText = `${overdue.length} ${overdue.length > 1 ? 'rate scadute' : 'rata scaduta'}`;
+    } else if (next) {
+      const days = daysBetween(today, next.dueBy);
+      pillTone = 'warn';
+      pillText = days <= 0 ? 'Scade oggi' : `Prossima scadenza fra ${days} giorn${days === 1 ? 'o' : 'i'}`;
+    }
+
+    const tags = [];
+    if (ctx.t.preventivo > 0.005) tags.push(`Preventivo ${ctx.label} · ${fmt(ctx.t.preventivo)}`);
+    if (ctx.t.hasCons) tags.push(`Conguaglio · ${fmt(ctx.t.consuntivo)}`);
+    if (ctx.t.hasPrior) tags.push(`Saldo iniziale · ${fmt(ctx.t.conguaglio)}`);
+
+    els.complianceHero.innerHTML = `
+      <article class="card residual-card" role="status">
+        <div class="residual-top">
+          <div>
+            <h2 class="residual-label">Ancora da pagare nel ${ctx.label}</h2>
+            <div class="residual-value">${fmt(ctx.residual)}</div>
+            <p class="compliance-subline">${status.subline}</p>
+          </div>
+          <div class="residual-side">
+            <span class="badge ${pillTone}">${pillText}</span>
+            <span class="residual-note">Aggiornato al ${fmtDate(today)}</span>
+          </div>
+        </div>
+        <div class="stack" style="gap:.5rem;">
+          <div class="progress" role="img" aria-label="Pagato ${Math.round(pct)}% del dovuto">
+            <div class="progress-bar" style="width:${pct.toFixed(1)}%"></div>
+          </div>
+          <div class="progress-caption">
+            <span>Pagato <strong>${fmt(ctx.paid)}</strong> di ${fmt(ctx.totalDue)}</span>
+            ${totalSlots ? `<span>${paidSlots} rate su ${totalSlots}</span>` : ''}
+          </div>
+        </div>
+        ${tags.length ? `<div class="tag-row">${tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>` : ''}
+      </article>`;
+  }
+
+  function renderPanoramicaDeadlines(house, periodId) {
+    if (!els.panoramicaDeadlines) return;
+    const pending = pendingInstallments(house, periodId);
+    if (!pending.length) {
+      const hasPlan = periodId ? listInstallmentsForPeriod(house, periodId).length > 0 : false;
+      els.panoramicaDeadlines.innerHTML = `
+        <div class="panel-head"><div><h2>Prossime scadenze</h2></div></div>
+        <p class="muted">${hasPlan
+          ? 'Tutte le rate di quest’anno risultano pagate.'
+          : 'Registra il preventivo dell’anno per vedere qui le rate e le loro scadenze.'}</p>
+        <div class="form-actions" style="margin-top:var(--space-4);">
+          <button class="btn ${hasPlan ? 'btn-secondary' : 'btn-primary'}" type="button" data-nav-target="registra" data-nav-subview="${hasPlan ? 'versamenti' : 'dovuti'}">
+            ${hasPlan ? 'Registra un pagamento' : 'Registra il preventivo'}
+          </button>
+        </div>`;
+      return;
+    }
+
+    const overdue = pending.filter(r => r.dueBy < today);
+    const rows = overdue.length ? overdue : pending.filter(r => r.dueBy === pending[0].dueBy);
+    const totalRows = rows.reduce((sum, r) => sum + r.gap, 0);
+    const days = daysBetween(today, rows[0].dueBy);
+    const badge = overdue.length
+      ? `<span class="badge error">In ritardo</span>`
+      : `<span class="badge warn">${days <= 0 ? 'Scade oggi' : `Fra ${days} giorn${days === 1 ? 'o' : 'i'}`}</span>`;
+
+    els.panoramicaDeadlines.innerHTML = `
+      <div class="panel-head">
+        <div><h2>${overdue.length ? 'Rate scadute' : `Da pagare entro il ${fmtDate(rows[0].dueBy)}`}</h2></div>
+        ${badge}
+      </div>
+      <div class="list-rows">
+        ${rows.slice(0, 4).map(r => `<div class="list-row"><span>${r.slot.label}${overdue.length ? `<span class="list-row-sub">scaduta il ${fmtDate(r.dueBy)}</span>` : ''}</span><span>${fmt(r.gap)}</span></div>`).join('')}
+        ${rows.length > 4 ? `<div class="list-row"><span class="muted">e altre ${rows.length - 4} rate</span><span class="muted">${fmt(rows.slice(4).reduce((sum, r) => sum + r.gap, 0))}</span></div>` : ''}
+        ${rows.length > 1 ? `<div class="list-row list-row--total"><span>Totale</span><span>${fmt(totalRows)}</span></div>` : ''}
+      </div>
+      <div class="form-actions" style="margin-top:var(--space-4);">
+        <button class="btn btn-primary" type="button" style="width:100%;" data-nav-target="registra" data-nav-subview="versamenti">Registra pagamento</button>
+      </div>
+      <p class="hint" style="text-align:center;margin-top:.5rem;">
+        <button type="button" class="link-more" data-nav-target="importa" data-nav-subview="import-banca">Hai pagato con bonifico? Importa l’estratto conto</button>
+      </p>`;
+  }
+
+  function renderPanoramicaRate(house, periodId) {
+    if (!els.panoramicaRate) return;
+    const slots = periodId ? listInstallmentsForPeriod(house, periodId) : [];
+    if (!slots.length) {
+      els.panoramicaRate.classList.add('hidden');
+      els.panoramicaRate.innerHTML = '';
+      return;
+    }
+    els.panoramicaRate.classList.remove('hidden');
+    const { slots: rows } = installmentSummaryForPeriod(house, periodId);
+    const pending = rows.filter(r => r.paid < r.amountDue - 0.01);
+    const nextDue = pending.find(r => r.periodEnd >= today)?.key ?? null;
+    let paidCount = 0; let lateCount = 0;
+
+    const chips = rows.map(row => {
+      const covered = row.paid >= row.amountDue - 0.01;
+      let cls = 'rate-chip';
+      let state = fmtDate(row.periodEnd).replace(/ \d{4}$/, '');
+      if (covered) { cls += ' rate-chip--paid'; state = 'Pagata'; paidCount += 1; }
+      else if (row.periodEnd < today) { cls += ' rate-chip--late'; state = 'Scaduta'; lateCount += 1; }
+      else if (row.key === nextDue) { cls += ' rate-chip--due'; }
+      return `<div class="${cls}">
+        <span class="rate-month">${monthShortFromIso(row.periodStart)}</span>
+        <span class="rate-amount">${fmtShort(row.amountDue)}</span>
+        <span class="rate-state">${state}</span>
+      </div>`;
+    }).join('');
+
+    const openCount = rows.length - paidCount - lateCount;
+    els.panoramicaRate.innerHTML = `
+      <div class="panel-head">
+        <div><h2>Le ${rows.length} rate del ${periodLabel(house, periodId)}</h2>
+        <p class="subtle">${paidCount} pagate${lateCount ? ` · ${lateCount} scadute` : ''} · ${openCount} da pagare</p></div>
+        <div class="rate-legend">
+          <span><i class="dot-paid"></i>Pagata</span>
+          <span><i class="dot-due"></i>In scadenza</span>
+          <span><i class="dot-open"></i>Da pagare</span>
+        </div>
+      </div>
+      <div class="rate-grid">${chips}</div>`;
+  }
+
+  function renderPanoramicaSummary(house, periodId) {
+    if (!els.panoramicaSummary) return;
+    const ctx = panoramicaContext(house, periodId);
+    if (!ctx) {
+      els.panoramicaSummary.innerHTML = `
+        <div class="panel-head"><div><h2>Riepilogo</h2></div></div>
+        <p class="muted">Registra il preventivo dell’anno per vedere qui il riepilogo.</p>`;
+      return;
+    }
+    const rows = [];
+    if (ctx.t.preventivo > 0.005) rows.push([`Preventivo ${ctx.label}`, fmt(ctx.t.preventivo), '']);
+    if (ctx.t.hasCons) rows.push(['Conguaglio del consuntivo', fmt(ctx.t.consuntivo), '']);
+    if (ctx.t.hasPrior) rows.push(['Saldo iniziale', fmt(ctx.t.conguaglio), '']);
+    rows.push(['Totale dovuto', fmt(ctx.totalDue), '']);
+    rows.push(['Pagato', `− ${fmt(ctx.paid)}`, 'positive']);
+
+    els.panoramicaSummary.innerHTML = `
+      <div class="panel-head"><div><h2>Riepilogo ${ctx.label}</h2></div></div>
+      <dl class="summary-dl">
+        ${rows.map(([dt, dd, cls]) => `<div class="summary-row"><dt>${dt}</dt><dd class="${cls}">${dd}</dd></div>`).join('')}
+        <div class="summary-row summary-row--total"><dt>Ancora da pagare</dt><dd>${fmt(ctx.residual)}</dd></div>
+      </dl>
+      <div class="summary-actions">
+        <button class="btn btn-secondary" type="button" data-nav-target="situazione" data-nav-subview="rendiconto" data-situazione-period="${String(periodId).replace(/"/g, '&quot;')}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+          Riepilogo completo e PDF
+        </button>
+        <button class="btn btn-secondary" type="button" data-nav-target="impostazioni" data-nav-subview="calendario">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17"/><path d="M8 3v4"/><path d="M16 3v4"/></svg>
+          Scadenze nel calendario (.ics)
+        </button>
+      </div>`;
+  }
+
+  function renderPanoramicaMovements(house, periodId) {
+    if (!els.panoramicaMovements) return;
+    const inPeriod = item => !periodId || item.fiscalPeriodId === periodId;
+    const entries = [];
+
+    for (const p of house.payments.filter(inPeriod)) {
+      const key = p.installmentKey || inferInstallmentKey(house, p);
+      entries.push({
+        date: String(p.date || '').slice(0, 10),
+        title: p.priorBalanceId ? 'Pagamento del saldo iniziale' : (key ? installmentShortLabel(house, key) : 'Pagamento'),
+        sub: p.method || 'Pagamento registrato',
+        badge: ['Pagamento', 'success'],
+        amount: fmt(p.amount)
+      });
+    }
+    for (const d of house.dues.filter(inPeriod)) {
+      const isCons = d.dueKind === 'consuntivo';
+      entries.push({
+        date: String(d.date || d.createdAt || '').slice(0, 10),
+        title: d.description || (isCons ? 'Conguaglio del consuntivo' : `Preventivo ${periodLabel(house, d.fiscalPeriodId)}`),
+        sub: isCons ? 'Differenza del consuntivo' : `${SPLIT_MODES[d.splitMode]?.label || 'Rate'} · ${listInstallmentsForDue(house, d).length || 0} rate`,
+        badge: isCons ? ['Conguaglio', 'warn'] : ['Preventivo', 'info'],
+        amount: fmt(d.amount)
+      });
+    }
+    const prior = periodId ? getPriorBalanceForPeriod(house, periodId) : null;
+    if (prior) {
+      entries.push({
+        date: String(prior.date || '').slice(0, 10),
+        title: prior.description || 'Saldo iniziale',
+        sub: priorBalanceSourceLabel(house, prior) === '—' ? 'Riportato dall’anno prima' : `Dall’anno ${priorBalanceSourceLabel(house, prior)}`,
+        badge: ['Saldo iniziale', ''],
+        amount: fmt(prior.amount)
+      });
+    }
+
+    entries.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    const rows = entries.slice(0, 5);
+
+    els.panoramicaMovements.innerHTML = `
+      <div class="panel-head">
+        <div><h2>Ultimi movimenti</h2></div>
+        <button type="button" class="link-more" data-nav-target="situazione" data-nav-subview="registro">
+          Tutti i movimenti
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+        </button>
+      </div>
+      ${rows.length ? `<div class="ledger">${rows.map(r => `
+        <div class="ledger-row">
+          <span class="ledger-date">${r.date ? fmtDate(r.date) : '—'}</span>
+          <span class="ledger-main"><span class="ledger-title">${r.title}</span><span class="ledger-sub">${r.sub}</span></span>
+          <span class="badge ${r.badge[1]}">${r.badge[0]}</span>
+          <span class="ledger-amount">${r.amount}</span>
+        </div>`).join('')}</div>`
+        : '<p class="muted">Nessun movimento registrato per quest’anno.</p>'}`;
+  }
+
+  function renderPanoramicaOverview(house, periodId) {
+    renderResidualHero(house, periodId);
+    renderPanoramicaDeadlines(house, periodId);
+    renderPanoramicaRate(house, periodId);
+    renderPanoramicaSummary(house, periodId);
+    renderPanoramicaMovements(house, periodId);
   }
 
   function renderPanoramicaKpis(house) {
@@ -464,33 +779,16 @@ export function createRenderer(els) {
 
     if (els.panoramicaScopeNote) {
       const scopeLine = data.focusPeriodLabel && data.focusPeriodLabel !== '—'
-        ? `Indicatori per esercizio ${data.focusPeriodLabel}.`
-        : 'Indicatori sintetici per l\'immobile selezionato.';
+        ? `Stai guardando il ${data.focusPeriodLabel}.`
+        : 'Stai guardando la casa selezionata.';
       els.panoramicaScopeNote.textContent = scopeMismatch
-        ? `${scopeLine} Il riquadro «Sei in regola» in alto si riferisce a ${heroPeriod.label}.`
-        : `${scopeLine} Allineato al riquadro «Sei in regola» in alto.`;
+        ? `${scopeLine} I riquadri in alto si riferiscono al ${heroPeriod.label}.`
+        : `${scopeLine} Qui sotto gli altri anni registrati.`;
     }
 
-    if (els.panoramicaKpis) {
-      if (!data.cards.length) {
-        els.panoramicaKpis.innerHTML = '<div class="empty">Importa un preventivo o registra un dovuto per vedere gli indicatori.</div>';
-      } else {
-        els.panoramicaKpis.innerHTML = data.cards.map(card => {
-          const periodAttr = data.focusPeriodId
-            ? ` data-situazione-period="${String(data.focusPeriodId).replace(/"/g, '&quot;')}"`
-            : '';
-          const linkBtn = card.linkSubview
-            ? `<button type="button" class="kpi-card-link" data-nav-target="${card.linkView}" data-nav-subview="${card.linkSubview}"${periodAttr} aria-label="Apri dettaglio in Situazione">Dettaglio →</button>`
-            : '';
-          return `<article class="kpi-card kpi-card--${card.tone || 'neutral'}${card.primary ? ' kpi-card--primary' : ''}">
-            <div class="kpi-card-label">${card.label}</div>
-            <div class="kpi-card-value ${card.tone || ''}">${card.value}</div>
-            <div class="kpi-card-hint hint">${card.hint}</div>
-            ${linkBtn}
-          </article>`;
-        }).join('');
-      }
-    }
+    // I numeri dell'anno in corso stanno nel riepilogo della Panoramica: qui
+    // resta solo il confronto con gli altri anni condominiali.
+    if (els.panoramicaKpis) els.panoramicaKpis.innerHTML = '';
 
     if (els.panoramicaPeriodLinks) {
       if (!data.periodLinks.length) {
@@ -509,6 +807,8 @@ export function createRenderer(els) {
       }
     }
 
+    els.panoramicaOtherYears?.classList.toggle('hidden', !data.periodLinks.length);
+
     if (els.panoramicaSituazioneLink && data.focusPeriodId) {
       els.panoramicaSituazioneLink.dataset.situazionePeriod = data.focusPeriodId;
     } else if (els.panoramicaSituazioneLink) {
@@ -518,6 +818,8 @@ export function createRenderer(els) {
 
   function renderAnnualBlocks(house) {
     renderPanoramicaKpis(house);
+    const focusId = computePanoramicaKpis(house, els.periodFilter?.value || 'all').focusPeriodId;
+    renderPanoramicaOverview(house, focusId);
     const summary = periodSummary(house);
     const cardsSource = summary;
     const cards = cardsSource.length
@@ -539,7 +841,7 @@ export function createRenderer(els) {
       return lb.localeCompare(la) || String(b.date || '').localeCompare(String(a.date || ''));
     });
     if (!dues.length) {
-      els.duesTable.innerHTML = emptyListHtml('Nessun dovuto registrato.');
+      els.duesTable.innerHTML = emptyListHtml('Nessun preventivo o conguaglio registrato.');
       return;
     }
     const rows = dues.map(item => {
@@ -553,7 +855,7 @@ export function createRenderer(els) {
       const card = `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${ex} · ${kind}${carry}</div><div class="data-card-meta">${item.description || '—'} · ${splitLabel}</div></div><div class="data-card-amount amount ${amtCls}">${fmt(item.amount)}</div></div><div class="data-card-actions">${actionsHtml}</div></article>`;
       return { tableRow, card };
     });
-    const tableHtml = `<table><thead><tr><th>Esercizio</th><th>Tipo</th><th>Descrizione</th><th>Ripartizione</th><th>Importo</th><th></th></tr></thead><tbody>${rows.map(r => r.tableRow).join('')}</tbody></table>`;
+    const tableHtml = `<table><thead><tr><th>Anno</th><th>Tipo</th><th>Descrizione</th><th>Ripartizione</th><th>Importo</th><th></th></tr></thead><tbody>${rows.map(r => r.tableRow).join('')}</tbody></table>`;
     const cardsHtml = rows.map(r => r.card).join('');
     els.duesTable.innerHTML = dataListHtml(tableHtml, cardsHtml);
   }
@@ -594,17 +896,17 @@ export function createRenderer(els) {
       const filteredNote = payments.length !== house.payments.length
         ? ` · ${payments.length} su ${house.payments.length} totali (filtro esercizio attivo)`
         : '';
-      els.paymentsSummary.textContent = `${payments.length} versamenti · ${ratio} · Totale ${fmt(summary.total)}${filteredNote}`;
+      els.paymentsSummary.textContent = `${payments.length} pagamenti · ${ratio} · Totale ${fmt(summary.total)}${filteredNote}`;
     }
     if (!house.payments.length) {
-      els.paymentsTable.innerHTML = emptyListHtml('Nessun versamento registrato.');
+      els.paymentsTable.innerHTML = emptyListHtml('Nessun pagamento registrato.');
       return;
     }
     if (!payments.length) {
-      els.paymentsTable.innerHTML = emptyListHtml('Nessun versamento per l’esercizio selezionato.');
+      els.paymentsTable.innerHTML = emptyListHtml('Nessun pagamento per l’anno selezionato.');
       return;
     }
-    const tableHtml = `<table><thead><tr><th>Esercizio</th><th>Rata</th><th>Data vers.</th><th>Metodo</th><th>Importo</th><th></th></tr></thead><tbody>${payments.map(item => paymentRowHtml(house, item)).join('')}</tbody></table>`;
+    const tableHtml = `<table><thead><tr><th>Anno</th><th>Rata</th><th>Data</th><th>Come</th><th>Importo</th><th></th></tr></thead><tbody>${payments.map(item => paymentRowHtml(house, item)).join('')}</tbody></table>`;
     const cardsHtml = payments.map(item => paymentCardHtml(house, item)).join('');
     els.paymentsTable.innerHTML = dataListHtml(tableHtml, cardsHtml);
   }
@@ -633,7 +935,7 @@ export function createRenderer(els) {
         const paid = sumPaidForPriorBalance(house, item.id);
         const residuo = Math.round((Number(item.amount) - paid) * 100) / 100;
         const settled = residuo <= 0.005;
-        payNote = ` <span class="muted">Versato ${fmt(paid)} · Residuo <span class="${settled ? 'positive' : 'negative'}">${fmt(residuo)}</span></span>`;
+        payNote = ` <span class="muted">Pagato ${fmt(paid)} · Residuo <span class="${settled ? 'positive' : 'negative'}">${fmt(residuo)}</span></span>`;
         if (!settled) {
           payBtn = `<button type="button" class="btn btn-secondary" data-record-action="pay-prior" data-record-kind="prior" data-id="${item.id}">Registra versamento</button>`;
         }
@@ -642,7 +944,7 @@ export function createRenderer(els) {
       const card = `<article class="data-card"><div class="data-card-head"><div><div class="data-card-title">${ex} · ${pres.label}${srcNote}</div><div class="data-card-meta">${item.description || '—'}${payNote}</div></div><div class="data-card-amount amount ${pres.amountCls}">${fmt(item.amount)}</div></div><div class="data-card-actions">${rowActions('prior', item.id, payBtn)}</div></article>`;
       return { tableRow, card };
     });
-    const tableHtml = `<table><thead><tr><th>Esercizio</th><th>Tipo</th><th>Descrizione</th><th>Importo</th><th></th></tr></thead><tbody>${rows.map(r => r.tableRow).join('')}</tbody></table>`;
+    const tableHtml = `<table><thead><tr><th>Anno</th><th>Tipo</th><th>Descrizione</th><th>Importo</th><th></th></tr></thead><tbody>${rows.map(r => r.tableRow).join('')}</tbody></table>`;
     const cardsHtml = rows.map(r => r.card).join('');
     els.priorBalancesTable.innerHTML = conflictBanner + dataListHtml(tableHtml, cardsHtml);
   }
@@ -655,11 +957,11 @@ export function createRenderer(els) {
       payments = payments.filter(p => p.fiscalPeriodId === periodId);
     }
     if (!payments.length) {
-      els.dashboardPayments.innerHTML = emptyListHtml('Nessun versamento nel contesto selezionato.');
+      els.dashboardPayments.innerHTML = emptyListHtml('Nessun pagamento nel contesto selezionato.');
       return;
     }
     const slice = payments.slice(0, 8);
-    const tableHtml = `<table><thead><tr><th>Esercizio</th><th>Rata</th><th>Data vers.</th><th>Importo</th></tr></thead><tbody>${slice.map(item => {
+    const tableHtml = `<table><thead><tr><th>Anno</th><th>Rata</th><th>Data vers.</th><th>Importo</th></tr></thead><tbody>${slice.map(item => {
       const key = item.installmentKey || inferInstallmentKey(house, item);
       const amt = Number(item.amount || 0);
       const amtCls = amt >= 0 ? 'positive' : 'negative';
@@ -678,7 +980,7 @@ export function createRenderer(els) {
     const t = computeSituazioneTotals(report, totalsRow);
     const settledNote = totalsRow?.consuntivoSettledInNext
       ? consuntivoBalanceFootnote(house, totalsRow)
-      : (t.saldoHint || 'Versato − totale da versare');
+      : (t.saldoHint || 'Pagato − totale dovuto');
 
     const primary = [[
       t.saldoLabel,
@@ -687,12 +989,12 @@ export function createRenderer(els) {
       totalsRow?.consuntivoSettledInNext ? 'success' : t.saldoTone
     ]];
 
-    const congHint = t.hasPrior ? priorBalancePresentation(t.conguaglio).label : 'Nessun saldo precedente';
+    const congHint = t.hasPrior ? priorBalancePresentation(t.conguaglio).label : 'Nessun saldo iniziale';
     const secondary = [
-      ['Totale esercizio', fmt(t.totaleEsercizio), 'Totale addebiti esercizio', ''],
-      ['Conguaglio anno precedente', fmt(t.conguaglio), congHint, ''],
-      ['Totale da versare', fmt(t.totaleDaVersare), t.hasPrior ? 'Esercizio + conguaglio' : '= Totale esercizio', ''],
-      ['Totale versato', fmt(t.totaleVersato), `${report.periodPayments.length} versamenti`, 'positive']
+      ['Totale dell’anno', fmt(t.totaleEsercizio), 'Preventivo e conguagli dell’anno', ''],
+      ['Saldo iniziale', fmt(t.conguaglio), congHint, ''],
+      ['Totale dovuto', fmt(t.totaleDaVersare), t.hasPrior ? 'Anno + saldo iniziale' : '= Totale dell’anno', ''],
+      ['Totale pagato', fmt(t.totaleVersato), `${report.periodPayments.length} pagamenti`, 'positive']
     ];
 
     const chipHtml = (label, value, foot, status, tier) =>
@@ -717,7 +1019,7 @@ export function createRenderer(els) {
     const bodyRows = [];
     bodyRows.push(`<tr class="prior-balance-total-row"><th>${pres.label}</th><td class="amount ${pres.amountCls}"><strong>${fmt(pb.amount)}</strong></td></tr>`);
     if (showResiduo) {
-      bodyRows.push(`<tr><td>Versato a copertura</td><td class="amount">${fmt(paid)}</td></tr>`);
+      bodyRows.push(`<tr><td>Pagato a copertura</td><td class="amount">${fmt(paid)}</td></tr>`);
       bodyRows.push(`<tr><td>Residuo</td><td class="amount ${residuo <= 0.005 ? 'positive' : 'negative'}">${fmt(residuo)}</td></tr>`);
     }
     if (src.consuntivo != null) {
@@ -740,14 +1042,14 @@ export function createRenderer(els) {
       .map(p => `<tr><td>${p.date || '—'}</td><td>${p.method || '—'}</td><td class="amount">${fmt(p.amount)}</td></tr>`)
       .join('');
     const paymentsTable = paymentsRows
-      ? `<div class="data-table-wrap"><table><thead><tr><th>Data vers.</th><th>Metodo</th><th>Importo</th></tr></thead><tbody>${paymentsRows}</tbody><tfoot><tr><th colspan="2">Totale versato</th><td class="amount">${fmt(paid)}</td></tr></tfoot></table></div>`
+      ? `<div class="data-table-wrap"><table><thead><tr><th>Data</th><th>Come</th><th>Importo</th></tr></thead><tbody>${paymentsRows}</tbody><tfoot><tr><th colspan="2">Totale versato</th><td class="amount">${fmt(paid)}</td></tr></tfoot></table></div>`
       : '';
 
     const tableBody = `<div class="prior-balance-box">${intro}${conflictWarning}${mismatchWarning}<div class="data-table-wrap"><table><thead><tr><th>Voce</th><th>Importo</th></tr></thead><tbody>${bodyRows.join('')}</tbody></table></div>${paymentsTable}</div>`;
 
     return situazioneCollapsibleSection({
       id: `situazione-prior-${periodId || 'x'}`,
-      title: 'Saldi anno precedente',
+      title: 'Saldo iniziale',
       summaryTotal: fmt(pb.amount),
       summaryHint: showResiduo ? `Residuo ${fmt(residuo)}` : pres.label,
       bodyHtml: tableBody
@@ -766,12 +1068,12 @@ export function createRenderer(els) {
         const cls = Number(p.amount) >= 0 ? 'positive' : 'negative';
         return `<tr><td>${rata}</td><td>${p.date || '—'}</td><td>${p.method || '—'}</td><td class="amount ${cls}">${fmt(p.amount)}</td></tr>`;
       }).join('');
-    const tableHtml = `<div class="data-table-wrap"><table><thead><tr><th>Rata</th><th>Data vers.</th><th>Metodo</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="3">Totale versato</th><td class="amount">${fmt(total)}</td></tr></tfoot></table></div>`;
+    const tableHtml = `<div class="data-table-wrap"><table><thead><tr><th>Rata</th><th>Data</th><th>Come</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="3">Totale versato</th><td class="amount">${fmt(total)}</td></tr></tfoot></table></div>`;
     return situazioneCollapsibleSection({
       id: `situazione-rate-${periodId || 'x'}`,
-      title: 'Dettaglio versamenti',
+      title: 'Dettaglio pagamenti',
       summaryTotal: fmt(total),
-      summaryHint: `${payments.length} versamenti`,
+      summaryHint: `${payments.length} pagamenti`,
       bodyHtml: tableHtml
     });
   }
@@ -817,7 +1119,7 @@ export function createRenderer(els) {
       return `<tr><td>${p.date || '—'}</td><td>${p.method || '—'}</td><td class="amount ${cls}">${fmt(p.amount)}</td></tr>`;
     }).join('');
     const total = unlinked.reduce((s, p) => s + Number(p.amount || 0), 0);
-    const tableHtml = `<div class="data-table-wrap"><table><thead><tr><th>Data vers.</th><th>Metodo</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="2">Totale</th><td class="amount">${fmt(total)}</td></tr></tfoot></table></div>`;
+    const tableHtml = `<div class="data-table-wrap"><table><thead><tr><th>Data</th><th>Come</th><th>Importo</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="2">Totale</th><td class="amount">${fmt(total)}</td></tr></tfoot></table></div>`;
     return situazioneCollapsibleSection({
       id: `situazione-unlinked-${periodId || 'x'}`,
       title: 'Versamenti senza rata',
@@ -833,7 +1135,7 @@ export function createRenderer(els) {
     if (!summary.length) {
       els.situazionePeriod.innerHTML = '';
       if (els.situazioneSummary) els.situazioneSummary.innerHTML = '';
-      els.situazioneSections.innerHTML = '<div class="empty">Nessun esercizio registrato.</div>';
+      els.situazioneSections.innerHTML = '<div class="empty">Nessun anno condominiale registrato.</div>';
       els.situazionePdfBtn?.setAttribute('disabled', '');
       return;
     }
@@ -855,7 +1157,7 @@ export function createRenderer(els) {
     els.situazionePdfBtn?.toggleAttribute('disabled', !hasCons && !hasPrev && !hasPrior);
     if (!hasCons && !hasPrev && !paymentsOnly && !hasPrior) {
       if (els.situazioneSummary) els.situazioneSummary.innerHTML = '';
-      els.situazioneSections.innerHTML = '<div class="empty">Nessun dovuto o versamento per questo esercizio.</div>';
+      els.situazioneSections.innerHTML = '<div class="empty">Niente registrato per quest’anno.</div>';
       return;
     }
 
@@ -936,7 +1238,7 @@ export function createRenderer(els) {
       els.movements.innerHTML = '<div class="empty">Nessun movimento registrato per questa casa.</div>';
       return;
     }
-    els.movements.innerHTML = `<table><thead><tr><th>Tipo</th><th>Esercizio</th><th>Data</th><th>Dettaglio</th><th>Importo</th><th></th></tr></thead><tbody>${items.map(item => {
+    els.movements.innerHTML = `<table><thead><tr><th>Tipo</th><th>Anno</th><th>Data</th><th>Dettaglio</th><th>Importo</th><th></th></tr></thead><tbody>${items.map(item => {
       const safeId = String(item.id ?? '').replace(/"/g, '&quot;');
       return `<tr><td>${item.type}</td><td>${periodLabel(house, item.fiscalPeriodId)}</td><td>${item.date || '—'}</td><td>${item.detail || '—'}</td><td class="amount ${item.type === 'Versamento' ? 'positive' : ''}">${fmt(item.amount)}</td><td><button type="button" class="btn btn-secondary" data-record-action="edit" data-record-kind="${item.kind}" data-id="${safeId}">Modifica in Registra →</button></td></tr>`;
     }).join('')}</tbody></table>`;
@@ -996,8 +1298,18 @@ export function createRenderer(els) {
     els.houseForm.notes.value = house.notes || '';
     if (els.fiscalStartMonth) els.fiscalStartMonth.value = String(house.fiscalStartMonth || 6);
     renderHouseImportParties(house);
-    els.currentHouseTitle.textContent = house.name;
-    els.currentHouseMeta.textContent = [house.location || 'Località non indicata', house.notes || 'Nessuna nota'].join(' · ');
+    // La riga sopra la Panoramica dice di quale anno condominiale stiamo parlando:
+    // il nome della casa è già nella barra laterale.
+    const focus = resolveFocusPeriod(house);
+    els.currentHouseTitle.textContent = focus?.label
+      ? `Anno condominiale ${focus.label}`
+      : house.name;
+    els.currentHouseMeta.textContent = [
+      focus?.label ? house.name : null,
+      focus?.startDate && focus?.endDate ? `${fmtDate(focus.startDate)} – ${fmtDate(focus.endDate)}` : null,
+      house.location || null,
+      focus?.label ? null : 'Nessun anno condominiale registrato'
+    ].filter(Boolean).join(' · ');
   }
 
   function esc(s) {
@@ -1019,7 +1331,7 @@ export function createRenderer(els) {
       `<option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${p.label}</option>`
     ).join('') || '<option value="">—</option>';
 
-    els.bankImportPreview.innerHTML = `<table><thead><tr><th></th><th>Data</th><th>Operazione</th><th>Importo</th><th>Match</th><th>Esercizio</th></tr></thead><tbody>${preview.map((row, idx) => {
+    els.bankImportPreview.innerHTML = `<table><thead><tr><th></th><th>Data</th><th>Operazione</th><th>Importo</th><th>Match</th><th>Anno</th></tr></thead><tbody>${preview.map((row, idx) => {
       const cls = row.ineligible ? 'error' : row.status === 'suggested' ? 'success' : 'warn';
       const periodCell = row.ineligible
         ? `<span class="muted">—</span>`
@@ -1112,7 +1424,7 @@ export function createRenderer(els) {
     const optsFor = suggestedId => `<option value="">— Seleziona esercizio —</option>` + house.fiscalPeriods.map(p =>
       `<option value="${p.id}"${suggestedId && String(suggestedId) === String(p.id) ? ' selected' : ''}>${p.label}</option>`
     ).join('');
-    els.unlinkedMovements.innerHTML = `<table><thead><tr><th>Data</th><th>Dettaglio</th><th>Importo</th><th>Esercizio</th><th></th></tr></thead><tbody>${rows.map(r =>
+    els.unlinkedMovements.innerHTML = `<table><thead><tr><th>Data</th><th>Dettaglio</th><th>Importo</th><th>Anno</th><th></th></tr></thead><tbody>${rows.map(r =>
       `<tr><td>${r.movementDate}</td><td>${r.operation}<div class="hint">${r.details}</div></td><td class="amount">${fmt(r.amount)}</td><td><select class="link-period" data-id="${r.id}">${optsFor(r.suggestedFiscalPeriodId)}</select></td><td><button class="btn btn-secondary link-btn" data-id="${r.id}">Associa</button></td></tr>`
     ).join('')}</tbody></table>`;
   }
@@ -1120,22 +1432,30 @@ export function createRenderer(els) {
   function renderEmptyState() {
     els.currentHouseTitle.textContent = 'Nessuna casa selezionata';
     els.currentHouseMeta.textContent = 'Aggiungi un immobile con il pulsante accanto al menu o da Impostazioni → Immobili.';
-    if (els.panoramicaKpis) {
-      els.panoramicaKpis.innerHTML = state.houseDataLoadError
+    // Il messaggio di stato vuoto va in cima alla Panoramica: il pannello degli
+    // altri anni qui è nascosto e lo renderebbe invisibile.
+    if (els.panoramicaKpis) els.panoramicaKpis.innerHTML = '';
+    if (els.complianceHero) {
+      els.complianceHero.innerHTML = state.houseDataLoadError
         ? `<div class="empty empty--error"><strong>Errore di caricamento dei dati.</strong><br/>${state.houseDataLoadError}<br/><button type="button" class="btn btn-primary" id="retryLoadHouseDataBtn" style="margin-top:1rem;">Riprova</button></div>`
-        : '<div class="empty">Nessun immobile registrato.<br/><button type="button" class="btn btn-primary" id="emptyAddHouseBtn" style="margin-top:1rem;">Aggiungi immobile</button></div>';
+        : '<div class="empty">Nessuna casa registrata.<br/><button type="button" class="btn btn-primary" id="emptyAddHouseBtn" style="margin-top:1rem;">Aggiungi una casa</button></div>';
     }
     if (els.panoramicaPeriodLinks) els.panoramicaPeriodLinks.innerHTML = '';
+    if (els.panoramicaDeadlines) els.panoramicaDeadlines.innerHTML = '';
+    if (els.panoramicaRate) { els.panoramicaRate.innerHTML = ''; els.panoramicaRate.classList.add('hidden'); }
+    if (els.panoramicaSummary) els.panoramicaSummary.innerHTML = '';
+    if (els.panoramicaMovements) els.panoramicaMovements.innerHTML = '';
+    els.panoramicaOtherYears?.classList.add('hidden');
     if (els.metrics) els.metrics.innerHTML = '';
     if (els.annualTableWrap) els.annualTableWrap.innerHTML = '';
     if (els.annualCards) els.annualCards.innerHTML = '';
     if (els.annualPageCards) els.annualPageCards.innerHTML = '<div class="empty">Nessuna annualità registrata.</div>';
-    els.paymentsTable.innerHTML = '<div class="empty">Nessun versamento registrato.</div>';
+    els.paymentsTable.innerHTML = '<div class="empty">Nessun pagamento registrato.</div>';
     if (els.paymentsSummary) els.paymentsSummary.textContent = '';
-    if (els.dashboardPayments) els.dashboardPayments.innerHTML = '<div class="empty">Nessun versamento.</div>';
+    if (els.dashboardPayments) els.dashboardPayments.innerHTML = '<div class="empty">Nessun pagamento.</div>';
     if (els.situazioneSummary) els.situazioneSummary.innerHTML = '';
     if (els.situazioneSections) els.situazioneSections.innerHTML = '<div class="empty">Nessuna situazione disponibile.</div>';
-    if (els.duesTable) els.duesTable.innerHTML = '<div class="empty">Nessun dovuto registrato.</div>';
+    if (els.duesTable) els.duesTable.innerHTML = '<div class="empty">Nessun preventivo o conguaglio registrato.</div>';
     els.movements.innerHTML = '<div class="empty">Nessun movimento da mostrare.</div>';
     if (state.houseFormMode === 'new') renderNewHouseForm();
     else {
@@ -1144,11 +1464,10 @@ export function createRenderer(els) {
       els.deleteHouseBtn?.classList.add('hidden');
       renderHouseImportParties({ importParties: [] });
     }
-    renderComplianceHero({ fiscalPeriods: [], dues: [], payments: [] });
-    els.panoramicaKpis?.querySelector('#emptyAddHouseBtn')?.addEventListener('click', () => {
+    els.complianceHero?.querySelector('#emptyAddHouseBtn')?.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('app:start-new-house'));
     });
-    els.panoramicaKpis?.querySelector('#retryLoadHouseDataBtn')?.addEventListener('click', () => {
+    els.complianceHero?.querySelector('#retryLoadHouseDataBtn')?.addEventListener('click', () => {
       window.dispatchEvent(new CustomEvent('app:retry-load-house-data'));
     });
     els.metrics?.querySelector('#emptyAddHouseBtn')?.addEventListener('click', () => {
@@ -1189,6 +1508,7 @@ export function createRenderer(els) {
   return {
     setView,
     render,
+    syncRegistraChoices,
     renderBankImportPreview,
     renderUnlinkedMovements,
     syncPaymentPeriodSelect,
@@ -1247,6 +1567,15 @@ export function collectDom() {
     quickAddClose: document.getElementById('quickAddClose'),
     main: document.getElementById('mainContent'),
     complianceHero: document.getElementById('complianceHero'),
+    panoramicaDeadlines: document.getElementById('panoramicaDeadlines'),
+    panoramicaRate: document.getElementById('panoramicaRate'),
+    panoramicaSummary: document.getElementById('panoramicaSummary'),
+    panoramicaMovements: document.getElementById('panoramicaMovements'),
+    panoramicaOtherYears: document.getElementById('panoramicaOtherYears'),
+    sideHouseBtn: document.getElementById('sideHouseBtn'),
+    sideLogoutBtn: document.getElementById('sideLogoutBtn'),
+    sideAvatar: document.getElementById('sideAvatar'),
+    sideAccountEmail: document.getElementById('sideAccountEmail'),
     metrics: document.getElementById('metrics'),
     panoramicaKpis: document.getElementById('panoramicaKpis'),
     panoramicaScopeNote: document.getElementById('panoramicaScopeNote'),

@@ -1120,7 +1120,7 @@ export function createRenderer(els) {
         title: 'Conguaglio',
         value: cong && cong.direction !== 'pari' ? `${fmt(Math.abs(cong.amount))}` : (f.hasConsuntivo ? 'In pari' : 'Da calcolare'),
         note: cong
-          ? (cong.direction === 'pari' ? 'Niente da saldare' : `A ${cong.direction} · consuntivo − pagato`)
+          ? (cong.direction === 'pari' ? 'Niente da saldare' : `A ${cong.direction} · consuntivo − preventivo`)
           : 'Uscirà dal consuntivo.',
         muted: !f.hasConsuntivo
       }
@@ -1407,7 +1407,7 @@ export function createRenderer(els) {
         <ol class="voci-legend">
           <li>${voceBadge('ordinario', 'md')}<span><strong>Preventivo <span class="badge info">Sei qui</span></strong><span class="muted">A inizio anno: stabilisce la quota e le rate.</span></span></li>
           <li>${voceBadge('consuntivo', 'md')}<span><strong>Consuntivo</strong><span class="muted">A fine anno: quanto hai speso davvero.</span></span></li>
-          <li>${voceBadge('conguaglio', 'md')}<span><strong>Conguaglio</strong><span class="muted">Lo calcola l’app: consuntivo − pagato. Passa all’anno dopo.</span></span></li>
+          <li>${voceBadge('conguaglio', 'md')}<span><strong>Conguaglio</strong><span class="muted">Lo calcola l’app: consuntivo − preventivo. Passa all’anno dopo.</span></span></li>
           <li class="voci-legend-sep">${voceBadge('straordinari', 'md')}<span><strong>Straordinari</strong><span class="muted">Spese decise a parte, come i lavori: le metti nelle rate che vuoi.</span></span></li>
         </ol>
       </section>`;
@@ -1515,9 +1515,11 @@ export function createRenderer(els) {
     const typed = Number(els.consAmount?.value || 0);
     const consuntivo = Number.isFinite(typed) && typed > 0 ? round2(typed) : 0;
     const paid = round2(sumPaid(house, periodId));
-    const amount = round2(consuntivo - paid);
-    const direction = amount > 0.005 ? 'debito' : amount < -0.005 ? 'credito' : 'pari';
     const preventivo = round2(sumOrdinarioDue(house, periodId) + sumStraordinariDue(house, periodId));
+    // Il conguaglio nasce dal confronto col preventivo, non col versato: vedi
+    // computeConguaglio in fiscal.js.
+    const amount = round2(consuntivo - preventivo);
+    const direction = amount > 0.005 ? 'debito' : amount < -0.005 ? 'credito' : 'pari';
     return { periodId, label: periodLabel(house, periodId), consuntivo, paid, amount, direction, preventivo };
   }
 
@@ -1564,7 +1566,7 @@ export function createRenderer(els) {
       els.consRail.innerHTML = `
         <section class="panel" aria-live="polite">
           <div class="panel-accent-head">${voceBadge('conguaglio', 'md')}<h2>Il tuo conguaglio ${p.label}</h2></div>
-          <p class="muted">Scrivi quanto hai speso davvero e qui compare il conguaglio: consuntivo meno quello che hai già pagato (${fmt(p.paid)} nel ${p.label}).</p>
+          <p class="muted">Scrivi quanto hai speso davvero e qui compare il conguaglio: consuntivo meno il preventivo del ${p.label} (${fmt(p.preventivo)}).</p>
         </section>`;
       return;
     }
@@ -1581,7 +1583,7 @@ export function createRenderer(els) {
         </div>
         <div class="summary-dl">
           <div class="summary-row"><dt><span class="cell-voce">${voceBadge('consuntivo', 'xs')}Consuntivo ${p.label}</span></dt><dd>${fmt(p.consuntivo)}</dd></div>
-          <div class="summary-row"><dt>− Già pagato</dt><dd>${fmt(p.paid)}</dd></div>
+          <div class="summary-row"><dt><span class="cell-voce">${voceBadge('ordinario', 'xs')}− Preventivo ${p.label}</span></dt><dd>${fmt(p.preventivo)}</dd></div>
           <div class="summary-row summary-row--total"><dt>= Conguaglio</dt><dd>${fmt(abs)} <span class="muted">${dirLabel}</span></dd></div>
         </div>
         <div class="cong-compare">

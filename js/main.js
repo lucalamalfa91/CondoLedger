@@ -1174,17 +1174,24 @@ async function applyConguaglio(house, periodId, mode) {
     house.priorBalances.push({ ...balance, id: balance.id || uid('prior') });
   }
 
-  const verso = c.direction === 'debito' ? 'a debito' : 'a credito';
+  const debito = c.direction === 'debito';
+  const quanto = `Conguaglio di ${fmt(Math.abs(c.amount))} ${debito ? 'a debito' : 'a credito'}`;
   const inRate = mode === 'prossima' || mode === 'diviso' || mode === 'scalato';
-  if (!inRate) return `Conguaglio di ${fmt(Math.abs(c.amount))} ${verso}: lo trovi tra le cose da pagare del ${next.label}.`;
+  if (!inRate) {
+    // Un credito non si paga: o lo si scala, o l'amministratore lo rimborsa.
+    return debito
+      ? `${quanto}: lo trovi tra le cose da pagare del ${next.label}.`
+      : `${quanto}: lo incassi quando l’amministratore lo rimborsa.`;
+  }
 
   const placed = await allocateConguaglioInRate(house, next.id, c.amount, mode === 'diviso' ? 'diviso' : 'prima');
   if (!placed) {
-    return `Conguaglio di ${fmt(Math.abs(c.amount))} ${verso}: il ${next.label} non ha ancora un preventivo, resta un pagamento a parte.`;
+    return `${quanto}: il ${next.label} non ha ancora un preventivo, resta ${debito ? 'un pagamento' : 'un credito'} a parte.`;
   }
-  return mode === 'diviso'
-    ? `Conguaglio di ${fmt(Math.abs(c.amount))} ${verso}, diviso sulle rate del ${next.label}.`
-    : `Conguaglio di ${fmt(Math.abs(c.amount))} ${verso}, messo sulla prima rata del ${next.label}.`;
+  if (mode === 'diviso') return `${quanto}, diviso sulle rate del ${next.label}.`;
+  return debito
+    ? `${quanto}, messo sulla prima rata del ${next.label}.`
+    : `${quanto}, scalato dalla prima rata del ${next.label}.`;
 }
 
 /** L'anno successivo, creandolo se ancora non c'è. */

@@ -219,16 +219,27 @@ export function sumStraordinariDue(house, periodId) {
 }
 
 /**
- * Il conguaglio di un anno: consuntivo − pagato. Positivo = a debito (devi ancora
- * qualcosa), negativo = a credito. Null finché il consuntivo non c'è: prima di
- * allora non c'è niente da conguagliare.
+ * Il conguaglio di un anno: consuntivo − preventivo.
+ *
+ * Si confronta con il preventivo, non con quello che si è versato. Quanto hai
+ * pagato dice se sei in pari con le rate, non se il condominio ha speso più o
+ * meno del previsto: sono due cose diverse, e sommarle sbaglia due volte. Nel
+ * versato possono esserci quote di recupero di conguagli di anni passati — soldi
+ * che non c'entrano niente con la gestione di quest'anno — e le rate ancora
+ * scoperte finirebbero a gonfiare un conguaglio che non le riguarda. Le rate
+ * arretrate restano dove sono, fra le cose da pagare del loro anno.
+ *
+ * Positivo = a debito (si è speso più del preventivo), negativo = a credito.
+ * Null finché il consuntivo non c'è: prima di allora non c'è niente da
+ * conguagliare.
  */
 export function computeConguaglio(house, periodId) {
   const consuntivo = sumConsuntivoDue(house, periodId);
   if (consuntivo === 0) return null;
-  const amount = Math.round((consuntivo - sumPaid(house, periodId)) * 100) / 100;
+  const preventivo = sumPreventivoDue(house, periodId);
+  const amount = Math.round((consuntivo - preventivo) * 100) / 100;
   const direction = amount > 0.005 ? 'debito' : amount < -0.005 ? 'credito' : 'pari';
-  return { amount, direction, consuntivo, paid: sumPaid(house, periodId) };
+  return { amount, direction, consuntivo, preventivo };
 }
 
 export function sumPreventivoDue(house, periodId) {

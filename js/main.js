@@ -2,6 +2,7 @@ import {
   createLocalDue,
   deleteAllBankImports,
   deleteBankImportBatch,
+  deleteBankMovement,
   previewBankImportDelete,
   deleteDueFromSupabase,
   deleteHouseRemote,
@@ -42,7 +43,7 @@ import { activeHouse, createLocalHouse, state } from './state.js';
 import { confirmDialog } from './confirm.js';
 import { computeNextPaymentGuide } from './payment-guide.js';
 import { showToast, toastError } from './toast.js';
-import { fmt, today, uid } from './utils.js';
+import { fmt, fmtDate, today, uid } from './utils.js';
 import { appRouteUrl, sanitizeLocationUrl } from './url-sanitize.js';
 
 const ONBOARDING_STORAGE_KEY = 'app:onboarding:v1';
@@ -687,7 +688,16 @@ async function azzeraConguaglioInRate(house, periodId) {
 
 async function deletePayment(house, paymentId) {
   const payment = house.payments.find(p => p.id === paymentId);
-  if (!payment || !await confirmDialog('Eliminare questo versamento?', { title: 'Elimina versamento', confirmLabel: 'Elimina', danger: true })) return;
+  if (!payment) return;
+  // Un versamento arrivato dall'estratto conto non porta via con sé il
+  // movimento della banca: quello torna fra i movimenti da abbinare, dove si
+  // può ricollegare o togliere. Dirlo prima evita di cercarlo dopo.
+  const daEstratto = Boolean(payment.bankMovementId);
+  const testo = [
+    `${payment.date ? fmtDate(payment.date) : 'senza data'} · ${fmt(payment.amount)}${payment.method ? ` · ${payment.method}` : ''}`,
+    daEstratto ? 'Viene dall’estratto conto: il movimento della banca torna fra quelli da abbinare.' : ''
+  ].filter(Boolean).join('\n\n');
+  if (!await confirmDialog(testo, { title: 'Eliminare questo versamento?', confirmLabel: 'Elimina il versamento', danger: true })) return;
   try {
     if (state.user && Number.isFinite(Number(paymentId))) {
       await deletePaymentFromSupabase(house, payment);
@@ -1844,7 +1854,39 @@ els.bankImportDeleteAll?.addEventListener('click', async () => {
   }
 });
 
+/**
+ * Un movimento dell'estratto conto arrivato per sbaglio.
+ *
+ * Fin qui si potevano buttare solo interi import, o tutti i movimenti in blocco:
+ * per un bonifico che col condominio non c'entra niente era troppo. Qui se ne
+ * toglie uno, e solo quello.
+ */
 els.unlinkedMovements?.addEventListener('click', async e => {
+  const drop = e.target.closest('.drop-movement-btn');
+  if (drop) {
+    const house = ensureHouse();
+    if (!house) return;
+    const movimento = house.bankMovements?.find(m => String(m.id) === String(drop.dataset.id));
+    if (!movimento) return;
+    const quando = movimento.movementDate ? fmtDate(movimento.movementDate) : 'senza data';
+    const cosa = (movimento.details || movimento.operation || 'Movimento').trim();
+    const ok = await confirmDialog(
+      `${quando} · ${cosa} · ${fmt(movimento.amount)}\n\nSparisce dall’estratto conto importato. Se ricarichi lo stesso file tornerà.`,
+      { title: 'Eliminare questo movimento?', confirmLabel: 'Elimina il movimento', danger: true }
+    );
+    if (!ok) return;
+    try {
+      const esito = await deleteBankMovement(house, movimento);
+      if (!esito.deletedMovements) { toastError('Questo movimento è già diventato un pagamento: elimina quello.'); return; }
+      await loadFromSupabase();
+      render();
+      showToast('Movimento eliminato.');
+    } catch (err) {
+      toastError(err.message);
+    }
+    return;
+  }
+
   const btn = e.target.closest('.link-btn');
   if (!btn) return;
   const house = ensureHouse();

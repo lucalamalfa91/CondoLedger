@@ -7,6 +7,7 @@ import {
   getNextPeriod,
   periodLabel,
   periodSummary,
+  sumConsuntivoDue,
   sumOrdinarioDue,
   sumPaid,
   sumStraordinariDue,
@@ -411,6 +412,29 @@ export function createRenderer(els) {
   }
 
   /** Rate non ancora coperte, ordinate per scadenza. */
+  /**
+   * Com'è messa una rata.
+   *
+   * «Scaduta» vale solo per chi non ha versato niente: se qualcosa è arrivato la
+   * rata è pagata in parte, e quello che conta è la differenza, non l'etichetta
+   * rossa. Chi ha versato 135 su 165 non è moroso, gli mancano 30 euro.
+   */
+  function statoRata(slot) {
+    const residuo = round2(slot.amountDue - slot.paid);
+    if (residuo <= 0.01) return { stato: 'pagata', residuo: 0 };
+    if (slot.paid > 0.005) return { stato: 'parziale', residuo };
+    return { stato: slot.periodEnd < today ? 'scaduta' : 'attesa', residuo };
+  }
+
+  /**
+   * Un anno con il consuntivo è chiuso: quello che manca sulle sue rate è già
+   * dentro il conguaglio riportato all'anno dopo. Continuare a chiederlo qui
+   * significherebbe contare gli stessi soldi due volte.
+   */
+  function annoChiuso(house, periodId) {
+    return periodId ? sumConsuntivoDue(house, periodId) > 0.005 : false;
+  }
+
   function pendingInstallments(house, periodId) {
     if (!periodId) return [];
     const { slots } = installmentSummaryForPeriod(house, periodId);
@@ -508,7 +532,7 @@ export function createRenderer(els) {
    * se non è finito dentro una rata, il conguaglio che arriva dall'anno prima.
    */
   function openItems(house, periodId) {
-    if (!periodId) return [];
+    if (!periodId || annoChiuso(house, periodId)) return [];
     const items = pendingInstallments(house, periodId).map(row => ({
       kind: 'rata',
       id: row.slot.key,
@@ -516,7 +540,11 @@ export function createRenderer(els) {
       voice: dominantVoice(row.slot.parts),
       parts: row.slot.parts,
       title: installmentTitle(row.slot),
-      sub: `Preventivo ${periodLabel(house, periodId)}`,
+      // Se qualcosa è già arrivato lo dice qui: la cifra a destra è il residuo,
+      // non la rata intera, e da sola sembrerebbe un importo sbagliato.
+      sub: row.slot.paid > 0.005
+        ? `Preventivo ${periodLabel(house, periodId)} · versati ${fmt(row.slot.paid)} su ${fmt(row.slot.amountDue)}`
+        : `Preventivo ${periodLabel(house, periodId)}`,
       amount: row.gap,
       dueBy: row.dueBy
     }));
@@ -660,12 +688,19 @@ export function createRenderer(els) {
     if (!els.panoramicaDue) return;
     const group = dueNow(house, periodId);
     if (!group) {
+      const chiuso = annoChiuso(house, periodId);
       const hasPlan = periodId ? listInstallmentsForPeriod(house, periodId).length > 0 : false;
+      const cong = chiuso ? computeConguaglio(house, periodId) : null;
+      const next = chiuso ? getNextPeriod(house, periodId) : null;
       els.panoramicaDue.innerHTML = `
-        <div class="panel-head"><div><h2>Da pagare</h2></div></div>
-        <p class="muted">${hasPlan
-          ? 'Non hai scadenze aperte: tutte le rate di quest’anno risultano pagate.'
-          : 'Registra il preventivo dell’anno per vedere qui le rate e le loro scadenze.'}</p>
+        <div class="panel-head"><div><h2>${chiuso ? 'Anno chiuso' : 'Da pagare'}</h2></div>${chiuso ? '<span class="badge success">Chiuso</span>' : ''}</div>
+        <p class="muted">${chiuso
+          ? `Il consuntivo ${periodLabel(house, periodId)} è registrato: le rate sono chiuse.${cong && cong.direction !== 'pari'
+              ? ` Restano ${fmt(Math.abs(cong.amount))} ${cong.direction === 'debito' ? 'a debito' : 'a credito'}, riportati ${next ? `sul ${next.label}` : 'sull’anno successivo'}.`
+              : ''}`
+          : hasPlan
+            ? 'Non hai scadenze aperte: tutte le rate di quest’anno risultano pagate.'
+            : 'Registra il preventivo dell’anno per vedere qui le rate e le loro scadenze.'}</p>
         <div class="form-actions" style="margin-top:var(--space-4);">
           <button class="btn ${hasPlan ? 'btn-secondary' : 'btn-primary'}" type="button"
             data-nav-target="${hasPlan ? 'pagamenti' : 'resoconti'}" data-nav-subview="${hasPlan ? 'registra' : 'preventivo'}">
@@ -811,8 +846,105 @@ export function createRenderer(els) {
 
   // ─────────────────────────────── Pagamenti ────────────────────────────────
 
+  /**
+   * Le rate di un anno chiuso e quanto manca a ciascuna.
+   *
+   * Non sono morosità: il consuntivo ha già fatto i conti e la somma di queste
+   * differenze è il conguaglio che passa all'anno dopo.
+   */
+  function differenzeRate(house, periodId) {
+    const { slots } = installmentSummaryForPeriod(house, periodId);
+    const righe = slots.map(slot => ({ slot, ...statoRata(slot) }));
+    return {
+      slots,
+      versato: round2(slots.reduce((s, x) => s + x.paid, 0)),
+      differenze: righe.filter(r => r.residuo > 0.01),
+      totale: round2(righe.reduce((s, r) => s + r.residuo, 0))
+    };
+  }
+
+  /**
+   * La riga in coda alle differenze: dove finiscono questi soldi.
+   *
+   * Le rate mancanti e il conguaglio quasi mai coincidono, e la differenza non è
+   * un errore: le rate vengono dal preventivo, il conguaglio dalle spese vere.
+   */
+  function differenzeDestinazione(house, periodId, totale) {
+    const cong = computeConguaglio(house, periodId);
+    if (!cong || cong.direction === 'pari') return 'Il consuntivo chiude in pari: non resta niente da regolare.';
+    const next = getNextPeriod(house, periodId);
+    const verso = cong.direction === 'debito' ? 'a debito' : 'a credito';
+    const dove = next ? `sul ${next.label}` : 'sull’anno successivo';
+    const resta = `Quello che resta da regolare è <strong>${fmt(Math.abs(cong.amount))}</strong> ${verso}, riportato ${dove} come conguaglio.`;
+    if (Math.abs(round2(Math.abs(cong.amount) - totale)) <= 0.01) return resta;
+    return `Le rate non versate valgono ${fmt(totale)}, ma il conguaglio si fa sul consuntivo, non sul preventivo. ${resta}`;
+  }
+
+  function renderPagamentiChiuso(house, periodId) {
+    const { slots, versato } = differenzeRate(house, periodId);
+    els.pagamentiDueCard.innerHTML = `
+      <div class="panel-head">
+        <div>
+          <h2>Anno chiuso</h2>
+          <p class="subtle">Il consuntivo ${periodLabel(house, periodId)} è registrato: le rate non sono più da pagare.</p>
+        </div>
+        <span class="badge success">Chiuso</span>
+      </div>
+      ${slots.length ? `<div class="voce-rows">
+        ${slots.map((slot, i) => {
+          const { stato } = statoRata(slot);
+          return voceRowHtml({
+            voice: dominantVoice(slot.parts),
+            title: installmentTitle(slot) || `Rata ${i + 1}`,
+            // Nessuna rata resta «non pagata»: l'anno è chiuso e quello che
+            // manca è già dentro il conguaglio.
+            sub: stato === 'pagata'
+              ? 'Pagata'
+              : stato === 'parziale'
+                ? `Pagata in parte · versati ${fmt(slot.paid)}`
+                : 'Chiusa col conguaglio',
+            amount: fmt(slot.amountDue),
+            parts: slot.parts
+          });
+        }).join('')}
+      </div>` : '<p class="muted">Quest’anno non aveva un piano rate.</p>'}
+      <p class="hint">Versato nell’anno: <strong>${fmt(versato)}</strong></p>`;
+  }
+
+  function renderDifferenzeCard(house, periodId) {
+    const { differenze, totale } = differenzeRate(house, periodId);
+    if (!differenze.length) {
+      els.pagamentiNextCard.innerHTML = `
+        <div class="panel-head"><div><h2>Differenze</h2></div></div>
+        <p class="muted">Nessuna differenza: le rate versate coprono per intero quelle previste.</p>`;
+      return;
+    }
+    els.pagamentiNextCard.innerHTML = `
+      <div class="panel-head">
+        <div>
+          <h2>Differenze</h2>
+          <p class="subtle">Quanto è arrivato in meno rispetto al piano rate.</p>
+        </div>
+        <span class="panel-amount">${fmt(totale)}</span>
+      </div>
+      <div class="next-rate-list">
+        ${differenze.map(({ slot, residuo }) => `<div class="next-rate-row">
+          <span class="next-rate-date">${slot.periodEnd ? fmtDate(slot.periodEnd) : '—'}</span>
+          <span class="next-rate-main">
+            <span class="next-rate-title">${installmentTitle(slot)}</span>
+            <span class="voce-row-sub">Prevista ${fmt(slot.amountDue)} · versata ${fmt(slot.paid)}</span>
+          </span>
+          <span class="next-rate-amount next-rate-amount--gap">${fmt(residuo)}</span>
+        </div>`).join('')}
+      </div>
+      <p class="hint">${differenzeDestinazione(house, periodId, totale)}</p>`;
+  }
+
   function renderPagamentiDue(house, periodId) {
     if (!els.pagamentiDueCard) return;
+    // Un anno col consuntivo non ha più scadenze: le rate sono chiuse e quello
+    // che manca lo racconta la scheda delle differenze, non un sollecito.
+    if (annoChiuso(house, periodId)) return renderPagamentiChiuso(house, periodId);
     const group = dueNow(house, periodId);
     if (!group) {
       els.pagamentiDueCard.innerHTML = `
@@ -824,7 +956,7 @@ export function createRenderer(els) {
       <div class="panel-head">
         <div>
           <h2>${group.late ? 'In ritardo' : `Entro il ${fmtDate(group.dueBy)}`}</h2>
-          <p class="subtle">${group.late ? 'Scadute e non pagate' : deadlineText(group)}</p>
+          <p class="subtle">${group.late ? 'Quello che manca su rate già scadute' : deadlineText(group)}</p>
         </div>
         <span class="panel-amount">${fmt(group.total)}</span>
       </div>
@@ -841,6 +973,7 @@ export function createRenderer(els) {
 
   function renderPagamentiNext(house, periodId) {
     if (!els.pagamentiNextCard) return;
+    if (annoChiuso(house, periodId)) return renderDifferenzeCard(house, periodId);
     const group = dueNow(house, periodId);
     const groupIds = new Set((group?.items || []).map(i => i.id));
     const rest = openItems(house, periodId).filter(i => !groupIds.has(i.id));
@@ -1053,12 +1186,13 @@ export function createRenderer(els) {
   function yearStateBadge(house, f) {
     if (!f) return '';
     if (f.hasConsuntivo) {
+      // Un anno col consuntivo è chiuso anche se non torna: la differenza non
+      // resta appesa qui, passa all'anno dopo come conguaglio.
       const cong = f.conguaglioOut;
       if (!cong || cong.direction === 'pari') return '<span class="badge success">Chiuso in pari</span>';
-      const residual = priorBalanceResidualForSource(house, f.periodId);
-      if (residual === 0) return '<span class="badge success">Chiuso</span>';
-      const dueDate = conguaglioDueDateForSource(house, f.periodId);
-      return `<span class="badge warn">Da saldare${dueDate ? ` entro il ${fmtDate(dueDate)}` : ''}</span>`;
+      const next = getNextPeriod(house, f.periodId);
+      const verso = cong.direction === 'debito' ? 'a debito' : 'a credito';
+      return `<span class="badge success">Chiuso</span><span class="year-carry">${fmt(Math.abs(cong.amount))} ${verso}${next ? ` sul ${next.label}` : ''}</span>`;
     }
     if (f.slots.length) return `<span class="badge neutral">In corso · ${f.paidSlots} rate su ${f.slots.length}</span>`;
     return '<span class="badge neutral">Senza preventivo</span>';
@@ -1220,24 +1354,31 @@ export function createRenderer(els) {
         <p class="muted">Nessuna rata: aggiungi il preventivo dell’anno per crearle.</p>`;
       return;
     }
+    const chiuso = annoChiuso(house, periodId);
     const totalRow = { ordinario: 0, conguaglio: 0, straordinari: 0, tot: 0 };
     const paidRow = { ordinario: 0, conguaglio: 0, straordinari: 0, tot: 0 };
     const rows = slots.map((slot, i) => {
       const parts = slot.parts || {};
-      const covered = slot.paid >= slot.amountDue - 0.01;
+      const { stato: statoId, residuo } = statoRata(slot);
+      // Un versamento parziale non sceglie una voce: copre la rata in
+      // proporzione, quindi va spalmato sulle sue voci nella stessa misura.
+      const quota = slot.amountDue > 0.005 ? Math.min(1, slot.paid / slot.amountDue) : 0;
       for (const v of VOCI_RATA) {
-        totalRow[v] += Number(parts[v] || 0);
-        // Una rata pagata copre tutte le sue voci: non se ne paga mezza.
-        if (covered) paidRow[v] += Number(parts[v] || 0);
+        const value = Number(parts[v] || 0);
+        totalRow[v] += value;
+        paidRow[v] += value * quota;
       }
       totalRow.tot += slot.amountDue;
       paidRow.tot += slot.paid;
-      const late = !covered && slot.periodEnd < today;
-      const stato = covered
+      const stato = statoId === 'pagata'
         ? `<span class="state-ok"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Pagata</span>`
-        : late
-          ? '<span class="state-late">Scaduta</span>'
-          : `<span class="muted">Da pagare${slot.paid > 0.005 ? ` · versati ${fmt(slot.paid)}` : ''}</span>`;
+        : statoId === 'parziale'
+          ? `<span class="state-partial">Pagata in parte<span class="state-gap">${chiuso ? 'a conguaglio' : 'mancano'} ${fmt(residuo)}</span></span>`
+          : chiuso
+            ? `<span class="state-partial">Non versata<span class="state-gap">a conguaglio ${fmt(residuo)}</span></span>`
+            : statoId === 'scaduta'
+              ? '<span class="state-late">Scaduta</span>'
+              : '<span class="muted">Da pagare</span>';
       return `<div class="plan-row">
         <span>Rata ${i + 1}</span>
         <span class="muted">${fmtDate(slot.periodEnd)}</span>
@@ -1274,11 +1415,11 @@ export function createRenderer(els) {
         </div>
         <div class="plan-row plan-row--paid">
           <span class="plan-name">Pagato</span><span></span>
-          ${VOCI_RATA.map(voice => `<span class="num plan-cell plan-cell--num">${paidRow[voice] ? fmt(paidRow[voice]) : '—'}</span>`).join('')}
+          ${VOCI_RATA.map(voice => `<span class="num plan-cell plan-cell--num">${paidRow[voice] > 0.005 ? fmt(round2(paidRow[voice])) : '—'}</span>`).join('')}
           <span class="num num--total">${fmt(paidRow.tot)}</span><span></span>
         </div>
         <div class="plan-row plan-row--todo">
-          <span class="plan-name">Da pagare</span><span></span>
+          <span class="plan-name">${chiuso ? 'Differenza' : 'Da pagare'}</span><span></span>
           ${VOCI_RATA.map(voice => `<span class="num plan-cell plan-cell--num">${fmt(round2(totalRow[voice] - paidRow[voice]))}</span>`).join('')}
           <span class="num num--total">${fmt(round2(totalRow.tot - paidRow.tot))}</span><span></span>
         </div>

@@ -8,6 +8,15 @@ export const currency = new Intl.NumberFormat('it-IT', {
 });
 export const today = new Date().toISOString().slice(0, 10);
 
+/** «28 giu 2025»: la data come la scrive l'app, dovunque la mostri. */
+const DATE_FMT = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
+
+export function fmtDate(iso) {
+  const parts = String(iso || '').slice(0, 10).split('-').map(Number);
+  if (parts.length !== 3 || !parts[0]) return '—';
+  return DATE_FMT.format(new Date(parts[0], parts[1] - 1, parts[2]));
+}
+
 export function uid(prefix = 'id') {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }

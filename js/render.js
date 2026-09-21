@@ -43,7 +43,7 @@ import { emptyListHtml } from './mobile-cards.js';
 import { computeNextPaymentGuide, formatPaymentGuideSummary } from './payment-guide.js';
 import { activeHouse, state } from './state.js';
 import { isStraordinarioDue, VOCI, VOCI_RATA, voceBadge } from './voci.js';
-import { fmt, today } from './utils.js';
+import { fmt, fmtDate, today } from './utils.js';
 
 function rowActions(kind, id, extraHtml = '') {
   const safeId = String(id ?? '').replace(/"/g, '&quot;');
@@ -385,14 +385,7 @@ export function createRenderer(els) {
     return v && v !== 'all' ? v : null;
   }
 
-  const DATE_FMT = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
   const MONTH_SHORT = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
-
-  function fmtDate(iso) {
-    const parts = String(iso || '').slice(0, 10).split('-').map(Number);
-    if (parts.length !== 3 || !parts[0]) return '—';
-    return DATE_FMT.format(new Date(parts[0], parts[1] - 1, parts[2]));
-  }
 
   function daysBetween(fromIso, toIso) {
     const a = new Date(`${String(fromIso).slice(0, 10)}T00:00:00`);
@@ -2297,7 +2290,7 @@ export function createRenderer(els) {
       `<option value="${p.id}"${suggestedId && String(suggestedId) === String(p.id) ? ' selected' : ''}>${p.label}</option>`
     ).join('');
     els.unlinkedMovements.innerHTML = `<table><thead><tr><th>Data</th><th>Dettaglio</th><th>Importo</th><th>Anno</th><th></th></tr></thead><tbody>${rows.map(r =>
-      `<tr><td>${r.movementDate}</td><td>${r.operation}<div class="hint">${r.details}</div></td><td class="amount">${fmt(r.amount)}</td><td><select class="link-period" data-id="${r.id}">${optsFor(r.suggestedFiscalPeriodId)}</select></td><td><button class="btn btn-secondary link-btn" data-id="${r.id}">Associa</button></td></tr>`
+      `<tr><td>${fmtDate(r.movementDate)}</td><td>${esc(r.operation || '')}<div class="hint">${esc(r.details || '')}</div></td><td class="amount">${fmt(r.amount)}</td><td><select class="link-period" data-id="${r.id}">${optsFor(r.suggestedFiscalPeriodId)}</select></td><td class="row-actions"><button class="btn btn-secondary link-btn" data-id="${r.id}">Associa</button><button class="btn btn-danger drop-movement-btn" data-id="${r.id}">Elimina</button></td></tr>`
     ).join('')}</tbody></table>`;
   }
 

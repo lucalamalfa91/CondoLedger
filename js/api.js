@@ -465,6 +465,18 @@ async function deleteMovements(house, movements) {
   };
 }
 
+/**
+ * Toglie un singolo movimento dell'estratto conto.
+ *
+ * Passa dalla stessa strada dell'eliminazione di un intero import, così le
+ * protezioni valgono anche qui: un movimento già diventato un pagamento
+ * agganciato a una rata non si tocca da questa parte.
+ */
+export async function deleteBankMovement(house, movement) {
+  await ensureAuthenticated();
+  return deleteMovements(house, [movement]);
+}
+
 export async function deleteBankImportBatch(house, batchId) {
   await ensureAuthenticated();
   return deleteMovements(house, await fetchBankMovements(house.id, { importBatchId: batchId }));

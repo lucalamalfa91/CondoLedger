@@ -1390,6 +1390,12 @@ body:not(.authenticated) .toast-host { bottom: var(--space-5); }
 .panel--straordinari { background: var(--voce-straordinari-soft); border-color: var(--voce-straordinari-line); box-shadow: none; }
 .rail-row { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; padding: .25rem 0; font-size: var(--text-base); }
 .rail-amount { font-size: var(--text-md); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Una spesa straordinaria si può correggere o togliere: i due tasti stanno
+   sotto la riga, per non stringere il nome della spesa. */
+.rail-row--actions { flex-wrap: wrap; }
+.rail-actions { flex-basis: 100%; display: flex; gap: .75rem; margin-top: .15rem; }
+.rail-actions .link-more { font-size: var(--text-sm); }
+.link-danger { color: var(--color-error); }
 .panel--conguaglio .hint, .panel--straordinari .hint { color: var(--color-text-soft); line-height: 1.45; }
 
 .voci-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .875rem; }

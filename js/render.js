@@ -1592,7 +1592,17 @@ export function createRenderer(els) {
     const straCard = straordinari.length ? `
       <section class="panel panel--straordinari">
         <div class="panel-accent-head">${voceBadge('straordinari', 'sm')}<h2>Straordinari approvati</h2></div>
-        ${straordinari.map(d => `<div class="rail-row"><span>${esc(d.description || 'Spesa straordinaria')}</span><span class="rail-amount">${fmt(d.amount)}</span></div>`).join('')}
+        ${straordinari.map(d => {
+          const id = String(d.id).replace(/"/g, '&quot;');
+          return `<div class="rail-row rail-row--actions">
+            <span>${esc(d.description || 'Spesa straordinaria')}</span>
+            <span class="rail-amount">${fmt(d.amount)}</span>
+            <span class="rail-actions">
+              <button type="button" class="link-more" data-stra-action="edit" data-id="${id}">Modifica</button>
+              <button type="button" class="link-more link-danger" data-stra-action="delete" data-id="${id}">Elimina</button>
+            </span>
+          </div>`;
+        }).join('')}
         <p class="hint">Scegli in quali rate pagarli con
           <button type="button" class="link-more" data-nav-target="resoconti" data-nav-subview="rate">Personalizza</button>.</p>
       </section>` : '';

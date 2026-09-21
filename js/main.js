@@ -23,7 +23,10 @@ import { createAuthHandlers } from './auth.js';
 import { exportBackup, parseBackup } from './backup.js';
 import { resolveView, viewMeta } from './config.js';
 import { computeConguaglio, findPeriodByDate, getNextPeriod, periodLabel } from './fiscal.js';
-import { findInstallment, listInstallmentsForDue, listInstallmentsForPeriod, ordinarioDueForPeriod } from './installments.js';
+import {
+  findInstallment, listInstallmentsForDue, listInstallmentsForPeriod,
+  ordinarioDueForPeriod, straordinariDuesForPeriod
+} from './installments.js';
 import { exportSituazionePdf } from './pdf-situazione.js';
 import {
   generateRows, planRows, planTargets, round2, rowsToSplitAmounts, splitEqually
@@ -485,6 +488,13 @@ async function deleteDue(house, dueId) {
  * via sarebbe peggio del problema che si sta risolvendo — i soldi sono usciti
  * davvero dal conto.
  */
+/** «1 versamento resta registrato» / «3 versamenti restano registrati». */
+function versamentiRestano(quanti, cosaPerdono) {
+  return quanti === 1
+    ? `1 versamento resta registrato, senza più ${cosaPerdono}`
+    : `${quanti} versamenti restano registrati, senza più ${cosaPerdono}`;
+}
+
 async function eliminaPreventivo(house, dueId) {
   const due = house.dues.find(d => String(d.id) === String(dueId));
   if (!due) return;
@@ -495,9 +505,7 @@ async function eliminaPreventivo(house, dueId) {
 
   const conseguenze = [`Il preventivo ${label} da ${fmt(due.amount)} sparisce`];
   if (rate.length) conseguenze.push(`${rate.length} rate del piano spariscono con lui`);
-  if (agganciati.length) {
-    conseguenze.push(`${agganciati.length} ${agganciati.length === 1 ? 'versamento resta' : 'versamenti restano'} registrati, senza più una rata assegnata`);
-  }
+  if (agganciati.length) conseguenze.push(versamentiRestano(agganciati.length, 'una rata assegnata'));
   const ok = await confirmDialog(
     `${conseguenze.join('. ')}.\n\nPuoi riassegnare i versamenti a mano dopo aver rifatto il preventivo.`,
     { title: `Eliminare il preventivo ${label}?`, confirmLabel: 'Elimina il preventivo', danger: true }
@@ -525,6 +533,89 @@ async function eliminaPreventivo(house, dueId) {
   } catch (err) {
     toastError(err.message);
   }
+}
+
+/**
+ * Toglie una spesa straordinaria sbagliata.
+ *
+ * Uno straordinario non ha rate sue: il suo importo vive nella colonna S del
+ * piano rate dell'anno. Togliendo solo il deliberato, quella quota resterebbe
+ * nelle rate a farsi pagare per dei lavori che non sono più in elenco, quindi
+ * l'allocazione si riduce di pari passo — e se restano altri straordinari, si
+ * riduce a quanto basta per loro, non a zero.
+ */
+async function eliminaStraordinario(house, dueId) {
+  const due = house.dues.find(d => String(d.id) === String(dueId));
+  if (!due) return;
+  const periodId = due.fiscalPeriodId;
+  const label = periodLabel(house, periodId);
+  const nome = due.description || 'Spesa straordinaria';
+  const restanti = straordinariDuesForPeriod(house, periodId)
+    .filter(d => String(d.id) !== String(dueId))
+    .reduce((somma, d) => somma + Number(d.amount || 0), 0);
+  const inRate = round2(planRows(house, periodId).reduce((somma, r) => somma + Number(r.straordinari || 0), 0));
+  const daTogliere = round2(Math.max(0, inRate - round2(restanti)));
+  const chiave = `straordinario#${due.id}`;
+  const agganciati = house.payments.filter(p => p.installmentKey === chiave);
+
+  const conseguenze = [`«${nome}» da ${fmt(due.amount)} sparisce dal ${label}`];
+  if (daTogliere > 0.005) conseguenze.push(`${fmt(daTogliere)} escono dalla colonna straordinari del piano rate`);
+  if (agganciati.length) conseguenze.push(versamentiRestano(agganciati.length, 'una voce assegnata'));
+  const ok = await confirmDialog(
+    `${conseguenze.join('. ')}.`,
+    { title: 'Eliminare questa spesa straordinaria?', confirmLabel: 'Elimina la spesa', danger: true }
+  );
+  if (!ok) return;
+
+  try {
+    for (const p of agganciati) {
+      const scollegato = { ...p, installmentKey: null };
+      if (state.user) await savePaymentToSupabase(house, scollegato);
+      else Object.assign(p, { installmentKey: null });
+    }
+    if (daTogliere > 0.005) await riduciStraordinariInRate(house, periodId, round2(restanti));
+    if (state.user && Number.isFinite(Number(dueId))) {
+      await deleteDueFromSupabase(house, dueId);
+      await loadFromSupabase();
+    } else {
+      house.dues = house.dues.filter(d => String(d.id) !== String(dueId));
+    }
+    resetDueForm();
+    navigate('resoconti', 'anno');
+    render();
+    showToast(`«${nome}» eliminata.`);
+  } catch (err) {
+    toastError(err.message);
+  }
+}
+
+/** Riporta la colonna S del piano rate entro quello che resta deliberato. */
+async function riduciStraordinariInRate(house, periodId, tetto) {
+  const due = ordinarioDueForPeriod(house, periodId);
+  const rows = planRows(house, periodId);
+  if (!due || !rows.length) return;
+  const attuale = round2(rows.reduce((somma, r) => somma + Number(r.straordinari || 0), 0));
+  if (attuale <= tetto + 0.005) return;
+  // In proporzione a com'erano distribuiti, con l'ultima riga che assorbe il
+  // resto degli arrotondamenti: la somma deve tornare al centesimo.
+  const fattore = attuale === 0 ? 0 : tetto / attuale;
+  const tocche = rows.filter(r => Math.abs(Number(r.straordinari || 0)) > 0.005);
+  let resto = round2(tetto);
+  const aggiornate = rows.map(r => {
+    if (Math.abs(Number(r.straordinari || 0)) <= 0.005) return r;
+    const ultima = r === tocche[tocche.length - 1];
+    const quota = ultima ? resto : round2(Number(r.straordinari) * fattore);
+    resto = round2(resto - quota);
+    return { ...r, straordinari: quota };
+  });
+  const payload = {
+    ...due,
+    splitAmounts: rowsToSplitAmounts(house, periodId, aggiornate),
+    splitMode: 'custom',
+    splitCustom: null
+  };
+  if (state.user) await saveDueToSupabase(house, payload);
+  else Object.assign(due, payload);
 }
 
 /**
@@ -1481,7 +1572,22 @@ els.consAmount?.addEventListener('input', () => {
 els.dueDeleteBtn?.addEventListener('click', () => {
   const house = activeHouse();
   const id = els.dueEditId?.value;
-  if (house && id) eliminaPreventivo(house, id);
+  if (!house || !id) return;
+  const due = house.dues.find(d => String(d.id) === String(id));
+  if (due?.voice === 'straordinario') eliminaStraordinario(house, id);
+  else eliminaPreventivo(house, id);
+});
+
+// Gli straordinari dell'anno si correggono e si tolgono dal riquadro che li elenca.
+document.addEventListener('click', e => {
+  const btn = e.target.closest('[data-stra-action][data-id]');
+  if (!btn) return;
+  const house = activeHouse();
+  if (!house) return;
+  const due = house.dues.find(d => String(d.id) === String(btn.dataset.id));
+  if (!due) return;
+  if (btn.dataset.straAction === 'edit') startEditDue(house, due);
+  else eliminaStraordinario(house, due.id);
 });
 els.consDeleteBtn?.addEventListener('click', () => {
   const house = activeHouse();

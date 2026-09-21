@@ -167,6 +167,43 @@ export async function getDb() {
 }
 
 /** Descrive la sorgente dati per i log, senza mai stampare il token. */
+/**
+ * Perché il database non risponde, detto in modo utilizzabile.
+ *
+ * Il 503 diceva solo «non raggiungibile», e per sapere altro bisognava avere in
+ * mano i log della piattaforma. Quasi sempre la risposta è una sola parola —
+ * token scaduto, indirizzo sbagliato, database archiviato — e l'app la sa già.
+ *
+ * Esce il codice e lo stato HTTP, mai il messaggio grezzo: il token viaggia in
+ * un'intestazione e non finisce lì dentro, ma su una risposta pubblica si
+ * lascia passare solo quello che si è scelto di lasciar passare.
+ */
+export function describeDbFailure(err) {
+  const code = typeof err?.code === 'string' ? err.code : null;
+  const testo = String(err?.message || '');
+  const match = testo.match(/HTTP status (\d{3})/);
+  const status = match ? Number(match[1]) : (Number.isInteger(err?.status) ? err.status : null);
+
+  let hint = 'Guarda le righe [avvio] nei log della piattaforma: c’è l’errore per esteso.';
+  if (code === 'URL_INVALID') {
+    hint = 'TURSO_DATABASE_URL non è un indirizzo valido.';
+  } else if (status === 401 || status === 403 || code === 'UNAUTHORIZED') {
+    hint = 'Il database rifiuta le credenziali: rigenera TURSO_AUTH_TOKEN e rifai il deploy.';
+  } else if (status === 404) {
+    hint = 'A quell’indirizzo non c’è nessun database: controlla TURSO_DATABASE_URL.';
+  } else if (status === 402 || status === 429) {
+    hint = 'Il database è oltre i limiti del piano, oppure sospeso.';
+  } else if (status && status >= 500) {
+    hint = 'Il database risponde con un errore suo: riprova fra poco.';
+  } else if (/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|network/i.test(testo)) {
+    hint = 'Il database non risponde alla rete: potrebbe essere archiviato o spento.';
+  }
+
+  // La chiave si chiama db_code e non code perché nella risposta `code` è già
+  // preso dal codice d'errore dell'app: sovrascriverlo cambierebbe il contratto.
+  return { db_code: code, db_status: status, hint };
+}
+
 export function describeDatabase() {
   const remoteUrl = process.env.TURSO_DATABASE_URL;
   return remoteUrl ? `Turso (${remoteUrl.replace(/\?.*$/, '')})` : `file locale (${config.dbPath})`;

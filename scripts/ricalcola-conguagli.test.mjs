@@ -24,9 +24,10 @@ function inProcesso(dbPath, codice) {
 }
 
 /**
- * Un database col caso reale: preventivo 2386,87, consuntivo 2301,64 e versato
- * 2464,37 perché una rata copriva il conguaglio dell'anno prima. Il saldo
- * riportato è quello che scriveva la formula vecchia: −162,73.
+ * Un database col caso reale (casa A): nel 2025/2026 si è speso 2301,64 e
+ * versato 2464,37, ma 77,50 di quel versato recuperava il debito del 2024/2025,
+ * che infatti sta fra i saldi riportati. Il conguaglio giusto è −85,23; quello
+ * scritto in banca dati dalla formula vecchia è −162,73.
  */
 function dbConIlCasoSbagliato() {
   const dbPath = join(mkdtempSync(join(tmpdir(), 'condo-ricalcolo-')), 'prova.db');
@@ -40,6 +41,9 @@ function dbConIlCasoSbagliato() {
     await db.prepare("INSERT INTO dues (house_id, fiscal_period_id, amount, description, due_kind, voice) VALUES (1, 1, 2386.87, 'Preventivo', 'preventivo', 'ordinario')").run();
     await db.prepare("INSERT INTO dues (house_id, fiscal_period_id, amount, description, due_kind) VALUES (1, 1, 2301.64, 'Consuntivo', 'consuntivo')").run();
     await db.prepare("INSERT INTO payments (house_id, fiscal_period_id, amount, date) VALUES (1, 1, 2464.37, '2026-05-31')").run();
+    // Il 77,50 che l'anno di origine si era portato dietro: senza questo il
+    // conguaglio verrebbe −162,73, cioè l'errore che lo script deve correggere.
+    await db.prepare("INSERT INTO prior_balances (house_id, fiscal_period_id, amount, description) VALUES (1, 1, 77.50, 'Conguaglio 2024/2025')").run();
     const rate = [
       { periodStart: '2026-06-01', periodEnd: '2026-06-30', ordinario: 200, conguaglio: -162.73, straordinari: 0, amount: 37.27 },
       { periodStart: '2026-07-01', periodEnd: '2026-07-31', ordinario: 200, conguaglio: 0, straordinari: 0, amount: 200 }
@@ -61,7 +65,7 @@ function leggi(dbPath) {
   return JSON.parse(inProcesso(dbPath, `
     const { getDb, closeDb } = await import('./server/db.js');
     const db = await getDb();
-    const saldo = await db.prepare('SELECT amount FROM prior_balances WHERE id = 1').get();
+    const saldo = await db.prepare('SELECT amount FROM prior_balances WHERE fiscal_period_id = 2').get();
     const due = await db.prepare('SELECT split_amounts FROM dues WHERE fiscal_period_id = 2').get();
     await closeDb();
     console.log(JSON.stringify({ saldo: saldo.amount, rate: JSON.parse(due.split_amounts) }));

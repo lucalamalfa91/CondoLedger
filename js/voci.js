@@ -3,7 +3,7 @@
  * pagamenti e nel PDF. Sono l'unico posto dove vivono lettera, nome e colori.
  *
  *   P  Ordinario     la quota del preventivo, divisa in rate
- *   ±  Conguaglio    consuntivo − preventivo, lo calcola l'app
+ *   ±  Conguaglio    dovuto − versato a fine anno, lo calcola l'app
  *   S  Straordinari  spese deliberate a parte, come la facciata
  *   C  Consuntivo    quanto hai speso davvero, a fine anno
  */

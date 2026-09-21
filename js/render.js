@@ -261,24 +261,35 @@ export function createRenderer(els) {
   }
 
   /**
-   * L'elenco dei pagamenti parte dall'anno in corso: mescolare tre anni di
-   * versamenti nella stessa lista non dice niente a nessuno, e per guardare
-   * indietro ci sono i resoconti. Gli altri anni restano a un clic.
+   * L'anno condominiale scelto in cima ai Pagamenti: comanda tutt'e due le
+   * schede, «da pagare» e «pagati». Prima erano due filtri diversi — uno
+   * implicito sull'anno in corso, uno esplicito solo per i pagati — e i due
+   * numeri accanto alle schede parlavano di insiemi diversi.
    */
   function renderPaymentFilterOptions(house) {
     if (!els.paymentFilterPeriod) return;
-    const scelto = els.paymentFilterPeriod.dataset.touched === '1'
-      ? els.paymentFilterPeriod.value
-      : String(resolveFocusPeriod(house)?.id || '');
-    const sorted = [...house.fiscalPeriods].sort((a, b) => String(b.startDate).localeCompare(String(a.startDate)));
-    els.paymentFilterPeriod.innerHTML = sorted.map(p =>
+    const periodi = periodSummary(house);
+    if (!periodi.length) { els.paymentFilterPeriod.innerHTML = ''; return; }
+    const voluto = els.paymentFilterPeriod.dataset.touched === '1' ? els.paymentFilterPeriod.value : '';
+    const scelto = periodi.some(p => String(p.id) === String(voluto))
+      ? String(voluto)
+      : String(resolveFocusPeriod(house)?.id || periodi[periodi.length - 1].id);
+    const ordinati = [...house.fiscalPeriods].sort((a, b) => String(b.startDate).localeCompare(String(a.startDate)));
+    els.paymentFilterPeriod.innerHTML = ordinati.map(p =>
       `<option value="${p.id}" ${String(p.id) === scelto ? 'selected' : ''}>${p.label}</option>`
-    ).join('') + '<option value="" ' + (scelto ? '' : 'selected') + '>Tutti gli anni</option>';
+    ).join('');
     els.paymentFilterPeriod.value = scelto;
   }
 
+  /** L'anno che la pagina Pagamenti sta mostrando. */
+  function pagamentiPeriodId(house) {
+    renderPaymentFilterOptions(house);
+    return els.paymentFilterPeriod?.value || String(resolveFocusPeriod(house)?.id || '');
+  }
+
+  /** I pagamenti dell'anno scelto in cima alla pagina. */
   function getFilteredPayments(house) {
-    const periodId = els.paymentFilterPeriod?.value || '';
+    const periodId = els.paymentFilterPeriod?.value || String(resolveFocusPeriod(house)?.id || '');
     const sorted = [...house.payments].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
     return periodId ? sorted.filter(p => String(p.fiscalPeriodId) === String(periodId)) : sorted;
   }
@@ -1137,7 +1148,7 @@ export function createRenderer(els) {
         title: 'Conguaglio',
         value: cong && cong.direction !== 'pari' ? `${fmt(Math.abs(cong.amount))}` : (f.hasConsuntivo ? 'In pari' : 'Da calcolare'),
         note: cong
-          ? (cong.direction === 'pari' ? 'Niente da saldare' : `A ${cong.direction} · consuntivo − preventivo`)
+          ? (cong.direction === 'pari' ? 'Niente da saldare' : `A ${cong.direction} · dovuto − versato`)
           : 'Uscirà dal consuntivo.',
         muted: !f.hasConsuntivo
       }
@@ -1424,7 +1435,7 @@ export function createRenderer(els) {
         <ol class="voci-legend">
           <li>${voceBadge('ordinario', 'md')}<span><strong>Preventivo <span class="badge info">Sei qui</span></strong><span class="muted">A inizio anno: stabilisce la quota e le rate.</span></span></li>
           <li>${voceBadge('consuntivo', 'md')}<span><strong>Consuntivo</strong><span class="muted">A fine anno: quanto hai speso davvero.</span></span></li>
-          <li>${voceBadge('conguaglio', 'md')}<span><strong>Conguaglio</strong><span class="muted">Lo calcola l’app: consuntivo − preventivo. Passa all’anno dopo.</span></span></li>
+          <li>${voceBadge('conguaglio', 'md')}<span><strong>Conguaglio</strong><span class="muted">Lo calcola l’app: dovuto − versato. Passa all’anno dopo.</span></span></li>
           <li class="voci-legend-sep">${voceBadge('straordinari', 'md')}<span><strong>Straordinari</strong><span class="muted">Spese decise a parte, come i lavori: le metti nelle rate che vuoi.</span></span></li>
         </ol>
       </section>`;
@@ -1532,12 +1543,13 @@ export function createRenderer(els) {
     const typed = Number(els.consAmount?.value || 0);
     const consuntivo = Number.isFinite(typed) && typed > 0 ? round2(typed) : 0;
     const paid = round2(sumPaid(house, periodId));
-    const preventivo = round2(sumOrdinarioDue(house, periodId) + sumStraordinariDue(house, periodId));
-    // Il conguaglio nasce dal confronto col preventivo, non col versato: vedi
-    // computeConguaglio in fiscal.js.
-    const amount = round2(consuntivo - preventivo);
+    const straordinari = round2(sumStraordinariDue(house, periodId));
+    const preventivo = round2(sumOrdinarioDue(house, periodId) + straordinari);
+    const riportato = round2(getPriorBalanceForPeriod(house, periodId)?.amount || 0);
+    // Il dovuto da una parte, il versato dall'altra: vedi computeConguaglio.
+    const amount = round2(consuntivo + straordinari + riportato - paid);
     const direction = amount > 0.005 ? 'debito' : amount < -0.005 ? 'credito' : 'pari';
-    return { periodId, label: periodLabel(house, periodId), consuntivo, paid, amount, direction, preventivo };
+    return { periodId, label: periodLabel(house, periodId), consuntivo, paid, amount, direction, preventivo, straordinari, riportato };
   }
 
   function renderConsSettleOptions(house) {
@@ -1583,7 +1595,7 @@ export function createRenderer(els) {
       els.consRail.innerHTML = `
         <section class="panel" aria-live="polite">
           <div class="panel-accent-head">${voceBadge('conguaglio', 'md')}<h2>Il tuo conguaglio ${p.label}</h2></div>
-          <p class="muted">Scrivi quanto hai speso davvero e qui compare il conguaglio: consuntivo meno il preventivo del ${p.label} (${fmt(p.preventivo)}).</p>
+          <p class="muted">Scrivi quanto hai speso davvero e qui compare il conguaglio: il dovuto del ${p.label} meno quello che hai versato (${fmt(p.paid)}).</p>
         </section>`;
       return;
     }
@@ -1600,7 +1612,9 @@ export function createRenderer(els) {
         </div>
         <div class="summary-dl">
           <div class="summary-row"><dt><span class="cell-voce">${voceBadge('consuntivo', 'xs')}Consuntivo ${p.label}</span></dt><dd>${fmt(p.consuntivo)}</dd></div>
-          <div class="summary-row"><dt><span class="cell-voce">${voceBadge('ordinario', 'xs')}− Preventivo ${p.label}</span></dt><dd>${fmt(p.preventivo)}</dd></div>
+          ${p.straordinari > 0.005 ? `<div class="summary-row"><dt><span class="cell-voce">${voceBadge('straordinari', 'xs')}+ Straordinari</span></dt><dd>${fmt(p.straordinari)}</dd></div>` : ''}
+          ${Math.abs(p.riportato) > 0.005 ? `<div class="summary-row"><dt><span class="cell-voce">${voceBadge('conguaglio', 'xs')}${p.riportato >= 0 ? '+' : '−'} Dall’anno prima</span></dt><dd>${fmt(Math.abs(p.riportato))}</dd></div>` : ''}
+          <div class="summary-row"><dt>− Già versato</dt><dd>${fmt(p.paid)}</dd></div>
           <div class="summary-row summary-row--total"><dt>= Conguaglio</dt><dd>${fmt(abs)} <span class="muted">${dirLabel}</span></dd></div>
         </div>
         <div class="cong-compare">
@@ -1800,7 +1814,6 @@ export function createRenderer(els) {
    * controlla un estratto conto — non in una tabella unica lunga tre anni.
    */
   function renderPayments(house) {
-    renderPaymentFilterOptions(house);
     if (!els.paymentsTable) return;
     const payments = getFilteredPayments(house);
     const summary = paymentsSummaryForList(payments, house);
@@ -2143,9 +2156,10 @@ export function createRenderer(els) {
       renderOtherYears(house, focusId);
     });
     safe('pagamenti', () => {
-      renderPagamentiCounts(house, focusId);
-      renderPagamentiDue(house, focusId);
-      renderPagamentiNext(house, focusId);
+      const annoPagamenti = pagamentiPeriodId(house);
+      renderPagamentiCounts(house, annoPagamenti);
+      renderPagamentiDue(house, annoPagamenti);
+      renderPagamentiNext(house, annoPagamenti);
     });
     safe('registra', () => {
       syncPaymentEditMode(house);

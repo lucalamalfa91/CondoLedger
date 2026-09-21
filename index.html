@@ -202,6 +202,8 @@
             <p class="page-sub" data-page-sub></p>
           </div>
           <div class="toolbar">
+            <label for="paymentFilterPeriod" class="sr-only">Anno condominiale</label>
+            <select id="paymentFilterPeriod" class="chip-select"></select>
             <button class="btn btn-secondary" type="button" data-nav-target="pagamenti" data-nav-subview="importa">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9.5 9-6 9 6"/><path d="M5 10v8"/><path d="M9.7 10v8"/><path d="M14.3 10v8"/><path d="M19 10v8"/><path d="M3 21h18"/></svg>
               Importa estratto conto
@@ -228,8 +230,6 @@
         <div class="subview" data-subview-panel="pagati" role="tabpanel">
           <div class="list-head">
             <span class="muted" id="paymentsSummary" aria-live="polite"></span>
-            <label for="paymentFilterPeriod" class="sr-only">Anno condominiale</label>
-            <select id="paymentFilterPeriod" class="chip-select"><option value="">Tutti gli anni</option></select>
           </div>
           <div class="stack-single" id="paymentsTable"></div>
         </div>

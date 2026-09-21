@@ -218,28 +218,39 @@ export function sumStraordinariDue(house, periodId) {
     .reduce((s, d) => s + Number(d.amount || 0), 0);
 }
 
+/** Il saldo che arriva dall'anno prima, positivo se a debito. */
+function saldoRiportato(house, periodId) {
+  const b = (house.priorBalances || []).find(x => String(x.fiscalPeriodId) === String(periodId));
+  return Number(b?.amount || 0);
+}
+
 /**
- * Il conguaglio di un anno: consuntivo − preventivo.
+ * Il conguaglio di un anno: quello che resta da regolare quando l'anno si chiude.
  *
- * Si confronta con il preventivo, non con quello che si è versato. Quanto hai
- * pagato dice se sei in pari con le rate, non se il condominio ha speso più o
- * meno del previsto: sono due cose diverse, e sommarle sbaglia due volte. Nel
- * versato possono esserci quote di recupero di conguagli di anni passati — soldi
- * che non c'entrano niente con la gestione di quest'anno — e le rate ancora
- * scoperte finirebbero a gonfiare un conguaglio che non le riguarda. Le rate
- * arretrate restano dove sono, fra le cose da pagare del loro anno.
+ *     consuntivo + straordinari + saldo riportato − versato
  *
- * Positivo = a debito (si è speso più del preventivo), negativo = a credito.
- * Null finché il consuntivo non c'è: prima di allora non c'è niente da
- * conguagliare.
+ * Le tre voci del dovuto da una parte, quello che è stato versato dall'altra. Il
+ * saldo che arriva dall'anno prima sta con il dovuto, ed è quello che mette a
+ * posto il conto quando una rata dell'anno serviva a recuperarlo: il versamento
+ * e il debito che copre si annullano, invece di far sembrare che si sia pagato
+ * più del dovuto.
+ *
+ * Non è il confronto col preventivo. Quello dice se il condominio ha speso più o
+ * meno del previsto — informazione utile, che l'app mostra a parte — ma non dice
+ * quanto devi tu: due proprietari con lo stesso consuntivo e rate diverse hanno
+ * lo stesso scostamento dal preventivo e conguagli opposti.
+ *
+ * Positivo = a debito, negativo = a credito. Null finché il consuntivo non c'è.
  */
 export function computeConguaglio(house, periodId) {
   const consuntivo = sumConsuntivoDue(house, periodId);
   if (consuntivo === 0) return null;
-  const preventivo = sumPreventivoDue(house, periodId);
-  const amount = Math.round((consuntivo - preventivo) * 100) / 100;
+  const straordinari = sumStraordinariDue(house, periodId);
+  const riportato = saldoRiportato(house, periodId);
+  const pagato = sumPaid(house, periodId);
+  const amount = Math.round((consuntivo + straordinari + riportato - pagato) * 100) / 100;
   const direction = amount > 0.005 ? 'debito' : amount < -0.005 ? 'credito' : 'pari';
-  return { amount, direction, consuntivo, preventivo };
+  return { amount, direction, consuntivo, straordinari, riportato, pagato };
 }
 
 export function sumPreventivoDue(house, periodId) {

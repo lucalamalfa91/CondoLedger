@@ -7,7 +7,7 @@ import {
   priorBalancePresentation,
   priorBalanceSourceLabel
 } from './situazione-report.js';
-import { findInstallment, installmentShortLabel, inferInstallmentKey, installmentSummaryForPeriod } from './installments.js';
+import { findInstallment, installmentShortLabel, inferInstallmentKey, installmentSummaryForPeriod, isConguaglioSlot } from './installments.js';
 import { computeConguaglio, sumConsuntivoDue, sumOrdinarioDue, sumPaid, sumStraordinariDue } from './fiscal.js';
 import { pdfFmt, pdfStr } from './utils.js';
 
@@ -41,11 +41,13 @@ function dataIt(iso) {
 const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
   'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 
-/** «Rata 4 · settembre 2025»: come la chiama chi paga. */
-function nomeRata(slot, indice) {
+/** «Rata 4 · settembre 2025»: come la chiama chi paga, e come la chiama l'app. */
+function nomeRata(slot) {
   const mese = Number(String(slot?.periodStart || '').slice(5, 7));
   const anno = String(slot?.periodStart || '').slice(0, 4);
-  return `Rata ${indice + 1}${mese ? ` · ${MESI[mese - 1]} ${anno}` : ''}`;
+  const quando = mese ? ` · ${MESI[mese - 1]} ${anno}` : '';
+  if (slot?.soloConguaglio) return `Conguaglio${quando}`;
+  return `Rata ${slot?.numero ?? Number(slot?.slotIndex ?? 0) + 1}${quando}`;
 }
 
 function addSectionTitle(doc, y, title) {
@@ -76,20 +78,22 @@ function renderPdfHeader(doc, house, period, reportTitle) {
  * Che cosa copre un versamento: la rata a cui è agganciato, il conguaglio
  * dell'anno prima, oppure niente di preciso.
  */
-export function coperturaVersamento(house, report, p) {
+export function coperturaVersamento(house, report, p, etichette = null) {
   if (p.priorBalanceId) {
     const fonte = report.priorBalance ? priorBalanceSourceLabel(house, report.priorBalance) : null;
     return fonte && fonte !== '—' ? `Conguaglio ${fonte}` : 'Conguaglio anno precedente';
   }
   const key = p.installmentKey || inferInstallmentKey(house, p);
   if (!key) return 'Non assegnato';
+  const nome = etichette?.get(key);
+  if (nome) return nome;
   const slot = findInstallment(house, key);
-  return slot ? nomeRata(slot, Number(slot.slotIndex ?? 0)) : installmentShortLabel(house, key);
+  return slot ? nomeRata(slot) : installmentShortLabel(house, key);
 }
 
-function paymentPdfRows(house, report, payments) {
+function paymentPdfRows(house, report, payments, etichette) {
   return payments.map(p => [
-    cell(coperturaVersamento(house, report, p)),
+    cell(coperturaVersamento(house, report, p, etichette)),
     cell(dataIt(p.date)),
     cell(p.method || '-'),
     cell(pdfFmt(p.amount))
@@ -126,6 +130,46 @@ function renderPriorBalancePdfSection(doc, autoTable, house, report, startY) {
   return y + 12;
 }
 
+/**
+ * Il conguaglio quando si paga a rate.
+ *
+ * Sta qui e non fra le rate dell'anno: quelle righe non hanno un centesimo di
+ * ordinario dentro, sono il debito dell'anno prima spalmato su più scadenze.
+ */
+function renderConguaglioRatePdf(doc, autoTable, tabella, startY) {
+  const piano = tabella?.rateConguaglio;
+  if (!piano) return startY;
+  let y = addSectionTitle(doc, startY, 'Il conguaglio, pagato a rate');
+  const body = piano.righe.map((r, i) => [
+    cell(piano.righe.length > 1 ? `Quota ${i + 1}` : 'Quota unica'),
+    cell(dataIt(r.scadenza)),
+    cell(pdfFmt(r.previsto)),
+    cell(pdfFmt(r.versato)),
+    cell(r.stato)
+  ]);
+  if (piano.righe.length > 1) {
+    body.push([cell('Totale'), '', cell(pdfFmt(piano.previsto)), cell(pdfFmt(piano.versato)), '']);
+  }
+  autoTable(doc, {
+    startY: y,
+    head: [['Quota', 'Scadenza', 'Previsto', 'Versato', 'Stato']].map(row => row.map(cell)),
+    body,
+    ...PDF_TABLE,
+    headStyles: { ...PDF_TABLE.headStyles, fillColor: [70, 110, 60] },
+    columnStyles: {
+      0: { cellWidth: 22 }, 1: { cellWidth: 26 },
+      2: { cellWidth: 28, halign: 'right' }, 3: { cellWidth: 28, halign: 'right' },
+      4: { cellWidth: 52 }
+    },
+    didParseCell: data => {
+      if (data.section === 'body' && piano.righe.length > 1 && data.row.index === body.length - 1) {
+        data.cell.styles.fontStyle = 'bold';
+      }
+    }
+  });
+  return doc.lastAutoTable.finalY + 10;
+}
+
 function renderVociEsercizioPdf(doc, autoTable, report, startY) {
   const { consuntivoDues } = report;
   if (!consuntivoDues.length) return startY;
@@ -158,8 +202,16 @@ function renderVociEsercizioPdf(doc, autoTable, report, startY) {
  * infatti le cifre non tornavano fra loro.
  */
 export function buildRatePlanTable(house, periodId) {
-  const { slots } = installmentSummaryForPeriod(house, periodId);
-  if (!slots.length) return null;
+  const tutti = installmentSummaryForPeriod(house, periodId).slots;
+  if (!tutti.length) return null;
+
+  // Il conguaglio messo dentro il piano occupa una riga sua, senza un centesimo
+  // di ordinario: non è una rata dell'anno, è il debito dell'anno prima che si
+  // paga a rate. Elencarlo qui lo faceva contare due volte — una nel totale
+  // preventivo e una fra i saldi riportati — e il totale da versare usciva di
+  // 781 euro più alto di quello scritto in testa alla stessa pagina.
+  const slots = tutti.filter(s => !isConguaglioSlot(s));
+  const rateConguaglio = tutti.filter(isConguaglioSlot);
 
   const consuntivo = sumConsuntivoDue(house, periodId);
   const straordinari = sumStraordinariDue(house, periodId);
@@ -168,7 +220,7 @@ export function buildRatePlanTable(house, periodId) {
   // Il consuntivo è una cifra sola per tutto l'anno: sulle rate si ripartisce in
   // parti uguali, e l'ultima si prende il resto degli arrotondamenti perché la
   // somma torni al centesimo.
-  const quota = round2(consuntivo / slots.length);
+  const quota = slots.length ? round2(consuntivo / slots.length) : 0;
   let resto = round2(consuntivo);
 
   const rows = slots.map((slot, i) => {
@@ -177,8 +229,9 @@ export function buildRatePlanTable(house, periodId) {
     if (effettivo != null) resto = round2(resto - effettivo);
     const differenza = round2(slot.paid - slot.amountDue);
     return {
-      numero: i + 1,
-      nome: nomeRata(slot, i),
+      numero: slot.numero ?? i + 1,
+      key: slot.key,
+      nome: nomeRata(slot),
       scadenza: slot.periodEnd,
       preventivo: round2(slot.amountDue),
       consuntivo: effettivo,
@@ -194,7 +247,35 @@ export function buildRatePlanTable(house, periodId) {
     versato: round2(rows.reduce((s, r) => s + r.versato, 0))
   };
 
-  return { rows, totali, consuntivo, straordinari, riportato };
+  // La stessa rata deve chiamarsi allo stesso modo dovunque compaia: la tabella
+  // qui sopra rinumera saltando le righe di conguaglio, e senza questa mappa il
+  // «Dettaglio versamenti» avrebbe continuato a contarle.
+  const etichette = new Map();
+  rows.forEach(r => etichette.set(r.key, r.nome));
+  rateConguaglio.forEach((slot, i) => {
+    etichette.set(slot.key, rateConguaglio.length > 1 ? `Conguaglio, quota ${i + 1}` : 'Conguaglio');
+  });
+
+  return {
+    rows, totali, consuntivo, straordinari, riportato, etichette,
+    rateConguaglio: pianoConguaglio(rateConguaglio)
+  };
+}
+
+/** Il conguaglio rateizzato: quando si paga, quanto era previsto e quanto è arrivato. */
+function pianoConguaglio(slots) {
+  if (!slots.length) return null;
+  const righe = slots.map(slot => ({
+    scadenza: slot.periodEnd,
+    previsto: round2(slot.amountDue),
+    versato: round2(slot.paid),
+    stato: statoRataPdf(slot.paid, slot.amountDue, round2(slot.paid - slot.amountDue))
+  }));
+  return {
+    righe,
+    previsto: round2(righe.reduce((s, r) => s + r.previsto, 0)),
+    versato: round2(righe.reduce((s, r) => s + r.versato, 0))
+  };
 }
 
 /** Pagata, parziale o non pagata — confrontando il versato con la rata decisa. */
@@ -238,7 +319,10 @@ export function buildChiusuraRows(house, periodId, tabella) {
   const dovuto = totali.consuntivo != null
     ? round2(totali.consuntivo + straordinari + riportato)
     : round2(totali.preventivo + straordinari + riportato);
-  if (righe.length > 2) righe.push(['Totale dovuto', dovuto]);
+  // «Totale dovuto» serve solo quando il dovuto è una somma: con una voce sola
+  // ripeterebbe la riga di sopra.
+  const aPiuVoci = Math.abs(straordinari) > 0.005 || Math.abs(riportato) > 0.005;
+  if (aPiuVoci) righe.push(['Totale dovuto', dovuto]);
   righe.push(['Totale versato nell’anno', versato]);
 
   const differenza = round2(dovuto - versato);
@@ -250,9 +334,8 @@ export function buildChiusuraRows(house, periodId, tabella) {
   return { righe, differenza, verso };
 }
 
-function renderRatePlanPdf(doc, autoTable, house, report, startY) {
-  const tabella = buildRatePlanTable(house, report.period.id);
-  if (!tabella) return startY;
+function renderRatePlanPdf(doc, autoTable, house, report, tabella, startY) {
+  if (!tabella || !tabella.rows.length) return startY;
   const { rows, totali } = tabella;
 
   let y = addSectionTitle(doc, startY, 'Rate: previsto, effettivo e versato');
@@ -356,13 +439,13 @@ export function buildRiepilogoRows(house, report) {
  * parte: il «Dettaglio versamenti» ne mostrava meno del totale versato, e chi
  * lo leggeva non ritrovava le cifre.
  */
-function renderRateDetailPdf(doc, autoTable, house, report, startY) {
+function renderRateDetailPdf(doc, autoTable, house, report, tabella, startY) {
   const payments = [...(report.exercisePayments || []), ...(report.priorBalancePayments || [])];
   if (!payments.length) return startY;
   let y = addSectionTitle(doc, startY, 'Dettaglio versamenti');
   const total = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
   const sorted = [...payments].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-  const rows = paymentPdfRows(house, report, sorted);
+  const rows = paymentPdfRows(house, report, sorted, tabella?.etichette);
   rows.push([cell('Totale versato'), '', '', cell(pdfFmt(total))]);
   autoTable(doc, {
     startY: y,
@@ -386,10 +469,12 @@ function renderSituazionePdf(doc, autoTable, report, house) {
   });
   y = doc.lastAutoTable.finalY + 10;
 
+  const tabella = buildRatePlanTable(house, report.period.id);
   y = renderPriorBalancePdfSection(doc, autoTable, house, report, y);
+  y = renderConguaglioRatePdf(doc, autoTable, tabella, y);
   y = renderVociEsercizioPdf(doc, autoTable, report, y);
-  y = renderRatePlanPdf(doc, autoTable, house, report, y);
-  y = renderRateDetailPdf(doc, autoTable, house, report, y);
+  y = renderRatePlanPdf(doc, autoTable, house, report, tabella, y);
+  y = renderRateDetailPdf(doc, autoTable, house, report, tabella, y);
 
   if (report.carryDues.length) {
     y = addSectionTitle(doc, y, 'Riporti dentro il preventivo');

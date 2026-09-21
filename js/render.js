@@ -10,8 +10,7 @@ import {
   sumConsuntivoDue,
   sumOrdinarioDue,
   sumPaid,
-  sumStraordinariDue,
-  totals
+  sumStraordinariDue
 } from './fiscal.js';
 import {
   findInstallment,
@@ -447,13 +446,18 @@ export function createRenderer(els) {
   const MONTH_LONG = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
     'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 
-  /** «Rata 4 · settembre 2025»: come la chiama chi paga, non come la salva il database. */
+  /**
+   * «Rata 4 · settembre 2025»: come la chiama chi paga, non come la salva il
+   * database. La riga di solo conguaglio non è una rata e non ne consuma il
+   * numero: si chiama col suo nome, e le rate dopo di lei restano al loro posto.
+   */
   function installmentTitle(slot) {
     if (!slot) return 'Rata';
     const month = Number(String(slot.periodStart || '').slice(5, 7));
     const year = String(slot.periodStart || '').slice(0, 4);
     const when = month ? ` · ${MONTH_LONG[month - 1]} ${year}` : '';
-    return `Rata ${Number(slot.slotIndex ?? 0) + 1}${when}`;
+    if (slot.soloConguaglio) return `Conguaglio${when}`;
+    return `Rata ${slot.numero ?? Number(slot.slotIndex ?? 0) + 1}${when}`;
   }
 
   function recommendedInstallment(house, periodId) {
@@ -895,7 +899,7 @@ export function createRenderer(els) {
           const { stato } = statoRata(slot);
           return voceRowHtml({
             voice: dominantVoice(slot.parts),
-            title: installmentTitle(slot) || `Rata ${i + 1}`,
+            title: installmentTitle(slot),
             // Nessuna rata resta «non pagata»: l'anno è chiuso e quello che
             // manca è già dentro il conguaglio.
             sub: stato === 'pagata'
@@ -1380,7 +1384,7 @@ export function createRenderer(els) {
               ? '<span class="state-late">Scaduta</span>'
               : '<span class="muted">Da pagare</span>';
       return `<div class="plan-row">
-        <span>Rata ${i + 1}</span>
+        <span>${slot.soloConguaglio ? 'Conguaglio' : `Rata ${slot.numero ?? i + 1}`}</span>
         <span class="muted">${fmtDate(slot.periodEnd)}</span>
         ${VOCI_RATA.map(voice => {
           const value = Number(parts[voice] || 0);
@@ -2017,9 +2021,8 @@ export function createRenderer(els) {
       return;
     }
     els.houseDrawerList.innerHTML = state.data.houses.map(h => {
-      const t = totals(h);
       const active = h.id === state.selectedHouseId ? 'active' : '';
-      return `<button type="button" class="house-btn ${active}" data-house-id="${h.id}"><strong>${h.name}</strong><span class="muted">${h.location || '—'}</span><span class="muted">Saldo cons. ${fmt(t.balanceConsuntivo)}</span></button>`;
+      return `<button type="button" class="house-btn ${active}" data-house-id="${h.id}"><strong>${h.name}</strong><span class="muted">${h.location || '—'}</span></button>`;
     }).join('');
   }
 

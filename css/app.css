@@ -440,6 +440,8 @@ label { font-size: var(--text-sm); font-weight: 500; color: var(--color-text-sof
 .house-btn:hover { border-color: var(--color-primary); }
 .house-btn.active { background: var(--color-primary-soft); border: 2px solid var(--color-primary); padding: calc(.75rem - 1px) calc(.85rem - 1px); }
 .house-btn strong { display: block; font-size: var(--text-base); }
+/* Nome e luogo su due righe: da inline si attaccavano l'uno all'altro. */
+.house-btn .muted { display: block; font-size: var(--text-sm); }
 .house-list.compact .house-btn { padding: .65rem .75rem; }
 .house-list-scroll { max-height: min(55vh, 520px); overflow-y: auto; padding-right: .25rem; }
 

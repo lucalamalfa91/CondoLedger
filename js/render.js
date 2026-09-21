@@ -535,6 +535,25 @@ export function createRenderer(els) {
    * Tutto quello che resta da pagare in un anno, voce per voce: le rate aperte e,
    * se non è finito dentro una rata, il conguaglio che arriva dall'anno prima.
    */
+  /**
+   * Da quale anno arriva il conguaglio messo dentro il piano rate.
+   *
+   * Nel piano è una riga come le altre, e senza dirlo sembra una quota del
+   * preventivo di quest'anno: è il debito che l'anno scorso ha lasciato aperto.
+   */
+  function origineConguaglio(house, periodId) {
+    const prior = getPriorBalanceForPeriod(house, periodId);
+    const fonte = prior?.sourcePeriodId ? periodLabel(house, prior.sourcePeriodId) : null;
+    return fonte ? `Conguaglio ${fonte}` : 'Conguaglio dall’anno prima';
+  }
+
+  /** La riga sotto il titolo di una rata: di che anno è, e quanto ne è arrivato. */
+  function sottotitoloRata(house, periodId, slot) {
+    const da = slot.soloConguaglio ? origineConguaglio(house, periodId) : `Preventivo ${periodLabel(house, periodId)}`;
+    if (slot.paid <= 0.005) return da;
+    return `${da} · versati ${fmt(slot.paid)} su ${fmt(slot.amountDue)}`;
+  }
+
   function openItems(house, periodId) {
     if (!periodId || annoChiuso(house, periodId)) return [];
     const items = pendingInstallments(house, periodId).map(row => ({
@@ -546,9 +565,7 @@ export function createRenderer(els) {
       title: installmentTitle(row.slot),
       // Se qualcosa è già arrivato lo dice qui: la cifra a destra è il residuo,
       // non la rata intera, e da sola sembrerebbe un importo sbagliato.
-      sub: row.slot.paid > 0.005
-        ? `Preventivo ${periodLabel(house, periodId)} · versati ${fmt(row.slot.paid)} su ${fmt(row.slot.amountDue)}`
-        : `Preventivo ${periodLabel(house, periodId)}`,
+      sub: sottotitoloRata(house, periodId, row.slot),
       amount: row.gap,
       dueBy: row.dueBy
     }));
@@ -807,7 +824,11 @@ export function createRenderer(els) {
 
   function paymentVoiceMeta(house, payment) {
     if (payment.priorBalanceId) {
-      return { voice: 'conguaglio', title: 'Conguaglio', sub: 'Differenza del consuntivo' };
+      return {
+        voice: 'conguaglio',
+        title: origineConguaglio(house, payment.fiscalPeriodId),
+        sub: 'Differenza del consuntivo di quell’anno'
+      };
     }
     const stra = straordinarioFromKey(house, payment.installmentKey);
     if (stra) {
@@ -819,7 +840,9 @@ export function createRenderer(els) {
     return {
       voice: dominantVoice(slot.parts),
       title: installmentTitle(slot),
-      sub: `Preventivo ${periodLabel(house, payment.fiscalPeriodId)}`,
+      sub: slot.soloConguaglio
+        ? origineConguaglio(house, payment.fiscalPeriodId)
+        : `Preventivo ${periodLabel(house, payment.fiscalPeriodId)}`,
       parts: slot.parts
     };
   }

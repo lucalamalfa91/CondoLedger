@@ -1273,6 +1273,12 @@ export function createRenderer(els) {
     els.resocontiYears.innerHTML = head + rows;
   }
 
+  /** Il collegamento al consuntivo di un anno preciso, non a quello proposto. */
+  function linkConsuntivo(periodId, testo) {
+    const id = String(periodId ?? '').replace(/"/g, '&quot;');
+    return `<button type="button" class="link-more" data-nav-target="resoconti" data-nav-subview="consuntivo" data-resoconto-period="${id}">${testo}</button>`;
+  }
+
   function renderResocontoCycle(house, periodId) {
     if (!els.resocontoCycle) return;
     const f = yearFigures(house, periodId);
@@ -1292,9 +1298,10 @@ export function createRenderer(els) {
         voice: 'consuntivo',
         title: 'Consuntivo',
         value: f.hasConsuntivo ? fmt(f.consuntivo) : 'In attesa',
+        // Registrato non vuol dire intoccabile: se è sbagliato, di qui si apre.
         note: f.hasConsuntivo
-          ? 'Registrato'
-          : `Dopo il ${fmtDate(f.row?.endDate)} · <button type="button" class="link-more" data-nav-target="resoconti" data-nav-subview="consuntivo">Aggiungi</button>`,
+          ? `Registrato · ${linkConsuntivo(periodId, 'Modifica o elimina')}`
+          : `Dopo il ${fmtDate(f.row?.endDate)} · ${linkConsuntivo(periodId, 'Aggiungi')}`,
         muted: !f.hasConsuntivo
       },
       {
@@ -1715,8 +1722,14 @@ export function createRenderer(els) {
    * Come per il preventivo: senza questo, salvare di nuovo aggiungeva un
    * secondo consuntivo allo stesso anno, e da lì in poi i totali raddoppiavano.
    */
-  function loadConsForPeriod(house) {
+  function loadConsForPeriod(house, annoChiesto = null) {
     if (!els.consForm) return;
+    // Chi arriva dal resoconto di un anno vuole il consuntivo di quell'anno: il
+    // modulo proponeva sempre il più recente ancora senza, e per correggerne uno
+    // già registrato bisognava sapere di dover cambiare l'anno a mano.
+    if (annoChiesto && els.consPeriod && [...els.consPeriod.options].some(o => o.value === String(annoChiesto))) {
+      els.consPeriod.value = String(annoChiesto);
+    }
     const periodId = consFormPeriodId(house);
     const existing = periodId
       ? house.dues.find(d => String(d.fiscalPeriodId) === String(periodId) && d.dueKind === 'consuntivo')

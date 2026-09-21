@@ -62,12 +62,21 @@ test('la composizione della rata finisce nell’appuntamento', () => {
 test('ogni appuntamento porta il collegamento per registrare quella rata', () => {
   const plan = computeReminderPlan(casa(), 'p1');
   const ics = buildIcsCalendar(casa(), plan, 3, 'https://esempio.app');
-  const link = paymentLinkForInstallment('https://esempio.app', plan.items[0].key);
-  assert.equal(link, 'https://esempio.app/#/pagamenti/registra?rata=d1%3A0');
+  const link = paymentLinkForInstallment('https://esempio.app', plan.items[0].key, 1);
+  assert.equal(link, 'https://esempio.app/#/pagamenti/registra?casa=1&rata=d1%3A0');
   assert.ok(ics.includes('URL:' + link), 'il collegamento deve stare nel campo URL');
   assert.ok(ics.includes('Registra il pagamento:'), 'e anche nella descrizione, per i calendari che ignorano URL');
   assert.equal((ics.match(/BEGIN:VEVENT/g) || []).length, 5);
   assert.ok(ics.includes('TRIGGER:-P3D'), 'con il preavviso di tre giorni');
+});
+
+test('il collegamento dice anche di quale casa è la rata', () => {
+  // Senza la casa nell'indirizzo, l'app si apre sull'ultima che hai guardato:
+  // chi ha più condomini finiva su quello sbagliato, dove quella rata non c'è.
+  const altra = { ...casa(), id: 7, name: 'Via Verdi' };
+  const ics = buildIcsCalendar(altra, computeReminderPlan(altra, 'p1'), 3, 'https://esempio.app');
+  assert.ok(ics.includes('casa=7&rata=d1%3A0'), ics.split('\r\n').find(l => l.startsWith('URL:')));
+  assert.ok(!ics.includes('casa=1&'), 'e non quella di un altro condominio');
 });
 
 test('senza rate aperte non si esporta niente', () => {

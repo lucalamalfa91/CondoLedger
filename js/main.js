@@ -292,6 +292,9 @@ function navigate(view, subview = null) {
  * Sta qui e non dentro navigate() perché al modulo si arriva anche dal solo
  * indirizzo, che passa da un'altra strada.
  */
+/** L'anno chiesto da un collegamento «Modifica o elimina», in attesa di essere aperto. */
+let annoConsuntivoChiesto = null;
+
 function apriDocumentoDellAnno(view, subview) {
   const house = activeHouse();
   if (!house || view !== 'resoconti') return;
@@ -299,9 +302,16 @@ function apriDocumentoDellAnno(view, subview) {
     loadDueForPeriod(house);
     syncDueForm(house);
   }
-  if (subview === 'consuntivo' && !els.consEditId?.value) {
-    loadConsForPeriod(house, state.pendingSituazionePeriodId ?? state.resocontoPeriodId);
-    syncConsForm(house);
+  if (subview === 'consuntivo') {
+    // L'anno si forza solo se è stato chiesto per nome, arrivando dal resoconto
+    // di quell'anno, e una volta sola: altrimenti il modulo rimetteva l'anno di
+    // partenza a ogni rientro, e quello scelto a mano non restava mai.
+    const chiesto = annoConsuntivoChiesto;
+    annoConsuntivoChiesto = null;
+    if (chiesto || !els.consEditId?.value) {
+      loadConsForPeriod(house, chiesto);
+      syncConsForm(house);
+    }
   }
 }
 
@@ -918,6 +928,9 @@ function wireNavigation() {
     if (!btn) return;
     if (btn.dataset.situazionePeriod) state.pendingSituazionePeriodId = btn.dataset.situazionePeriod;
     if (btn.dataset.resocontoPeriod) state.pendingSituazionePeriodId = btn.dataset.resocontoPeriod;
+    if (btn.dataset.resocontoPeriod && btn.dataset.navSubview === 'consuntivo') {
+      annoConsuntivoChiesto = btn.dataset.resocontoPeriod;
+    }
     if (btn.dataset.houseMode === 'new') startNewHouseForm();
     else {
       navigate(btn.dataset.navTarget, btn.dataset.navSubview || null);

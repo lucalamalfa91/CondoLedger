@@ -926,14 +926,19 @@ function wireNavigation() {
   document.addEventListener('click', e => {
     const btn = e.target.closest('[data-nav-target]');
     if (!btn) return;
-    if (btn.dataset.situazionePeriod) state.pendingSituazionePeriodId = btn.dataset.situazionePeriod;
-    if (btn.dataset.resocontoPeriod) state.pendingSituazionePeriodId = btn.dataset.resocontoPeriod;
+    // L'anno chiesto da un collegamento vale per il disegno che segue, e per
+    // quello soltanto. navigate() da solo non ridisegna: se nessuno consuma la
+    // richiesta, resta lì e si prende il cambio d'anno successivo, che l'utente
+    // vede come un menu che non si lascia cambiare.
+    const annoChiesto = btn.dataset.situazionePeriod || btn.dataset.resocontoPeriod || null;
+    if (annoChiesto) state.pendingSituazionePeriodId = annoChiesto;
     if (btn.dataset.resocontoPeriod && btn.dataset.navSubview === 'consuntivo') {
       annoConsuntivoChiesto = btn.dataset.resocontoPeriod;
     }
     if (btn.dataset.houseMode === 'new') startNewHouseForm();
     else {
       navigate(btn.dataset.navTarget, btn.dataset.navSubview || null);
+      if (annoChiesto) render();
     }
     if (btn.dataset.closeSheet) closeQuickAddSheet();
   });

@@ -64,7 +64,20 @@ function riscalaRate(splitAmounts, vecchio, nuovo) {
   return { allocato, rows: aggiornate };
 }
 
+/**
+ * Su quale database stiamo lavorando. Senza questa riga uno strumento del
+ * genere è pericoloso: se le credenziali non ci sono, il client ricade su un
+ * file locale vuoto e risponde «non c'è niente da ricalcolare» — che a leggerlo
+ * di fretta sembra «fatto, tutto a posto».
+ */
+function descriviDatabase() {
+  const remoto = process.env.TURSO_DATABASE_URL;
+  if (remoto) return `Turso · ${remoto.replace(/\?.*$/, '')}`;
+  return `file locale · ${process.env.DB_PATH || './data/condoledger.db'}`;
+}
+
 async function main() {
+  console.log(`Database: ${descriviDatabase()}\n`);
   const db = await getDb();
 
   const saldi = await db.prepare(`
@@ -80,7 +93,11 @@ async function main() {
   `).all();
 
   if (!saldi.length) {
-    console.log('Nessun saldo riportato in banca dati: non c’è niente da ricalcolare.');
+    console.log('Nessun saldo riportato in questo database: non c’è niente da ricalcolare.');
+    if (!process.env.TURSO_DATABASE_URL) {
+      console.log('Attenzione: stai lavorando su un file locale. Per i dati veri servono');
+      console.log('TURSO_DATABASE_URL e TURSO_AUTH_TOKEN nell’ambiente.');
+    }
     return;
   }
 

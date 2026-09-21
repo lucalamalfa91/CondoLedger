@@ -1,6 +1,7 @@
 /**
- * Lo script che rimette a posto i conguagli già riportati, provato su dati
- * sbagliati come quelli che si trovano in banca dati.
+ * Il ricalcolo dei conguagli già riportati, provato su dati sbagliati come
+ * quelli che si trovano in banca dati — sia da terminale sia all'avvio, che è
+ * l'unica via sugli host dove una shell non c'è.
  *
  * Ogni passaggio gira in un processo suo: `config.dbPath` si fissa quando il
  * modulo dell'ambiente viene caricato, quindi due database nello stesso
@@ -98,5 +99,51 @@ test('rieseguirlo non cambia più niente', () => {
   const r = esegui(dbPath, ['--applica']);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /Nessuna cifra da correggere/);
+  assert.equal(leggi(dbPath).saldo, -85.23);
+});
+
+/** Il ricalcolo attaccato all'avvio, con RICALCOLA_CONGUAGLI nell'ambiente. */
+function all_avvio(dbPath, modo) {
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    const { getDb, closeDb } = await import('./server/db.js');
+    const { maybeRicalcolaConguagliOnBoot } = await import('./server/bootstrap.js');
+    await maybeRicalcolaConguagliOnBoot(await getDb());
+    await closeDb();
+  `], {
+    cwd: RADICE,
+    env: { ...process.env, DB_PATH: dbPath, NODE_ENV: 'test', RICALCOLA_CONGUAGLI: modo },
+    encoding: 'utf8'
+  });
+  if (r.status !== 0) throw new Error(r.stderr || r.stdout);
+  return r.stdout;
+}
+
+test('all’avvio senza la variabile non si muove niente', () => {
+  const dbPath = dbConIlCasoSbagliato();
+  const out = all_avvio(dbPath, '');
+  assert.equal(out.trim(), '', 'nessun diario: non è stato chiesto niente');
+  assert.equal(leggi(dbPath).saldo, -162.73);
+});
+
+test('all’avvio con true mostra la correzione senza scrivere', () => {
+  const dbPath = dbConIlCasoSbagliato();
+  const out = all_avvio(dbPath, 'true');
+  assert.match(out, /-€ 162,73\s*→\s*-€ 85,23/, out);
+  assert.match(out, /Non ho scritto niente/);
+  assert.equal(leggi(dbPath).saldo, -162.73, 'la prova a vuoto non deve toccare la banca dati');
+});
+
+test('all’avvio con applica corregge, e il secondo avvio non ha più niente da fare', () => {
+  const dbPath = dbConIlCasoSbagliato();
+  const primo = all_avvio(dbPath, 'applica');
+  assert.match(primo, /1 saldo corretto, 1 piano rate riallineato/, primo);
+  const dopo = leggi(dbPath);
+  assert.equal(dopo.saldo, -85.23);
+  assert.equal(dopo.rate[0].conguaglio, -85.23, 'il conguaglio dentro le rate segue il saldo');
+  assert.equal(dopo.rate[0].amount, 114.77);
+
+  // La variabile può restare impostata per distrazione: non deve fare danni.
+  const secondo = all_avvio(dbPath, 'applica');
+  assert.match(secondo, /Nessuna cifra da correggere/, secondo);
   assert.equal(leggi(dbPath).saldo, -85.23);
 });

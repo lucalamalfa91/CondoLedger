@@ -14,6 +14,7 @@
  */
 import { hashPassword, newUserId } from './auth-core.js';
 import { migrateFromSupabase } from './migrate-from-supabase.js';
+import { applicaConguagli, esaminaConguagli, euro, righeCorrezione } from './ricalcola-conguagli.js';
 
 const RULE = '─'.repeat(72);
 
@@ -147,4 +148,73 @@ export async function maybeBootstrapUser(db) {
     'Ora puoi accedere. Rimuovi subito BOOTSTRAP_USER_EMAIL e',
     'BOOTSTRAP_USER_PASSWORD dalle variabili dell\'host.'
   ]);
+}
+
+/**
+ * Il ricalcolo dei conguagli all'avvio, per gli stessi host senza shell.
+ *
+ * Fa quello che fa `npm run ricalcola-conguagli`, con le stesse due marce:
+ *
+ *   RICALCOLA_CONGUAGLI=true      → guarda e basta, scrive il diario nei log
+ *   RICALCOLA_CONGUAGLI=applica   → corregge, in una transazione sola
+ *
+ * A differenza della migrazione qui non serve una rete di sicurezza che lo
+ * fermi al secondo giro: il ricalcolo è idempotente per costruzione, perché
+ * ricava il valore giusto dai dati e non dal valore che trova. Rieseguirlo su
+ * un database già corretto non trova niente da fare e lo dice.
+ */
+export async function maybeRicalcolaConguagliOnBoot(db) {
+  const modo = (process.env.RICALCOLA_CONGUAGLI || '').trim().toLowerCase();
+  if (modo !== 'true' && modo !== 'applica') return;
+  const applica = modo === 'applica';
+
+  try {
+    const { saldi, daCorreggere, saltati } = await esaminaConguagli(db);
+
+    if (!saldi.length) {
+      banner(['RICALCOLO CONGUAGLI', '', 'Nessun saldo riportato: non c\'è niente da ricalcolare.']);
+      return;
+    }
+
+    const diario = [
+      applica ? 'RICALCOLO CONGUAGLI — applicato' : 'RICALCOLO CONGUAGLI — prova a vuoto',
+      '',
+      `Saldi riportati trovati: ${saldi.length}`
+    ];
+    if (saltati.length) {
+      diario.push('', 'Lasciati come sono:');
+      for (const s of saltati) diario.push(`  ${s.casa} · ${s.anno}: ${euro(s.amount)} — ${s.perche}`);
+    }
+
+    if (!daCorreggere.length) {
+      diario.push('', 'Nessuna cifra da correggere.', '', 'Puoi rimuovere RICALCOLA_CONGUAGLI dalle variabili dell\'host.');
+      banner(diario);
+      return;
+    }
+
+    diario.push('', 'Da correggere:');
+    for (const c of daCorreggere) diario.push(...righeCorrezione(c));
+
+    if (!applica) {
+      diario.push('', 'Non ho scritto niente. Per applicare davvero:',
+        'RICALCOLA_CONGUAGLI=applica');
+      banner(diario);
+      return;
+    }
+
+    const { rateAggiornate } = await applicaConguagli(db, daCorreggere, (riga) => diario.push(riga));
+    diario.push('',
+      `Fatto: ${daCorreggere.length} ${daCorreggere.length === 1 ? 'saldo corretto' : 'saldi corretti'}` +
+      `${rateAggiornate ? `, ${rateAggiornate} ${rateAggiornate === 1 ? 'piano rate riallineato' : 'piani rate riallineati'}` : ''}.`,
+      '', 'Rimuovi ora RICALCOLA_CONGUAGLI dalle variabili dell\'host.');
+    banner(diario);
+  } catch (err) {
+    // Come la migrazione: la transazione ha già fatto rollback e il server parte
+    // comunque, perché un'app che non si avvia è più difficile da diagnosticare.
+    banner([
+      'RICALCOLO CONGUAGLI FALLITO — niente è stato scritto a metà',
+      '',
+      err.message
+    ]);
+  }
 }

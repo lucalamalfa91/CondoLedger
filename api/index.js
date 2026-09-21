@@ -13,15 +13,17 @@
  * al primo avvio a freddo e viene riusata finché l'istanza resta calda.
  */
 import { createApp } from '../server/app.js';
-import { maybeBootstrapUser, maybeMigrateOnBoot } from '../server/bootstrap.js';
+import { maybeBootstrapUser, maybeMigrateOnBoot, maybeRicalcolaConguagliOnBoot } from '../server/bootstrap.js';
 import { describeDatabase, getDb } from '../server/db.js';
 
 const app = createApp();
 
 /**
- * Migrazione e primo utente girano una volta per istanza, non a ogni richiesta, e solo
- * se le rispettive variabili sono impostate. Entrambe si autoproteggono: la migrazione
- * non parte se il database contiene già delle case.
+ * Migrazione, primo utente e ricalcolo dei conguagli girano una volta per istanza, non a
+ * ogni richiesta, e solo se le rispettive variabili sono impostate. Si autoproteggono
+ * tutti e tre: la migrazione non parte se il database contiene già delle case, e il
+ * ricalcolo è idempotente, perché ricava il valore giusto dai dati e non da quello che
+ * trova scritto.
  *
  * `ready` è una promessa condivisa: le richieste che arrivano durante l'avvio a freddo
  * aspettano lo stesso lavoro invece di avviarne una copia per ciascuna.
@@ -37,6 +39,7 @@ const ready = (async () => {
   const db = await getDb();
   await maybeMigrateOnBoot(db);
   await maybeBootstrapUser(db);
+  await maybeRicalcolaConguagliOnBoot(db);
 })().then(
   () => null,
   (err) => err

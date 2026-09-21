@@ -182,12 +182,10 @@ label { font-size: var(--text-sm); font-weight: 500; color: var(--color-text-sof
   width: 100%;
   min-width: 0;
 }
-/* Il contenuto di una vista è una colonna con un passo solo: 24px in panoramica
-   e nei resoconti, 20px dove il disegno stringe (pagamenti, moduli). */
-.view { flex-direction: column; gap: var(--page-gap, var(--space-6)); }
-.view.active { display: flex; }
-.subview.active { display: flex; flex-direction: column; gap: var(--page-gap, var(--space-5)); }
-[data-view-panel="pagamenti"], [data-view-panel="impostazioni"] { --page-gap: var(--space-5); }
+/* Dove il disegno stringe a 20px: i pagamenti e le pagine con un modulo. */
+[data-view-panel="pagamenti"], [data-view-panel="impostazioni"],
+[data-subview-panel="preventivo"], [data-subview-panel="consuntivo"],
+[data-subview-panel="rate"] { --page-gap: var(--space-5); }
 
 /* Marchio + selettore casa nel rail */
 .brand, .topbar-left { display: flex; align-items: center; gap: .65rem; }
@@ -329,11 +327,17 @@ label { font-size: var(--text-sm); font-weight: 500; color: var(--color-text-sof
 .choice-title { font-size: var(--text-md); font-weight: 600; }
 .choice-desc { font-size: var(--text-sm); font-weight: 400; color: var(--color-text-muted); line-height: 1.4; }
 
+/* Una vista e una sotto-vista sono colonne con un passo solo, invece che una
+   pila di margini: 24px in panoramica e nei resoconti, 20px dove il disegno
+   stringe (pagamenti, moduli). È quello che tiene distanti i pannelli. */
 .subview { display: none; min-width: 0; }
-.subview.active { display: block; animation: fadeIn .2s ease; }
+.subview.active {
+  display: flex; flex-direction: column; gap: var(--page-gap, var(--space-6));
+  min-width: 0; animation: fadeIn .2s ease;
+}
 @keyframes fadeIn { from { opacity: .6; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .view { display: none; min-width: 0; }
-.view.active { display: grid; gap: 0; min-width: 0; }
+.view.active { display: flex; flex-direction: column; gap: var(--page-gap, var(--space-6)); min-width: 0; }
 .file-input { display: none; }
 .sidebar { display: none; }
 .menu-toggle { display: none; }

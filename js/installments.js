@@ -83,6 +83,30 @@ function normalizeSplitAmounts(due) {
     .filter(Boolean);
 }
 
+/**
+ * Una riga del piano fatta di solo conguaglio.
+ *
+ * Non è una rata dell'anno: è il debito dell'anno prima messo a scadenza dentro
+ * il piano. Chiamarla «Rata 2» sposta di uno il numero di tutte quelle dopo, e
+ * chi confronta il resoconto col riparto dell'amministratore non si ritrova.
+ */
+export function isConguaglioSlot(slot) {
+  const p = slot?.parts || {};
+  return Math.abs(Number(p.conguaglio || 0)) > 0.005
+    && Math.abs(Number(p.ordinario || 0)) <= 0.005
+    && Math.abs(Number(p.straordinari || 0)) <= 0.005;
+}
+
+/** Numera le rate vere, saltando le righe di conguaglio. */
+function numeraSlot(slots) {
+  let numero = 0;
+  for (const slot of slots) {
+    slot.soloConguaglio = isConguaglioSlot(slot);
+    slot.numero = slot.soloConguaglio ? null : ++numero;
+  }
+  return slots;
+}
+
 export function listInstallmentsForDue(house, due) {
   // Gli straordinari non hanno rate proprie: il loro importo sta dentro il piano
   // rate dell'ordinario, nella colonna S.
@@ -92,7 +116,7 @@ export function listInstallmentsForDue(house, due) {
 
   const explicit = normalizeSplitAmounts(due);
   if (explicit?.length) {
-    return explicit.map(row => ({
+    return numeraSlot(explicit.map(row => ({
       key: makeInstallmentKey(due.id, row.slotIndex),
       dueId: due.id,
       fiscalPeriodId: due.fiscalPeriodId,
@@ -103,7 +127,7 @@ export function listInstallmentsForDue(house, due) {
       amountDue: row.amount,
       parts: row.parts,
       dueDescription: due.description || ''
-    }));
+    })));
   }
 
   const offsets = slotMonthOffsets(due);
@@ -112,7 +136,7 @@ export function listInstallmentsForDue(house, due) {
   const base = Math.floor((total * 100) / n) / 100;
   let allocated = 0;
 
-  return offsets.map((offset, slotIndex) => {
+  return numeraSlot(offsets.map((offset, slotIndex) => {
     const periodStart = addMonths(period.startDate, offset);
     const periodEnd = monthEnd(periodStart);
     const isLast = slotIndex === n - 1;
@@ -132,7 +156,7 @@ export function listInstallmentsForDue(house, due) {
       parts: { ordinario: amountDue, conguaglio: 0, straordinari: 0 },
       dueDescription: due.description || ''
     };
-  });
+  }));
 }
 
 export function listInstallmentsForPeriod(house, fiscalPeriodId) {

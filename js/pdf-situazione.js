@@ -5,12 +5,10 @@ import {
   hasPreventivoReport,
   hasPriorBalanceReport,
   priorBalancePresentation,
-  priorBalanceSourceLabel,
-  computeSituazioneTotals
+  priorBalanceSourceLabel
 } from './situazione-report.js';
-import { installmentShortLabel, inferInstallmentKey, installmentSummaryForPeriod } from './installments.js';
-import { sumOrdinarioDue, sumStraordinariDue } from './fiscal.js';
-import { VOCI, VOCI_RATA } from './voci.js';
+import { findInstallment, installmentShortLabel, inferInstallmentKey, installmentSummaryForPeriod } from './installments.js';
+import { computeConguaglio, sumConsuntivoDue, sumOrdinarioDue, sumPaid, sumStraordinariDue } from './fiscal.js';
 import { pdfFmt, pdfStr } from './utils.js';
 
 async function loadPdfLibs() {
@@ -32,6 +30,22 @@ const PDF_TABLE = {
 
 function cell(value) {
   return pdfStr(value);
+}
+
+/** Una data come la scrive chi legge: 30/06/2025, non 2025-06-30. */
+function dataIt(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso || '-');
+}
+
+const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
+  'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+
+/** «Rata 4 · settembre 2025»: come la chiama chi paga. */
+function nomeRata(slot, indice) {
+  const mese = Number(String(slot?.periodStart || '').slice(5, 7));
+  const anno = String(slot?.periodStart || '').slice(0, 4);
+  return `Rata ${indice + 1}${mese ? ` · ${MESI[mese - 1]} ${anno}` : ''}`;
 }
 
 function addSectionTitle(doc, y, title) {
@@ -58,31 +72,42 @@ function renderPdfHeader(doc, house, period, reportTitle) {
   return y + 8;
 }
 
-function paymentPdfRows(house, payments) {
-  return payments.map(p => {
-    const key = p.installmentKey || inferInstallmentKey(house, p);
-    const rata = key ? installmentShortLabel(house, key) : '—';
-    return [
-      cell(rata),
-      cell(p.date || '—'),
-      cell(p.method || '—'),
-      cell(pdfFmt(p.amount))
-    ];
-  });
+/**
+ * Che cosa copre un versamento: la rata a cui è agganciato, il conguaglio
+ * dell'anno prima, oppure niente di preciso.
+ */
+export function coperturaVersamento(house, report, p) {
+  if (p.priorBalanceId) {
+    const fonte = report.priorBalance ? priorBalanceSourceLabel(house, report.priorBalance) : null;
+    return fonte && fonte !== '—' ? `Conguaglio ${fonte}` : 'Conguaglio anno precedente';
+  }
+  const key = p.installmentKey || inferInstallmentKey(house, p);
+  if (!key) return 'Non assegnato';
+  const slot = findInstallment(house, key);
+  return slot ? nomeRata(slot, Number(slot.slotIndex ?? 0)) : installmentShortLabel(house, key);
+}
+
+function paymentPdfRows(house, report, payments) {
+  return payments.map(p => [
+    cell(coperturaVersamento(house, report, p)),
+    cell(dataIt(p.date)),
+    cell(p.method || '-'),
+    cell(pdfFmt(p.amount))
+  ]);
 }
 
 function renderPriorBalancePdfSection(doc, autoTable, house, report, startY) {
   if (!report.priorBalance) return startY;
   const pb = report.priorBalance;
   const pres = priorBalancePresentation(pb.amount);
-  let y = addSectionTitle(doc, startY, 'Saldi anno precedente');
+  let y = addSectionTitle(doc, startY, 'Conguaglio arrivato dall’anno precedente');
   autoTable(doc, {
     startY: y,
-    head: [['Tipo', 'Da esercizio', 'Descrizione', 'Importo']].map(row => row.map(cell)),
+    head: [['Verso', 'Anno di origine', 'Descrizione', 'Importo']].map(row => row.map(cell)),
     body: [[
       cell(pres.label),
       cell(priorBalanceSourceLabel(house, pb)),
-      cell(pb.description || 'Saldo precedente'),
+      cell(pb.description || 'Conguaglio anno precedente'),
       cell(pdfFmt(pb.amount))
     ]],
     ...PDF_TABLE,
@@ -91,147 +116,26 @@ function renderPriorBalancePdfSection(doc, autoTable, house, report, startY) {
   y = doc.lastAutoTable.finalY + 4;
   doc.setFontSize(8);
   doc.text(
-    cell('Voce di apertura esercizio: non modifica le voci iniziali; si somma al totale da versare.'),
+    // I versamenti che lo coprono stanno nel «Dettaglio versamenti» insieme a
+    // tutti gli altri: erano in una tabella a parte, e i totali non tornavano.
+    cell('Si somma a quello che devi versare quest’anno, senza cambiare le voci del preventivo. I versamenti che lo coprono sono nel Dettaglio versamenti.'),
     14,
     y + 2,
-    { maxWidth: 180 }
+    { maxWidth: 182 }
   );
-  y += 8;
-
-  const payments = report.priorBalancePayments || [];
-  if (payments.length) {
-    y = addSectionTitle(doc, y, 'Versamenti a copertura saldo precedente');
-    const total = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
-    const rows = [...payments]
-      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
-      .map(p => [cell(p.date || '—'), cell(p.method || '—'), cell(pdfFmt(p.amount))]);
-    rows.push([cell('Totale versato'), '', cell(pdfFmt(total))]);
-    autoTable(doc, {
-      startY: y,
-      head: [['Data vers.', 'Metodo', 'Importo']].map(row => row.map(cell)),
-      body: rows,
-      ...PDF_TABLE,
-      headStyles: { ...PDF_TABLE.headStyles, fillColor: [70, 110, 60] }
-    });
-    y = doc.lastAutoTable.finalY + 10;
-  }
-
-  return y;
+  return y + 12;
 }
 
 function renderVociEsercizioPdf(doc, autoTable, report, startY) {
   const { consuntivoDues } = report;
   if (!consuntivoDues.length) return startY;
-  let y = addSectionTitle(doc, startY, 'Voci esercizio');
+  let y = addSectionTitle(doc, startY, 'Consuntivo: le spese dell’anno');
   const consBase = report.consuntivoTotal ?? 0;
   const rows = consuntivoDues.map(d => [cell(d.description || 'Voce'), cell(pdfFmt(d.amount))]);
-  rows.push([cell('Totale voci'), cell(pdfFmt(consBase))]);
+  rows.push([cell('Totale consuntivo'), cell(pdfFmt(consBase))]);
   autoTable(doc, {
     startY: y,
-    head: [['Descrizione', 'Importo']].map(row => row.map(cell)),
-    body: rows,
-    ...PDF_TABLE,
-    headStyles: { ...PDF_TABLE.headStyles, fillColor: [80, 80, 80] }
-  });
-  return doc.lastAutoTable.finalY + 10;
-}
-
-/**
- * «Rate e cosa contengono»: per ogni rata quanto è ordinario, quanto conguaglio e
- * quanto straordinari, con i totali in fondo. È il cuore del resoconto da stampare:
- * è la tabella che si mette a fianco del riparto dell'amministratore per verificarlo.
- */
-function renderRatePlanPdf(doc, autoTable, house, report, startY) {
-  const { slots } = installmentSummaryForPeriod(house, report.period.id);
-  if (!slots.length) return startY;
-
-  const y = addSectionTitle(doc, startY, 'Rate e cosa contengono');
-  const totals = { ordinario: 0, conguaglio: 0, straordinari: 0, tot: 0 };
-  const paid = { ordinario: 0, conguaglio: 0, straordinari: 0, tot: 0 };
-
-  const body = slots.map((slot, i) => {
-    const parts = slot.parts || {};
-    const covered = slot.paid >= slot.amountDue - 0.01;
-    for (const voice of VOCI_RATA) {
-      const value = Number(parts[voice] || 0);
-      totals[voice] += value;
-      // Una rata pagata copre tutte le sue voci: non si paga mezza rata per voce.
-      if (covered) paid[voice] += value;
-    }
-    totals.tot += slot.amountDue;
-    paid.tot += slot.paid;
-    const stato = covered
-      ? 'pagata'
-      : (slot.paid > 0.005 ? `parziale ${pdfFmt(slot.paid)}` : (slot.periodEnd < todayIso() ? 'scaduta' : 'da pagare'));
-    return [
-      cell(`Rata ${i + 1}`),
-      cell(slot.periodEnd),
-      cell(amountOrDash(parts.ordinario)),
-      cell(amountOrDash(parts.conguaglio)),
-      cell(amountOrDash(parts.straordinari)),
-      cell(pdfFmt(slot.amountDue)),
-      cell(stato)
-    ];
-  });
-
-  body.push([
-    cell('Totale'), '',
-    cell(pdfFmt(totals.ordinario)), cell(pdfFmt(totals.conguaglio)), cell(pdfFmt(totals.straordinari)),
-    cell(pdfFmt(totals.tot)), ''
-  ]);
-  body.push([
-    cell('Pagato'), '',
-    cell(pdfFmt(paid.ordinario)), cell(pdfFmt(paid.conguaglio)), cell(pdfFmt(paid.straordinari)),
-    cell(pdfFmt(paid.tot)), ''
-  ]);
-  body.push([
-    cell('Da pagare'), '',
-    cell(pdfFmt(totals.ordinario - paid.ordinario)),
-    cell(pdfFmt(totals.conguaglio - paid.conguaglio)),
-    cell(pdfFmt(totals.straordinari - paid.straordinari)),
-    cell(pdfFmt(totals.tot - paid.tot)), ''
-  ]);
-
-  autoTable(doc, {
-    startY: y,
-    head: [['Rata', 'Scadenza', 'P Ordinario', '+/- Conguaglio', 'S Straordinari', 'Totale', 'Stato']].map(row => row.map(cell)),
-    body,
-    ...PDF_TABLE,
-    headStyles: { ...PDF_TABLE.headStyles, fillColor: [45, 85, 135] },
-    columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
-    didParseCell: data => {
-      if (data.section === 'body' && data.row.index >= body.length - 3) data.cell.styles.fontStyle = 'bold';
-    }
-  });
-  return doc.lastAutoTable.finalY + 10;
-}
-
-/** Il riepilogo per voce che apre il resoconto: P, +/-, S e il totale dell'anno. */
-function renderVociSummaryPdf(doc, autoTable, house, report, startY) {
-  const periodId = report.period.id;
-  const amounts = {
-    ordinario: sumOrdinarioDue(house, periodId),
-    conguaglio: Number(report.priorAmount || 0),
-    straordinari: sumStraordinariDue(house, periodId)
-  };
-  const rows = VOCI_RATA
-    .filter(voice => Math.abs(amounts[voice]) > 0.005)
-    .map(voice => [cell(`${VOCI[voice].badge === '±' ? '+/-' : VOCI[voice].badge} ${VOCI[voice].label}`), cell(pdfFmt(amounts[voice]))]);
-  if (!rows.length) return startY;
-
-  const y = addSectionTitle(doc, startY, 'Riepilogo per voce');
-  const totale = VOCI_RATA.reduce((sum, voice) => sum + amounts[voice], 0);
-  rows.push([cell("Totale previsto dell'anno"), cell(pdfFmt(totale))]);
-  // Col consuntivo l'ordinario previsto lascia il posto alla spesa accertata: le due
-  // cifre convivono nella stessa tabella, altrimenti i totali più sotto non si spiegano.
-  const consuntivo = report.consuntivoTotal ?? 0;
-  if (consuntivo > 0.005) {
-    rows.push([cell('C Consuntivo (al posto di P Ordinario)'), cell(pdfFmt(consuntivo))]);
-    rows.push([cell("Totale effettivo dell'anno"), cell(pdfFmt(consuntivo + amounts.conguaglio + amounts.straordinari))]);
-  }
-  autoTable(doc, {
-    startY: y,
-    head: [['Voce', 'Importo']].map(row => row.map(cell)),
+    head: [['Voce di spesa', 'Importo']].map(row => row.map(cell)),
     body: rows,
     ...PDF_TABLE,
     headStyles: { ...PDF_TABLE.headStyles, fillColor: [80, 80, 80] },
@@ -240,25 +144,229 @@ function renderVociSummaryPdf(doc, autoTable, house, report, startY) {
   return doc.lastAutoTable.finalY + 10;
 }
 
-function amountOrDash(value) {
-  return Math.abs(Number(value || 0)) > 0.005 ? pdfFmt(value) : '-';
+/**
+ * «Rate: previsto, effettivo e versato».
+ *
+ * La tabella che si mette a fianco del riparto dell'amministratore. Tre cifre
+ * per ogni rata e nient'altro: quanto avevi deciso di versare (il preventivo),
+ * quanto sarebbe stato con la spesa vera in mano (il consuntivo ripartito sulle
+ * rate) e quanto è effettivamente arrivato. Lo stato dice il resto.
+ *
+ * La versione precedente mostrava un «Totale» per rata sempre uguale, che non
+ * diceva niente, e un rigo «Pagato» che sommava le voci solo delle rate intere
+ * ma il totale di tutti i versamenti: due criteri diversi nella stessa riga, e
+ * infatti le cifre non tornavano fra loro.
+ */
+export function buildRatePlanTable(house, periodId) {
+  const { slots } = installmentSummaryForPeriod(house, periodId);
+  if (!slots.length) return null;
+
+  const consuntivo = sumConsuntivoDue(house, periodId);
+  const straordinari = sumStraordinariDue(house, periodId);
+  const riportato = saldoRiportatoPdf(house, periodId);
+
+  // Il consuntivo è una cifra sola per tutto l'anno: sulle rate si ripartisce in
+  // parti uguali, e l'ultima si prende il resto degli arrotondamenti perché la
+  // somma torni al centesimo.
+  const quota = round2(consuntivo / slots.length);
+  let resto = round2(consuntivo);
+
+  const rows = slots.map((slot, i) => {
+    const ultima = i === slots.length - 1;
+    const effettivo = consuntivo > 0.005 ? (ultima ? resto : quota) : null;
+    if (effettivo != null) resto = round2(resto - effettivo);
+    const differenza = round2(slot.paid - slot.amountDue);
+    return {
+      numero: i + 1,
+      nome: nomeRata(slot, i),
+      scadenza: slot.periodEnd,
+      preventivo: round2(slot.amountDue),
+      consuntivo: effettivo,
+      versato: round2(slot.paid),
+      differenza,
+      stato: statoRataPdf(slot.paid, slot.amountDue, differenza)
+    };
+  });
+
+  const totali = {
+    preventivo: round2(rows.reduce((s, r) => s + r.preventivo, 0)),
+    consuntivo: consuntivo > 0.005 ? round2(consuntivo) : null,
+    versato: round2(rows.reduce((s, r) => s + r.versato, 0))
+  };
+
+  return { rows, totali, consuntivo, straordinari, riportato };
 }
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+/** Pagata, parziale o non pagata — confrontando il versato con la rata decisa. */
+function statoRataPdf(versato, previsto, differenza) {
+  // Senza ripetere la valuta: la tabella è già tutta in euro, e la colonna
+  // dello stato deve stare su una riga sola per restare leggibile.
+  const quanto = (n) => Math.abs(n).toFixed(2).replace('.', ',');
+  if (Math.abs(differenza) <= 0.01) return 'Pagata';
+  if (differenza > 0.01) return `Pagata, eccedenza ${quanto(differenza)}`;
+  if (versato > 0.005) return `Parziale, mancano ${quanto(differenza)}`;
+  return `Non pagata, mancano ${quanto(differenza)}`;
 }
 
+/** Il saldo arrivato dall'anno prima, positivo se a debito. */
+function saldoRiportatoPdf(house, periodId) {
+  const b = (house.priorBalances || []).find(x => String(x.fiscalPeriodId) === String(periodId));
+  return round2(b?.amount || 0);
+}
+
+const round2 = (n) => Math.round(Number(n || 0) * 100) / 100;
+
+/**
+ * Le righe che chiudono l'anno, sotto la tabella delle rate.
+ *
+ * Servono perché la differenza fra consuntivo e versato non è ancora il
+ * conguaglio: in mezzo ci sono gli straordinari deliberati e il saldo che
+ * arriva dall'anno prima. Scritte una sotto l'altra, la somma si legge.
+ */
+export function buildChiusuraRows(house, periodId, tabella) {
+  const { totali, straordinari, riportato } = tabella;
+  // Il versato è quello dell'anno intero, non solo la colonna della tabella:
+  // i versamenti a copertura del conguaglio riducono il dovuto come gli altri,
+  // e con due totali diversi nella stessa pagina non si capisce più quale vale.
+  const versato = round2(sumPaid(house, periodId));
+  const righe = [['Totale preventivo (rate decise)', totali.preventivo]];
+  if (totali.consuntivo != null) righe.push(['Totale consuntivo (spesa accertata)', totali.consuntivo]);
+  if (Math.abs(straordinari) > 0.005) righe.push(['Straordinari deliberati', straordinari]);
+  if (Math.abs(riportato) > 0.005) {
+    righe.push([riportato > 0 ? 'Saldo a debito dall’anno precedente' : 'Saldo a credito dall’anno precedente', riportato]);
+  }
+  const dovuto = totali.consuntivo != null
+    ? round2(totali.consuntivo + straordinari + riportato)
+    : round2(totali.preventivo + straordinari + riportato);
+  if (righe.length > 2) righe.push(['Totale dovuto', dovuto]);
+  righe.push(['Totale versato nell’anno', versato]);
+
+  const differenza = round2(dovuto - versato);
+  const verso = Math.abs(differenza) <= 0.005 ? 'in pari' : differenza > 0 ? 'a debito' : 'a credito';
+  const etichetta = totali.consuntivo != null
+    ? `Conguaglio dell’anno: ${verso}`
+    : `Ancora da versare sul preventivo: ${verso}`;
+  righe.push([etichetta, Math.abs(differenza)]);
+  return { righe, differenza, verso };
+}
+
+function renderRatePlanPdf(doc, autoTable, house, report, startY) {
+  const tabella = buildRatePlanTable(house, report.period.id);
+  if (!tabella) return startY;
+  const { rows, totali } = tabella;
+
+  let y = addSectionTitle(doc, startY, 'Rate: previsto, effettivo e versato');
+  doc.setFontSize(8);
+  doc.text(
+    cell(totali.consuntivo != null
+      ? 'La colonna Preventivo è la rata come l’hai decisa; Consuntivo è la spesa accertata dell’anno, ripartita in parti uguali sulle rate.'
+      : 'La colonna Preventivo è la rata come l’hai decisa. Il consuntivo dell’anno non è ancora stato registrato.'),
+    14, y, { maxWidth: 182 }
+  );
+  y += 6;
+
+  const body = rows.map(r => [
+    cell(`Rata ${r.numero}`),
+    cell(dataIt(r.scadenza)),
+    cell(pdfFmt(r.preventivo)),
+    cell(r.consuntivo != null ? pdfFmt(r.consuntivo) : '-'),
+    cell(pdfFmt(r.versato)),
+    cell(r.stato)
+  ]);
+  body.push([
+    cell('Totale'), '',
+    cell(pdfFmt(totali.preventivo)),
+    cell(totali.consuntivo != null ? pdfFmt(totali.consuntivo) : '-'),
+    cell(pdfFmt(totali.versato)),
+    ''
+  ]);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Rata', 'Scadenza', 'Preventivo', 'Consuntivo', 'Versato', 'Stato']].map(row => row.map(cell)),
+    body,
+    ...PDF_TABLE,
+    headStyles: { ...PDF_TABLE.headStyles, fillColor: [45, 85, 135] },
+    columnStyles: {
+      0: { cellWidth: 18 }, 1: { cellWidth: 24 },
+      2: { cellWidth: 24, halign: 'right' }, 3: { cellWidth: 24, halign: 'right' },
+      4: { cellWidth: 24, halign: 'right' }, 5: { cellWidth: 52 }
+    },
+    didParseCell: data => {
+      if (data.section === 'body' && data.row.index === body.length - 1) data.cell.styles.fontStyle = 'bold';
+    }
+  });
+  y = doc.lastAutoTable.finalY + 8;
+
+  const { righe } = buildChiusuraRows(house, report.period.id, tabella);
+  y = addSectionTitle(doc, y, 'Come si chiude l’anno');
+  autoTable(doc, {
+    startY: y,
+    theme: 'plain',
+    body: righe.map(([etichetta, importo]) => [cell(etichetta), cell(pdfFmt(importo))]),
+    styles: { ...PDF_TABLE.styles, fontSize: 9 },
+    columnStyles: { 0: { cellWidth: 110 }, 1: { cellWidth: 60, halign: 'right' } },
+    didParseCell: data => {
+      if (data.section === 'body' && data.row.index === righe.length - 1) data.cell.styles.fontStyle = 'bold';
+    }
+  });
+  return doc.lastAutoTable.finalY + 10;
+}
+
+/**
+ * Le quattro cifre che aprono il resoconto.
+ *
+ * Prima c'erano «Totale esercizio», «Totale da versare» e «Saldo su totale da
+ * versare», tre voci che si assomigliano e che nessuno sa distinguere a colpo
+ * d'occhio. Qui ci sono solo le cifre che hanno un nome nella vita vera:
+ * quanto era previsto, quanto si è speso davvero, quanto è arrivato e quanto
+ * resta da regolare.
+ */
+export function buildRiepilogoRows(house, report) {
+  const periodId = report.period.id;
+  const preventivo = sumOrdinarioDue(house, periodId);
+  const straordinari = sumStraordinariDue(house, periodId);
+  const consuntivo = sumConsuntivoDue(house, periodId);
+  const riportato = saldoRiportatoPdf(house, periodId);
+  const versato = sumPaid(house, periodId);
+
+  const righe = [['Preventivo dell’anno', preventivo]];
+  if (Math.abs(straordinari) > 0.005) righe.push(['Straordinari deliberati', straordinari]);
+  if (Math.abs(riportato) > 0.005) {
+    righe.push([riportato > 0 ? 'Conguaglio a debito dall’anno precedente' : 'Conguaglio a credito dall’anno precedente', riportato]);
+  }
+  if (consuntivo > 0.005) righe.push(['Consuntivo (spesa accertata)', consuntivo]);
+  righe.push(['Versato nell’anno', versato]);
+
+  const cong = computeConguaglio(house, periodId);
+  if (cong) {
+    const verso = cong.direction === 'pari' ? 'in pari' : cong.direction === 'debito' ? 'a debito' : 'a credito';
+    righe.push([`Conguaglio dell’anno: ${verso}`, Math.abs(cong.amount)]);
+  } else {
+    const resta = round2(preventivo + straordinari + riportato - versato);
+    righe.push([resta > 0.005 ? 'Ancora da versare sul preventivo' : 'Versato in eccedenza sul preventivo', Math.abs(resta)]);
+  }
+  return righe;
+}
+
+/**
+ * Tutti i versamenti dell'anno in un elenco solo, conguagli compresi.
+ *
+ * Prima quelli a copertura del saldo dell'anno prima stavano in una tabella a
+ * parte: il «Dettaglio versamenti» ne mostrava meno del totale versato, e chi
+ * lo leggeva non ritrovava le cifre.
+ */
 function renderRateDetailPdf(doc, autoTable, house, report, startY) {
-  const payments = report.exercisePayments || [];
+  const payments = [...(report.exercisePayments || []), ...(report.priorBalancePayments || [])];
   if (!payments.length) return startY;
   let y = addSectionTitle(doc, startY, 'Dettaglio versamenti');
   const total = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
   const sorted = [...payments].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-  const rows = paymentPdfRows(house, sorted);
+  const rows = paymentPdfRows(house, report, sorted);
   rows.push([cell('Totale versato'), '', '', cell(pdfFmt(total))]);
   autoTable(doc, {
     startY: y,
-    head: [['Rata', 'Data vers.', 'Metodo', 'Importo']].map(row => row.map(cell)),
+    head: [['A copertura di', 'Data', 'Metodo', 'Importo']].map(row => row.map(cell)),
     body: rows,
     ...PDF_TABLE,
     headStyles: { ...PDF_TABLE.headStyles, fillColor: [45, 85, 135] }
@@ -266,37 +374,25 @@ function renderRateDetailPdf(doc, autoTable, house, report, startY) {
   return doc.lastAutoTable.finalY + 10;
 }
 
-function renderSituazionePdf(doc, autoTable, report, totalsRow, house) {
+function renderSituazionePdf(doc, autoTable, report, house) {
   let y = renderPdfHeader(doc, house, report.period, 'Situazione esercizio - spese condominiali');
-  const t = computeSituazioneTotals(report, totalsRow);
-  const congPres = t.hasPrior ? priorBalancePresentation(t.conguaglio) : null;
-
-  const summaryBody = [
-    [cell('Totale esercizio'), cell(pdfFmt(t.totaleEsercizio))],
-    [cell(`Conguaglio anno precedente${congPres ? ` (${congPres.label})` : ''}`), cell(pdfFmt(t.conguaglio))],
-    [cell('Totale da versare'), cell(pdfFmt(t.totaleDaVersare))],
-    [cell('Totale versato'), cell(pdfFmt(t.totaleVersato))],
-    [cell(`Saldo su totale da versare (${t.saldoLabel})`), cell(pdfFmt(t.saldo))]
-  ];
-
   autoTable(doc, {
     startY: y,
     theme: 'plain',
-    body: summaryBody,
+    body: buildRiepilogoRows(house, report).map(([etichetta, importo]) => [cell(etichetta), cell(pdfFmt(importo))]),
     styles: { ...PDF_TABLE.styles, fontSize: 9 },
     headStyles: PDF_TABLE.headStyles,
-    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 105 }, 1: { cellWidth: 65 } }
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 105 }, 1: { cellWidth: 65, halign: 'right' } }
   });
   y = doc.lastAutoTable.finalY + 10;
 
-  y = renderVociSummaryPdf(doc, autoTable, house, report, y);
   y = renderPriorBalancePdfSection(doc, autoTable, house, report, y);
   y = renderVociEsercizioPdf(doc, autoTable, report, y);
   y = renderRatePlanPdf(doc, autoTable, house, report, y);
   y = renderRateDetailPdf(doc, autoTable, house, report, y);
 
   if (report.carryDues.length) {
-    y = addSectionTitle(doc, y, 'Riporti su preventivo');
+    y = addSectionTitle(doc, y, 'Riporti dentro il preventivo');
     autoTable(doc, {
       startY: y,
       head: [['Descrizione', 'Da esercizio', 'Importo']].map(row => row.map(cell)),
@@ -312,12 +408,12 @@ function renderSituazionePdf(doc, autoTable, report, totalsRow, house) {
   }
 
   if (report.unlinkedPayments.length) {
-    y = addSectionTitle(doc, y, 'Versamenti senza rata assegnata');
+    y = addSectionTitle(doc, y, 'Versamenti non assegnati a una rata');
     autoTable(doc, {
       startY: y,
       head: [['Data', 'Metodo', 'Importo']].map(row => row.map(cell)),
       body: report.unlinkedPayments.map(p => [
-        cell(p.date || '-'),
+        cell(dataIt(p.date)),
         cell(p.method || '-'),
         cell(pdfFmt(p.amount))
       ]),
@@ -329,7 +425,7 @@ function renderSituazionePdf(doc, autoTable, report, totalsRow, house) {
 
   doc.setFontSize(8);
   doc.text(
-    cell('Saldo = versato − totale da versare (esercizio + eventuale conguaglio anno precedente).'),
+    cell('Conguaglio dell’anno = consuntivo + straordinari + conguaglio dall’anno precedente − versato.'),
     14,
     Math.min(y + 4, 285),
     { maxWidth: 180 }
@@ -339,7 +435,7 @@ function renderSituazionePdf(doc, autoTable, report, totalsRow, house) {
 export async function exportSituazionePdf(house, fiscalPeriodId) {
   const report = buildSituazioneReport(house, fiscalPeriodId);
   report.house = house;
-  const { period, totalsRow } = report;
+  const { period } = report;
   if (!period) throw new Error('Seleziona un esercizio fiscale.');
 
   const hasData = hasConsuntivoReport(report) || hasPreventivoReport(report) || hasPriorBalanceReport(report);
@@ -348,7 +444,7 @@ export async function exportSituazionePdf(house, fiscalPeriodId) {
   const { jsPDF, autoTable } = await loadPdfLibs();
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-  renderSituazionePdf(doc, autoTable, report, totalsRow, house);
+  renderSituazionePdf(doc, autoTable, report, house);
 
   const safeName = `${house.name}-${period.label}`.replace(/[^\w\-]+/g, '_');
   doc.save(`situazione-${safeName}.pdf`);

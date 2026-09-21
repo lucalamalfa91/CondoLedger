@@ -1,5 +1,5 @@
 import { createApp } from './app.js';
-import { maybeBootstrapUser, maybeMigrateOnBoot } from './bootstrap.js';
+import { maybeBootstrapUser, maybeMigrateOnBoot, maybeRicalcolaConguagliOnBoot } from './bootstrap.js';
 import { closeDb, describeDatabase, getDb } from './db.js';
 import { config } from './env.js';
 
@@ -16,6 +16,10 @@ await maybeMigrateOnBoot(db);
 // Password del primo utente, sempre dopo la migrazione: se l'utente arriva da Supabase
 // esiste già e va solo dotato di una password utilizzabile.
 await maybeBootstrapUser(db);
+
+// Ricalcolo una-tantum dei conguagli riportati, se richiesto: anche questo prima
+// di aprire la porta, così nessuno legge cifre che stanno per cambiare.
+await maybeRicalcolaConguagliOnBoot(db);
 
 const app = createApp();
 const server = app.listen(config.port, () => {

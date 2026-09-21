@@ -216,15 +216,14 @@ export function createRenderer(els) {
       els.paymentInstallment.innerHTML = '<option value="">— registra prima il preventivo dell’anno —</option>';
       return;
     }
-    const date = els.paymentDate?.value || today;
-    let selected = preferredKey || els.paymentInstallment.value;
-    if (!selected) {
-      const match = slots.find(s => date >= s.periodStart && date <= s.periodEnd);
-      selected = match?.key || slots[0].key;
-    }
-    els.paymentInstallment.innerHTML = slots.map(s =>
+    // Nessuna rata scelta di suo: questa tendina sta in un riquadro chiuso, e
+    // una rata scelta lì dentro senza dirlo finiva nel totale come un importo
+    // comparso dal nulla — anche dopo aver tolto la spunta a tutto il resto.
+    const selected = preferredKey || els.paymentInstallment.value || '';
+    els.paymentInstallment.innerHTML = '<option value="">— nessuna —</option>' + slots.map(s =>
       `<option value="${s.key}" ${s.key === selected ? 'selected' : ''}>${s.label}${s.dueDescription ? ` · ${s.dueDescription}` : ''} (${fmt(s.amountDue)})</option>`
     ).join('');
+    els.paymentInstallment.value = selected;
     applyPaymentSmartAmount(house);
   }
 
@@ -1064,6 +1063,30 @@ export function createRenderer(els) {
     return [...first, ...others];
   }
 
+  /**
+   * Quanto si sta pagando per una voce: quello scritto a mano, o il suggerito.
+   *
+   * La risposta viene dallo stato, non dal campo: leggerla dal campo legava il
+   * totale all'ordine con cui le cose vengono disegnate, e bastava che le righe
+   * non ci fossero ancora perché tutte le voci valessero zero.
+   *
+   *   chiave assente  → quello che l'app suggerisce
+   *   chiave vuota    → zero, perché il campo è stato svuotato apposta
+   *   chiave numerica → quel numero
+   */
+  function importoScelto(item) {
+    const scritto = state.paymentAmounts?.[item.id];
+    if (scritto === undefined || scritto === null) return round2(item.amount);
+    const n = Number(scritto);
+    return String(scritto).trim() !== '' && Number.isFinite(n) && n > 0.005 ? round2(n) : 0;
+  }
+
+  /** Il valore da mettere nel campo di una voce. */
+  function importoVoce(item) {
+    const scritto = state.paymentAmounts?.[item.id];
+    return scritto === undefined || scritto === null ? item.amount.toFixed(2) : scritto;
+  }
+
   function renderPaymentTargetOptions(house, { preselect = null } = {}) {
     if (!els.paymentTargetOptions) return;
     const periodId = els.paymentPeriod?.value || null;
@@ -1088,7 +1111,13 @@ export function createRenderer(els) {
           ${i.parts && VOCI_RATA.filter(v => Math.abs(Number(i.parts[v] || 0)) > 0.005).length > 1
             ? `<span class="voce-chips">${partsChips(i.parts)}</span>` : ''}
         </span>
-        <span class="option-amount">${fmt(i.amount)}</span>
+        <span class="option-amount">
+          <span class="input-euro input-euro--inline">
+            <span aria-hidden="true">€</span>
+            <input type="number" step="0.01" min="0" data-pay-amount="${esc(i.id)}"
+              value="${importoVoce(i)}" aria-label="Quanto stai pagando per ${esc(i.title)}" />
+          </span>
+        </span>
       </label>`;
     }).join('');
     state.paymentSelection = checkedIds.filter(id => items.some(i => i.id === id));
@@ -1100,7 +1129,10 @@ export function createRenderer(els) {
     const items = paymentOptionItems(house, periodId);
     const checked = [...(els.paymentTargetOptions?.querySelectorAll('[data-pay-item]:checked') || [])]
       .map(input => input.dataset.payItem);
-    const out = items.filter(i => checked.includes(i.id)).map(i => ({ ...i }));
+    const out = items
+      .filter(i => checked.includes(i.id))
+      .map(i => ({ ...i, amount: importoScelto(i) }))
+      .filter(i => i.amount > 0.005);
 
     const extraKey = els.paymentInstallment?.value;
     if (extraKey && !out.some(i => i.key === extraKey)) {
@@ -1155,10 +1187,24 @@ export function createRenderer(els) {
       return row && i.amount >= round2(row.amountDue - row.paid) - 0.01;
     }).length;
 
+    // Quanto restava da versare su ogni voce, prima di quello che si sta
+    // scrivendo: serve per dire se la voce si chiude o no.
+    const dovuto = new Map(paymentOptionItems(house, periodId).map(i => [i.id, round2(i.amount)]));
     const lines = selection.map(i => {
+      // Con gli importi correggibili a mano, versare meno del dovuto è normale:
+      // dire «Pagata» comunque sarebbe una promessa non mantenuta.
+      const manca = round2((dovuto.get(i.id) ?? i.amount) - i.amount);
       let note = 'Registrato';
-      if (i.kind === 'rata') note = `Pagata · ${coveredAfter} rate su ${slots.length}`;
-      if (i.kind === 'prior') note = `Saldato · il ${i.title.replace('Conguaglio ', '')} si chiude`;
+      if (i.kind === 'rata') {
+        note = manca > 0.01
+          ? `Pagata in parte · mancano ${fmt(manca)}`
+          : `Pagata · ${coveredAfter} rate su ${slots.length}`;
+      }
+      if (i.kind === 'prior') {
+        note = manca > 0.01
+          ? `Versato in parte · restano ${fmt(manca)} di conguaglio`
+          : `Saldato · il ${i.title.replace('Conguaglio ', '')} si chiude`;
+      }
       return `<div class="after-line">
         ${voceBadge(i.voice, 'sm')}
         <span>

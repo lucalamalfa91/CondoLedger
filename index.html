@@ -508,6 +508,7 @@
               <div class="form-foot">
                 <span class="hint" id="dueFormFootHint"></span>
                 <div class="form-actions">
+                  <button class="btn btn-danger hidden" type="button" id="dueDeleteBtn">Elimina</button>
                   <button class="btn btn-secondary" type="button" id="dueFormCancel" data-nav-target="resoconti" data-nav-subview="anno">Annulla</button>
                   <button class="btn btn-primary" id="dueSubmitBtn" type="submit">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
@@ -529,7 +530,7 @@
           </button>
           <div class="doc-head">
             <div class="page-head-titles">
-              <h1 class="page-title">Aggiungi il consuntivo</h1>
+              <h1 class="page-title" id="consFormTitle">Aggiungi il consuntivo</h1>
               <p class="page-sub" id="consFormPeriodLine"></p>
             </div>
             <nav class="seg" aria-label="Tipo di documento">
@@ -577,6 +578,7 @@
               <div class="form-foot">
                 <span class="hint">Il conguaglio passa all'anno dopo: lo calcola l'app.</span>
                 <div class="form-actions">
+                  <button class="btn btn-danger hidden" type="button" id="consDeleteBtn">Elimina</button>
                   <button class="btn btn-secondary" type="button" id="consFormCancel" data-nav-target="resoconti" data-nav-subview="anno">Annulla</button>
                   <button class="btn btn-primary" id="consSubmitBtn" type="submit">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>

@@ -6,6 +6,7 @@ import {
   deleteDueFromSupabase,
   deleteHouseRemote,
   deletePaymentFromSupabase,
+  deletePriorBalanceFromSupabase,
   ensureFiscalPeriod,
   ensureFiscalPeriodByLabel,
   linkBankMovement,
@@ -22,7 +23,7 @@ import { createAuthHandlers } from './auth.js';
 import { exportBackup, parseBackup } from './backup.js';
 import { resolveView, viewMeta } from './config.js';
 import { computeConguaglio, findPeriodByDate, getNextPeriod, periodLabel } from './fiscal.js';
-import { findInstallment, listInstallmentsForPeriod, ordinarioDueForPeriod } from './installments.js';
+import { findInstallment, listInstallmentsForDue, listInstallmentsForPeriod, ordinarioDueForPeriod } from './installments.js';
 import { exportSituazionePdf } from './pdf-situazione.js';
 import {
   generateRows, planRows, planTargets, round2, rowsToSplitAmounts, splitEqually
@@ -56,7 +57,7 @@ const {
   applyPaymentSmartAmount, syncPaymentPriorBalanceInfo, renderNewHouseForm,
   renderPaymentTargetOptions, renderPaymentTotal, renderPaymentAfterCard,
   syncPaymentMethodPills, syncPaymentEditMode, paymentSelection,
-  syncDueForm, loadDueForPeriod, syncConsForm, consPreview, dueCadenceState, consSettleState,
+  syncDueForm, loadDueForPeriod, loadConsForPeriod, syncConsForm, consPreview, dueCadenceState, consSettleState,
   renderRatePlan, renderRatePlanTable, renderRatePlanTargets, ratePlanState,
   loadRatePlan, ratePlanPeriodId, renderResoconti,
   renderBankImportPreview, renderUnlinkedMovements
@@ -276,12 +277,27 @@ function navigate(view, subview = null) {
   if (resolved.view === 'impostazioni' && resolved.subview === 'account') {
     auth.renderAccountView();
   }
-  // Aprendo il preventivo si riparte da quello che c'è: se l'anno ne ha già uno,
-  // il modulo lo mostra, invece di offrire un foglio bianco su cui rifarlo.
+  apriDocumentoDellAnno(resolved.view, resolved.subview);
+}
+
+/**
+ * Aprendo preventivo o consuntivo si riparte da quello che c'è: se l'anno ne ha
+ * già uno, il modulo lo mostra invece di offrire un foglio bianco su cui
+ * rifarlo — e salvandolo si finiva con due documenti per lo stesso anno.
+ *
+ * Sta qui e non dentro navigate() perché al modulo si arriva anche dal solo
+ * indirizzo, che passa da un'altra strada.
+ */
+function apriDocumentoDellAnno(view, subview) {
   const house = activeHouse();
-  if (house && resolved.view === 'resoconti' && resolved.subview === 'preventivo' && !els.dueEditId?.value) {
+  if (!house || view !== 'resoconti') return;
+  if (subview === 'preventivo' && !els.dueEditId?.value) {
     loadDueForPeriod(house);
     syncDueForm(house);
+  }
+  if (subview === 'consuntivo' && !els.consEditId?.value) {
+    loadConsForPeriod(house);
+    syncConsForm(house);
   }
 }
 
@@ -459,6 +475,123 @@ async function deleteDue(house, dueId) {
   } catch (err) {
     toastError(err.message);
   }
+}
+
+/**
+ * Toglie un preventivo sbagliato, e con lui il suo piano rate.
+ *
+ * I versamenti non si toccano: restano fra i pagamenti dell'anno, ma perdono
+ * la rata a cui erano agganciati, perché quella rata non esiste più. Buttarli
+ * via sarebbe peggio del problema che si sta risolvendo — i soldi sono usciti
+ * davvero dal conto.
+ */
+async function eliminaPreventivo(house, dueId) {
+  const due = house.dues.find(d => String(d.id) === String(dueId));
+  if (!due) return;
+  const label = periodLabel(house, due.fiscalPeriodId);
+  const rate = listInstallmentsForDue(house, due);
+  const chiavi = new Set(rate.map(r => r.key));
+  const agganciati = house.payments.filter(p => chiavi.has(p.installmentKey));
+
+  const conseguenze = [`Il preventivo ${label} da ${fmt(due.amount)} sparisce`];
+  if (rate.length) conseguenze.push(`${rate.length} rate del piano spariscono con lui`);
+  if (agganciati.length) {
+    conseguenze.push(`${agganciati.length} ${agganciati.length === 1 ? 'versamento resta' : 'versamenti restano'} registrati, senza più una rata assegnata`);
+  }
+  const ok = await confirmDialog(
+    `${conseguenze.join('. ')}.\n\nPuoi riassegnare i versamenti a mano dopo aver rifatto il preventivo.`,
+    { title: `Eliminare il preventivo ${label}?`, confirmLabel: 'Elimina il preventivo', danger: true }
+  );
+  if (!ok) return;
+
+  try {
+    // Prima si slegano i versamenti, poi si toglie il dovuto: al contrario
+    // resterebbero appesi a una rata che non c'è più.
+    for (const p of agganciati) {
+      const scollegato = { ...p, installmentKey: null };
+      if (state.user) await savePaymentToSupabase(house, scollegato);
+      else Object.assign(p, { installmentKey: null });
+    }
+    if (state.user && Number.isFinite(Number(dueId))) {
+      await deleteDueFromSupabase(house, dueId);
+      await loadFromSupabase();
+    } else {
+      house.dues = house.dues.filter(d => String(d.id) !== String(dueId));
+    }
+    resetDueForm();
+    navigate('resoconti', 'anno');
+    render();
+    showToast(`Preventivo ${label} eliminato.`);
+  } catch (err) {
+    toastError(err.message);
+  }
+}
+
+/**
+ * Toglie un consuntivo sbagliato, e disfa quello che aveva messo in moto.
+ *
+ * Registrarlo aveva chiuso l'anno e spedito il conguaglio a quello dopo: se si
+ * cancella solo la riga, quel conguaglio resta lì a farsi pagare per un conto
+ * che non esiste più. Se ne va anche lui, insieme alla quota finita nel piano
+ * rate dell'anno successivo.
+ */
+async function eliminaConsuntivo(house, dueId) {
+  const due = house.dues.find(d => String(d.id) === String(dueId));
+  if (!due) return;
+  const periodId = due.fiscalPeriodId;
+  const label = periodLabel(house, periodId);
+  const next = getNextPeriod(house, periodId);
+  const prior = next ? getPriorBalanceForPeriod(house, next.id) : null;
+  const daDisfare = prior && String(prior.sourcePeriodId || '') === String(periodId) ? prior : null;
+
+  const conseguenze = [`Il consuntivo ${label} da ${fmt(due.amount)} sparisce`, `l’anno ${label} torna aperto`];
+  if (daDisfare) {
+    conseguenze.push(`il conguaglio di ${fmt(Math.abs(daDisfare.amount))} riportato sul ${next.label} viene tolto, anche dalle sue rate`);
+  }
+  const ok = await confirmDialog(
+    `${conseguenze.join(', ')}.\n\nI versamenti restano tutti dove sono.`,
+    { title: `Eliminare il consuntivo ${label}?`, confirmLabel: 'Elimina il consuntivo', danger: true }
+  );
+  if (!ok) return;
+
+  try {
+    if (daDisfare) {
+      await azzeraConguaglioInRate(house, next.id);
+      if (state.user && Number.isFinite(Number(daDisfare.id))) {
+        await deletePriorBalanceFromSupabase(house, daDisfare.id);
+      } else {
+        house.priorBalances = (house.priorBalances || []).filter(b => String(b.id) !== String(daDisfare.id));
+      }
+    }
+    if (state.user && Number.isFinite(Number(dueId))) {
+      await deleteDueFromSupabase(house, dueId);
+      await loadFromSupabase();
+    } else {
+      house.dues = house.dues.filter(d => String(d.id) !== String(dueId));
+    }
+    resetConsForm();
+    navigate('resoconti', 'anno');
+    render();
+    showToast(`Consuntivo ${label} eliminato.`);
+  } catch (err) {
+    toastError(err.message);
+  }
+}
+
+/** Rimette a zero la colonna ± del piano rate di un anno. */
+async function azzeraConguaglioInRate(house, periodId) {
+  const due = ordinarioDueForPeriod(house, periodId);
+  const rows = planRows(house, periodId);
+  if (!due || !rows.length) return;
+  if (!rows.some(r => Math.abs(Number(r.conguaglio || 0)) > 0.005)) return;
+  const payload = {
+    ...due,
+    splitAmounts: rowsToSplitAmounts(house, periodId, rows.map(r => ({ ...r, conguaglio: 0 }))),
+    splitMode: 'custom',
+    splitCustom: null
+  };
+  if (state.user) await saveDueToSupabase(house, payload);
+  else Object.assign(due, payload);
 }
 
 async function deletePayment(house, paymentId) {
@@ -1337,12 +1470,25 @@ document.addEventListener('click', e => {
 
 els.consPeriod?.addEventListener('change', () => {
   const house = activeHouse();
-  if (house) syncConsForm(house);
+  if (!house) return;
+  loadConsForPeriod(house);
+  syncConsForm(house);
 });
 els.consAmount?.addEventListener('input', () => {
   const house = activeHouse();
   if (house) syncConsForm(house);
 });
+els.dueDeleteBtn?.addEventListener('click', () => {
+  const house = activeHouse();
+  const id = els.dueEditId?.value;
+  if (house && id) eliminaPreventivo(house, id);
+});
+els.consDeleteBtn?.addEventListener('click', () => {
+  const house = activeHouse();
+  const id = els.consEditId?.value;
+  if (house && id) eliminaConsuntivo(house, id);
+});
+
 els.consSettleOptions?.addEventListener('change', e => {
   const input = e.target.closest('input[name="consSettle"]');
   if (!input) return;
@@ -1642,6 +1788,8 @@ window.addEventListener('hashchange', () => {
   applyRouteHouse(route);
   setView(route.view, route.subview);
   render();
+  const risolta = resolveView(route.view, route.subview);
+  apriDocumentoDellAnno(risolta.view, risolta.subview);
   applyRouteParams(route);
 });
 

@@ -1675,6 +1675,7 @@ export function createRenderer(els) {
         ? 'La tua quota dei lavori, come nel riparto della delibera.'
         : 'La tua quota, come nel preventivo approvato in assemblea.';
     }
+    els.dueDeleteBtn?.classList.toggle('hidden', !els.dueEditId?.value);
     if (els.dueSubmitLabel) {
       const editing = Boolean(els.dueEditId?.value);
       els.dueSubmitLabel.textContent = straordinario
@@ -1705,6 +1706,23 @@ export function createRenderer(els) {
   }
 
   /** Il conguaglio che uscirebbe dal consuntivo scritto nel modulo. */
+  /**
+   * Apre il consuntivo che l'anno ha già, invece di offrire un foglio bianco.
+   *
+   * Come per il preventivo: senza questo, salvare di nuovo aggiungeva un
+   * secondo consuntivo allo stesso anno, e da lì in poi i totali raddoppiavano.
+   */
+  function loadConsForPeriod(house) {
+    if (!els.consForm) return;
+    const periodId = consFormPeriodId(house);
+    const existing = periodId
+      ? house.dues.find(d => String(d.fiscalPeriodId) === String(periodId) && d.dueKind === 'consuntivo')
+      : null;
+    if (els.consAmount) els.consAmount.value = existing ? String(existing.amount) : '';
+    if (els.consEditId) els.consEditId.value = existing ? existing.id : '';
+    if (els.consSubmitLabel) els.consSubmitLabel.textContent = existing ? 'Aggiorna consuntivo' : 'Salva consuntivo';
+  }
+
   function consPreview(house) {
     const periodId = consFormPeriodId(house);
     if (!periodId) return null;
@@ -1805,6 +1823,9 @@ export function createRenderer(els) {
   function syncConsForm(house, { keepOptions = false } = {}) {
     if (!els.consForm) return;
     const p = consPreview(house);
+    if (els.consFormTitle) {
+      els.consFormTitle.textContent = els.consEditId?.value ? 'Modifica il consuntivo' : 'Aggiungi il consuntivo';
+    }
     if (els.consFormPeriodLine && p) {
       const period = house.fiscalPeriods.find(x => String(x.id) === String(p.periodId));
       els.consFormPeriodLine.textContent = period
@@ -1819,6 +1840,7 @@ export function createRenderer(els) {
     } else {
       renderConsSettleOptions(house);
     }
+    els.consDeleteBtn?.classList.toggle('hidden', !els.consEditId?.value);
     renderConsRail(house);
   }
 
@@ -2401,6 +2423,7 @@ export function createRenderer(els) {
     // Documenti dell'anno
     syncDueForm,
     loadDueForPeriod,
+    loadConsForPeriod,
     syncConsForm,
     consPreview,
     dueCadenceState: () => dueCadence,
@@ -2468,6 +2491,7 @@ export function collectDom() {
     paymentNote: document.getElementById('paymentNote'),
     paymentAfterCard: document.getElementById('paymentAfterCard'),
     dueSubmitLabel: document.getElementById('dueSubmitLabel'),
+    dueDeleteBtn: document.getElementById('dueDeleteBtn'),
     paymentSubmitLabel: document.getElementById('paymentSubmitLabel'),
     dueAmount: document.getElementById('dueAmount'),
     dueAmountLabel: document.getElementById('dueAmountLabel'),
@@ -2508,12 +2532,14 @@ export function collectDom() {
     consPeriodHint: document.getElementById('consPeriodHint'),
     consAmount: document.getElementById('consAmount'),
     consAmountLabel: document.getElementById('consAmountLabel'),
+    consFormTitle: document.getElementById('consFormTitle'),
     consFormPeriodLine: document.getElementById('consFormPeriodLine'),
     consSettleOptions: document.getElementById('consSettleOptions'),
     consRail: document.getElementById('consRail'),
     consEditId: document.getElementById('consEditId'),
     consSubmitBtn: document.getElementById('consSubmitBtn'),
     consSubmitLabel: document.getElementById('consSubmitLabel'),
+    consDeleteBtn: document.getElementById('consDeleteBtn'),
     consFormCancel: document.getElementById('consFormCancel'),
     ratePlanPeriod: document.getElementById('ratePlanPeriod'),
     ratePlanPeriodLine: document.getElementById('ratePlanPeriodLine'),

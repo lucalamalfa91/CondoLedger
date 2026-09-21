@@ -409,6 +409,8 @@ function resetPaymentForm(house) {
   els.paymentExtra?.classList.add('hidden');
   els.paymentExtraToggle?.setAttribute('aria-expanded', 'false');
   state.paymentSelection = null;
+  state.paymentAmounts = {};
+  if (els.paymentInstallment) els.paymentInstallment.value = '';
   if (house) {
     syncPaymentPeriodSelect(house);
     syncPaymentInstallmentSelect(house);
@@ -1639,6 +1641,16 @@ els.paymentTargetOptions?.addEventListener('change', () => {
   state.paymentSelection = [...els.paymentTargetOptions.querySelectorAll('[data-pay-item]:checked')]
     .map(input => input.dataset.payItem);
   renderPaymentAfterCard(house);
+});
+
+// Gli importi scritti a mano vivono nello stato: un disegno rifà le righe, e
+// senza questo cancellerebbe quello che si sta battendo.
+els.paymentTargetOptions?.addEventListener('input', e => {
+  const campo = e.target.closest('[data-pay-amount]');
+  if (!campo) return;
+  state.paymentAmounts = { ...state.paymentAmounts, [campo.dataset.payAmount]: campo.value };
+  const house = activeHouse();
+  if (house) renderPaymentAfterCard(house);
 });
 els.paymentExtraToggle?.addEventListener('click', () => {
   const open = els.paymentExtra?.classList.toggle('hidden') === false;

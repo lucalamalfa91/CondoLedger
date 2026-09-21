@@ -18,6 +18,9 @@ export const state = {
   // se l'elenco delle prossime rate è aperto per intero.
   resocontoPeriodId: null,
   paymentSelection: null,
+  // Gli importi scritti a mano sulle voci da pagare, per chiave: un disegno non
+  // deve cancellare quello che si sta battendo.
+  paymentAmounts: {},
   pagamentiShowAllRate: false
 };
 

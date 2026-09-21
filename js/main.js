@@ -300,7 +300,7 @@ function apriDocumentoDellAnno(view, subview) {
     syncDueForm(house);
   }
   if (subview === 'consuntivo' && !els.consEditId?.value) {
-    loadConsForPeriod(house);
+    loadConsForPeriod(house, state.pendingSituazionePeriodId ?? state.resocontoPeriodId);
     syncConsForm(house);
   }
 }

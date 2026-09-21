@@ -2,12 +2,15 @@
 /**
  * Rimette a posto i conguagli già riportati con la formula sbagliata.
  *
- * Fino alla correzione il conguaglio di un anno veniva calcolato come
- * `consuntivo − versato`. Nel versato però possono esserci quote di recupero di
- * conguagli di anni passati, e le rate ancora scoperte: roba che non dice niente
- * su quanto il condominio ha speso rispetto al preventivo. Il conguaglio giusto
- * è `consuntivo − preventivo`, e i saldi già scritti in banca dati vanno
- * riportati a quel valore.
+ * Il conguaglio di un anno è quello che resta da regolare quando si chiude:
+ *
+ *     consuntivo + straordinari + saldo riportato − versato
+ *
+ * Le versioni precedenti sbagliavano in due modi: la prima dimenticava il saldo
+ * riportato, e allora la rata che recuperava il debito dell'anno prima sembrava
+ * un versamento in più; la seconda confrontava col preventivo, che dice quanto
+ * il condominio ha speso rispetto al previsto ma non quanto devi tu. Questo
+ * script riporta i saldi già scritti in banca dati al valore giusto.
  *
  * Di suo non scrive niente: stampa quello che cambierebbe e si ferma. Per
  * scrivere davvero serve dirglielo:
@@ -36,6 +39,31 @@ async function somma(db, periodId, dueKind) {
     .prepare('SELECT COALESCE(SUM(amount), 0) AS tot FROM dues WHERE fiscal_period_id = ? AND due_kind = ?')
     .get(periodId, dueKind);
   return round2(row?.tot ?? 0);
+}
+
+/** Gli straordinari deliberati: dovuti come il resto, ma con la loro voce. */
+async function sommaStraordinari(db, periodId) {
+  const row = await db
+    .prepare(`SELECT COALESCE(SUM(amount), 0) AS tot FROM dues
+               WHERE fiscal_period_id = ? AND due_kind = 'preventivo' AND voice = 'straordinario'`)
+    .get(periodId);
+  return round2(row?.tot ?? 0);
+}
+
+/** Quanto è stato versato in un anno. */
+async function sommaVersato(db, periodId) {
+  const row = await db
+    .prepare('SELECT COALESCE(SUM(amount), 0) AS tot FROM payments WHERE fiscal_period_id = ?')
+    .get(periodId);
+  return round2(row?.tot ?? 0);
+}
+
+/** Il saldo che l'anno di origine si era visto arrivare dal suo precedente. */
+async function saldoRiportato(db, periodId) {
+  const row = await db
+    .prepare('SELECT amount FROM prior_balances WHERE fiscal_period_id = ?')
+    .get(periodId);
+  return round2(row?.amount ?? 0);
 }
 
 /**
@@ -114,14 +142,16 @@ async function main() {
       saltati.push({ ...s, perche: `il ${s.anno_origine} non ha un consuntivo` });
       continue;
     }
-    const preventivo = await somma(db, s.source_period_id, 'preventivo');
-    const nuovo = round2(consuntivo - preventivo);
+    const straordinari = await sommaStraordinari(db, s.source_period_id);
+    const versato = await sommaVersato(db, s.source_period_id);
+    const riportatoPrima = await saldoRiportato(db, s.source_period_id);
+    const nuovo = round2(consuntivo + straordinari + riportatoPrima - versato);
     const vecchio = round2(s.amount);
     if (Math.abs(nuovo - vecchio) < 0.005) {
       saltati.push({ ...s, perche: 'già corretto' });
       continue;
     }
-    daCorreggere.push({ ...s, vecchio, nuovo, consuntivo, preventivo });
+    daCorreggere.push({ ...s, vecchio, nuovo, consuntivo, straordinari, versato, riportatoPrima });
   }
 
   console.log(`Saldi riportati trovati: ${saldi.length}\n`);
@@ -140,7 +170,10 @@ async function main() {
   console.log('Da correggere:');
   for (const c of daCorreggere) {
     console.log(`  ${c.casa} · ${c.anno}  (conguaglio del ${c.anno_origine})`);
-    console.log(`      consuntivo ${euro(c.consuntivo)} − preventivo ${euro(c.preventivo)}`);
+    const addendi = [`consuntivo ${euro(c.consuntivo)}`];
+    if (Math.abs(c.straordinari) > 0.005) addendi.push(`straordinari ${euro(c.straordinari)}`);
+    if (Math.abs(c.riportatoPrima) > 0.005) addendi.push(`riportato ${euro(c.riportatoPrima)}`);
+    console.log(`      ${addendi.join(' + ')} − versato ${euro(c.versato)}`);
     console.log(`      ${euro(c.vecchio)}  →  ${euro(c.nuovo)}`);
   }
 

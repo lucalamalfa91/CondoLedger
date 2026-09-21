@@ -39,10 +39,17 @@ function dtDate(iso) {
  * L'indirizzo con cui l'app si apre già pronta a registrare quella rata: dal
  * promemoria sul telefono si arriva al modulo con la rata giusta spuntata,
  * senza doverla cercare.
+ *
+ * La casa fa parte dell'indirizzo, non è un dettaglio: l'app si apre sull'ultima
+ * che hai guardato, e chi ne ha più di una si ritrovava sul condominio sbagliato
+ * con una rata che lì dentro non esiste.
  */
-export function paymentLinkForInstallment(baseUrl, key) {
+export function paymentLinkForInstallment(baseUrl, key, houseId = null) {
   const radice = String(baseUrl || '').replace(/[#?].*$/, '').replace(/\/$/, '');
-  return `${radice}/#/pagamenti/registra?rata=${encodeURIComponent(key)}`;
+  const params = new URLSearchParams();
+  if (houseId != null && houseId !== '') params.set('casa', String(houseId));
+  params.set('rata', String(key));
+  return `${radice}/#/pagamenti/registra?${params}`;
 }
 
 /**
@@ -67,7 +74,7 @@ export function buildIcsCalendar(house, plan, leadDays, baseUrl = '') {
     // La chiave della rata nell'UID: reimportando il file lo stesso appuntamento
     // si aggiorna invece di sdoppiarsi.
     const uid = `condoledger-${house.id}-${String(item.key || dtDate(item.date)).replace(/[^A-Za-z0-9-]/g, '-')}@condoledger.app`;
-    const link = baseUrl && item.key ? paymentLinkForInstallment(baseUrl, item.key) : '';
+    const link = baseUrl && item.key ? paymentLinkForInstallment(baseUrl, item.key, house.id) : '';
     const descrizione = [
       item.composizione ? `Di cui: ${item.composizione}` : '',
       item.causale,

@@ -63,6 +63,9 @@ const {
 } = createRenderer(els);
 let renderedHouseId = null;
 function render(...args) {
+  // La rotta d'ingresso può puntare a un'altra casa: va scelta adesso, prima di
+  // disegnare, altrimenti si disegna quella sbagliata e la si corregge dopo.
+  if (rottaDiIngresso) applyRouteHouse(rottaDiIngresso);
   const house = activeHouse();
   if (String(house?.id ?? '') !== String(renderedHouseId ?? '')) {
     resetDueForm();
@@ -202,10 +205,46 @@ function parseAppRouteHash() {
   return { view, subview: subview || null, params: new URLSearchParams(query) };
 }
 
+/**
+ * Se la rotta nomina una casa, è quella che si apre.
+ *
+ * Va fatto prima di disegnare: l'app riparte dall'ultima casa che hai guardato,
+ * e chi ne ha più di una, toccando il promemoria di un altro condominio, si
+ * ritrovava davanti una rata che lì dentro non esiste. Non disegna niente di
+ * suo, così si può chiamare dentro il render senza rientrarci.
+ */
+function applyRouteHouse(route) {
+  const casa = route?.params?.get('casa') ?? casaDellaRata(route?.params?.get('rata'));
+  if (!casa) return false;
+  if (String(state.selectedHouseId ?? '') === String(casa)) return false;
+  if (!state.data.houses.some(h => String(h.id) === String(casa))) return false;
+  state.selectedHouseId = String(casa);
+  sessionStorage.setItem('app:selectedHouseId', String(casa));
+  return true;
+}
+
+/**
+ * La casa a cui appartiene una rata, cercandola fra tutte.
+ *
+ * Serve ai promemoria esportati prima che la casa entrasse nell'indirizzo:
+ * sono già nei calendari, e la chiave della rata basta a ritrovare il
+ * condominio giusto perché i dovuti hanno un numero unico.
+ */
+function casaDellaRata(rata) {
+  if (!rata) return null;
+  const casa = state.data.houses.find(h => findInstallment(h, rata));
+  return casa ? String(casa.id) : null;
+}
+
 /** Se la rotta indica una rata, il modulo si apre già pronto su quella. */
 function applyRouteParams(route) {
   const rata = route?.params?.get('rata');
   if (!rata) return;
+  const casa = route?.params?.get('casa');
+  if (casa && !state.data.houses.some(h => String(h.id) === String(casa))) {
+    toastError('Questo promemoria è di una casa che qui non c’è più.');
+    return;
+  }
   const house = activeHouse();
   if (!house) return;
   const slot = findInstallment(house, rata);
@@ -1600,6 +1639,7 @@ window.addEventListener('hashchange', () => {
   if (!state.user || !els.appShell || els.appShell.classList.contains('hidden')) return;
   const route = parseAppRouteHash();
   if (!route) return;
+  applyRouteHouse(route);
   setView(route.view, route.subview);
   render();
   applyRouteParams(route);

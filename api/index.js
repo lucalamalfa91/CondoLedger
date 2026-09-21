@@ -14,7 +14,7 @@
  */
 import { createApp } from '../server/app.js';
 import { maybeBootstrapUser, maybeMigrateOnBoot, maybeRicalcolaConguagliOnBoot } from '../server/bootstrap.js';
-import { describeDatabase, getDb } from '../server/db.js';
+import { describeDatabase, describeDbFailure, getDb } from '../server/db.js';
 
 const app = createApp();
 
@@ -59,7 +59,10 @@ export default async function handler(req, res) {
           message: 'Servizio non disponibile: il database non è raggiungibile.',
           // Non il valore, solo se c'è: distingue "variabili non impostate" da un guasto
           // vero senza rivelare nulla. È la prima cosa da sapere e non sta nei log.
-          turso_configured: Boolean(process.env.TURSO_DATABASE_URL)
+          turso_configured: Boolean(process.env.TURSO_DATABASE_URL),
+          // E se le variabili ci sono, perché comunque non risponde: senza questo
+          // per saperlo servivano i log della piattaforma.
+          ...describeDbFailure(startupError)
         }
       })
     );

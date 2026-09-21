@@ -260,13 +260,21 @@ export function createRenderer(els) {
     }
   }
 
+  /**
+   * L'elenco dei pagamenti parte dall'anno in corso: mescolare tre anni di
+   * versamenti nella stessa lista non dice niente a nessuno, e per guardare
+   * indietro ci sono i resoconti. Gli altri anni restano a un clic.
+   */
   function renderPaymentFilterOptions(house) {
     if (!els.paymentFilterPeriod) return;
-    const cur = els.paymentFilterPeriod.value;
+    const scelto = els.paymentFilterPeriod.dataset.touched === '1'
+      ? els.paymentFilterPeriod.value
+      : String(resolveFocusPeriod(house)?.id || '');
     const sorted = [...house.fiscalPeriods].sort((a, b) => String(b.startDate).localeCompare(String(a.startDate)));
-    els.paymentFilterPeriod.innerHTML = '<option value="">Tutti</option>' + sorted.map(p =>
-      `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${p.label}</option>`
-    ).join('');
+    els.paymentFilterPeriod.innerHTML = sorted.map(p =>
+      `<option value="${p.id}" ${String(p.id) === scelto ? 'selected' : ''}>${p.label}</option>`
+    ).join('') + '<option value="" ' + (scelto ? '' : 'selected') + '>Tutti gli anni</option>';
+    els.paymentFilterPeriod.value = scelto;
   }
 
   function getFilteredPayments(house) {
@@ -866,9 +874,18 @@ export function createRenderer(els) {
     return VOCI_RATA.filter(v => totals[v] > 0.005).map(v => VOCI[v].label.toLowerCase()).join(' e ') || 'da pagare';
   }
 
+  /**
+   * I due contatori parlano dello stesso anno: «Da pagare» era già ristretto
+   * all'anno in corso, «Pagati» contava invece tutta la storia della casa.
+   */
   function renderPagamentiCounts(house, periodId) {
     if (els.countDaPagare) els.countDaPagare.textContent = String(openItems(house, periodId).length);
-    if (els.countPagati) els.countPagati.textContent = String(house.payments.length);
+    if (els.countPagati) {
+      const pagati = periodId
+        ? house.payments.filter(p => String(p.fiscalPeriodId) === String(periodId))
+        : house.payments;
+      els.countPagati.textContent = String(pagati.length);
+    }
   }
 
   // ───────────────────────── Registra un pagamento ──────────────────────────
@@ -1787,7 +1804,9 @@ export function createRenderer(els) {
     if (!els.paymentsTable) return;
     const payments = getFilteredPayments(house);
     const summary = paymentsSummaryForList(payments, house);
-    const periodId = els.periodFilter?.value !== 'all' ? els.periodFilter?.value : null;
+    // Le rate coperte si contano sull'anno che l'elenco sta mostrando, non su
+    // quello scelto in panoramica: erano due filtri diversi letti come uno solo.
+    const periodId = els.paymentFilterPeriod?.value || null;
     const coverage = countCoveredInstallments(house, payments, periodId);
     if (els.paymentsSummary) {
       const ratio = coverage.total ? `${coverage.covered} rate coperte su ${coverage.total}` : 'nessuna rata';
@@ -2378,6 +2397,7 @@ export function collectDom() {
     paymentsSummary: document.getElementById('paymentsSummary'),
     situazionePeriod: document.getElementById('situazionePeriod'),
     situazionePdfBtn: document.getElementById('situazionePdfBtn'),
+    resocontoCalendarBtn: document.getElementById('resocontoCalendarBtn'),
     dueSplitMode: document.getElementById('dueSplitMode'),
     dueKind: document.getElementById('dueKind'),
     navButtons: [...document.querySelectorAll('.nav-rail [data-view], .bottom-nav [data-view]')],
@@ -2387,21 +2407,6 @@ export function collectDom() {
     viewTitle: document.getElementById('viewTitle'),
     viewSubtitle: document.getElementById('viewSubtitle'),
     authStatus: document.getElementById('authStatus'),
-    logoutBtn: document.getElementById('logoutBtn'),
-    calendarFeedStatus: document.getElementById('calendarFeedStatus'),
-    calendarFeedPreview: document.getElementById('calendarFeedPreview'),
-    openCalendarWizardBtn: document.getElementById('openCalendarWizardBtn'),
-    downloadCalendarIcsBtn: document.getElementById('downloadCalendarIcsBtn'),
-    calendarWizardDialog: document.getElementById('calendarWizardDialog'),
-    calendarWizardForm: document.getElementById('calendarWizardForm'),
-    calendarWizardStepper: document.getElementById('calendarWizardStepper'),
-    calendarLeadDays: document.getElementById('calendarLeadDays'),
-    calendarWizardPreviewSummary: document.getElementById('calendarWizardPreviewSummary'),
-    calendarWizardPreviewTable: document.getElementById('calendarWizardPreviewTable'),
-    calendarWizardDownloadBtn: document.getElementById('calendarWizardDownloadBtn'),
-    calendarWizardError: document.getElementById('calendarWizardError'),
-    calendarWizardClose: document.getElementById('calendarWizardClose'),
-    calendarWizardBack: document.getElementById('calendarWizardBack'),
-    calendarWizardNext: document.getElementById('calendarWizardNext')
+    logoutBtn: document.getElementById('logoutBtn')
   };
 }

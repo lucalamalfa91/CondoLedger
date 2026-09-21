@@ -13,7 +13,8 @@
     "test": "node --test scripts/*.test.mjs",
     "create-user": "node scripts/create-user.mjs",
     "set-password": "node scripts/set-password.mjs",
-    "migrate:supabase": "node scripts/migrate-supabase-to-sqlite.mjs"
+    "migrate:supabase": "node scripts/migrate-supabase-to-sqlite.mjs",
+    "ricalcola-conguagli": "node scripts/ricalcola-conguagli.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

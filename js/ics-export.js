@@ -35,8 +35,24 @@ function dtDate(iso) {
   return iso.replace(/-/g, '');
 }
 
-/** File .ics (VCALENDAR) con le rate residue del piano promemoria, pronto per import diretto. */
-export function buildIcsCalendar(house, plan, leadDays) {
+/**
+ * L'indirizzo con cui l'app si apre già pronta a registrare quella rata: dal
+ * promemoria sul telefono si arriva al modulo con la rata giusta spuntata,
+ * senza doverla cercare.
+ */
+export function paymentLinkForInstallment(baseUrl, key) {
+  const radice = String(baseUrl || '').replace(/[#?].*$/, '').replace(/\/$/, '');
+  return `${radice}/#/pagamenti/registra?rata=${encodeURIComponent(key)}`;
+}
+
+/**
+ * File .ics (VCALENDAR) con le rate ancora da pagare, pronto per l'import.
+ * @param {object} house
+ * @param {object} plan  quello che torna da computeReminderPlan
+ * @param {number} leadDays giorni di preavviso dell'avviso
+ * @param {string} baseUrl indirizzo dell'app, per il collegamento nell'appuntamento
+ */
+export function buildIcsCalendar(house, plan, leadDays, baseUrl = '') {
   const dtstamp = dtstampNow();
   const lines = [
     'BEGIN:VCALENDAR',
@@ -48,13 +64,23 @@ export function buildIcsCalendar(house, plan, leadDays) {
   ];
 
   for (const item of plan.items) {
-    const uid = `condoledger-${house.id}-${plan.period?.id ?? 'none'}-${dtDate(item.date)}@condoledger.app`;
+    // La chiave della rata nell'UID: reimportando il file lo stesso appuntamento
+    // si aggiorna invece di sdoppiarsi.
+    const uid = `condoledger-${house.id}-${String(item.key || dtDate(item.date)).replace(/[^A-Za-z0-9-]/g, '-')}@condoledger.app`;
+    const link = baseUrl && item.key ? paymentLinkForInstallment(baseUrl, item.key) : '';
+    const descrizione = [
+      item.composizione ? `Di cui: ${item.composizione}` : '',
+      item.causale,
+      link ? `Registra il pagamento: ${link}` : ''
+    ].filter(Boolean).join('\n');
+
     lines.push('BEGIN:VEVENT');
     lines.push(`UID:${uid}`);
     lines.push(`DTSTAMP:${dtstamp}`);
     lines.push(`DTSTART;VALUE=DATE:${dtDate(item.date)}`);
     lines.push(foldLine(`SUMMARY:${icsEscape(item.summary)}`));
-    lines.push(foldLine(`DESCRIPTION:${icsEscape(item.causale)}`));
+    lines.push(foldLine(`DESCRIPTION:${icsEscape(descrizione)}`));
+    if (link) lines.push(foldLine(`URL:${link}`));
     if (leadDays > 0) {
       lines.push('BEGIN:VALARM');
       lines.push('ACTION:DISPLAY');

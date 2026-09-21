@@ -88,7 +88,6 @@ export const viewMeta = {
     subviews: {
       casa: ['Impostazioni', 'Le tue case: aggiungi, modifica, elimina'],
       account: ['Impostazioni', 'Profilo e password'],
-      calendario: ['Impostazioni', 'Promemoria delle rate su Apple o Google Calendar'],
       backup: ['Impostazioni', 'Esporta e importa i dati']
     }
   }

@@ -2397,6 +2397,7 @@ export function collectDom() {
     paymentsSummary: document.getElementById('paymentsSummary'),
     situazionePeriod: document.getElementById('situazionePeriod'),
     situazionePdfBtn: document.getElementById('situazionePdfBtn'),
+    resocontoCalendarBtn: document.getElementById('resocontoCalendarBtn'),
     dueSplitMode: document.getElementById('dueSplitMode'),
     dueKind: document.getElementById('dueKind'),
     navButtons: [...document.querySelectorAll('.nav-rail [data-view], .bottom-nav [data-view]')],
@@ -2406,21 +2407,6 @@ export function collectDom() {
     viewTitle: document.getElementById('viewTitle'),
     viewSubtitle: document.getElementById('viewSubtitle'),
     authStatus: document.getElementById('authStatus'),
-    logoutBtn: document.getElementById('logoutBtn'),
-    calendarFeedStatus: document.getElementById('calendarFeedStatus'),
-    calendarFeedPreview: document.getElementById('calendarFeedPreview'),
-    openCalendarWizardBtn: document.getElementById('openCalendarWizardBtn'),
-    downloadCalendarIcsBtn: document.getElementById('downloadCalendarIcsBtn'),
-    calendarWizardDialog: document.getElementById('calendarWizardDialog'),
-    calendarWizardForm: document.getElementById('calendarWizardForm'),
-    calendarWizardStepper: document.getElementById('calendarWizardStepper'),
-    calendarLeadDays: document.getElementById('calendarLeadDays'),
-    calendarWizardPreviewSummary: document.getElementById('calendarWizardPreviewSummary'),
-    calendarWizardPreviewTable: document.getElementById('calendarWizardPreviewTable'),
-    calendarWizardDownloadBtn: document.getElementById('calendarWizardDownloadBtn'),
-    calendarWizardError: document.getElementById('calendarWizardError'),
-    calendarWizardClose: document.getElementById('calendarWizardClose'),
-    calendarWizardBack: document.getElementById('calendarWizardBack'),
-    calendarWizardNext: document.getElementById('calendarWizardNext')
+    logoutBtn: document.getElementById('logoutBtn')
   };
 }

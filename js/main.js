@@ -17,19 +17,18 @@ import {
   savePriorBalanceToSupabase,
   saveUnlinkedBankMovements,
   syncBackupToSupabase,
-  updateCalendarSettings
 } from './api.js';
 import { createAuthHandlers } from './auth.js';
 import { exportBackup, parseBackup } from './backup.js';
 import { resolveView, viewMeta } from './config.js';
 import { computeConguaglio, findPeriodByDate, getNextPeriod, periodLabel } from './fiscal.js';
-import { listInstallmentsForPeriod, ordinarioDueForPeriod } from './installments.js';
+import { findInstallment, listInstallmentsForPeriod, ordinarioDueForPeriod } from './installments.js';
 import { exportSituazionePdf } from './pdf-situazione.js';
 import {
   generateRows, planRows, planTargets, round2, rowsToSplitAmounts, splitEqually
 } from './rate-plan.js';
 import { getPriorBalanceForPeriod } from './situazione-report.js';
-import { computeReminderPlan, REMINDER_CADENCES } from './reminder-plan.js';
+import { computeReminderPlan } from './reminder-plan.js';
 import { buildIcsCalendar, downloadIcsFile } from './ics-export.js';
 import { collectImportPartiesFromDom, hasConfiguredParties, validateParties } from './house-import-parties.js';
 import { parseIntesaFile } from './intesa.js';
@@ -72,8 +71,12 @@ function render(...args) {
     renderedHouseId = house?.id != null ? String(house.id) : null;
   }
   baseRender(...args);
+  if (rottaDiIngresso && activeHouse()) {
+    const rotta = rottaDiIngresso;
+    rottaDiIngresso = null;
+    applyRouteParams(rotta);
+  }
   maybeShowOnboarding();
-  renderCalendarSettingsView();
 }
 
 const onboardingDialog = document.getElementById('onboardingDialog');
@@ -183,11 +186,38 @@ function showOnboardingStep() {
   });
 }
 
+/**
+ * La rotta scritta nell'indirizzo, con i suoi parametri.
+ *
+ * Il promemoria di calendario porta con sé la rata: `#/pagamenti/registra?rata=12:3`
+ * apre il modulo con quella già spuntata, così dal telefono si registra il
+ * pagamento appena fatto senza doverla cercare.
+ */
 function parseAppRouteHash() {
   const raw = location.hash.slice(1);
-  if (!raw || /[=&]/.test(raw)) return null;
-  const [view, subview] = raw.split('/').filter(Boolean);
-  return view ? { view, subview: subview || null } : null;
+  if (!raw) return null;
+  const [percorso, query = ''] = raw.split('?');
+  const [view, subview] = percorso.split('/').filter(Boolean);
+  if (!view) return null;
+  return { view, subview: subview || null, params: new URLSearchParams(query) };
+}
+
+/** Se la rotta indica una rata, il modulo si apre già pronto su quella. */
+function applyRouteParams(route) {
+  const rata = route?.params?.get('rata');
+  if (!rata) return;
+  const house = activeHouse();
+  if (!house) return;
+  const slot = findInstallment(house, rata);
+  if (!slot) { toastError('Quella rata non esiste più: scegli tu cosa stai pagando.'); return; }
+  if (els.paymentPeriod) {
+    syncPaymentPeriodSelect(house);
+    els.paymentPeriod.value = String(slot.fiscalPeriodId);
+  }
+  state.paymentSelection = [rata];
+  renderPaymentTargetOptions(house, { preselect: [rata] });
+  if (els.paymentDate) els.paymentDate.value = today;
+  renderPaymentAfterCard(house);
 }
 
 function syncRouteHash(view, subview) {
@@ -207,9 +237,6 @@ function navigate(view, subview = null) {
   if (resolved.view === 'impostazioni' && resolved.subview === 'account') {
     auth.renderAccountView();
   }
-  if (resolved.view === 'impostazioni' && resolved.subview === 'calendario') {
-    renderCalendarSettingsView();
-  }
   // Aprendo il preventivo si riparte da quello che c'è: se l'anno ne ha già uno,
   // il modulo lo mostra, invece di offrire un foglio bianco su cui rifarlo.
   const house = activeHouse();
@@ -219,8 +246,22 @@ function navigate(view, subview = null) {
   }
 }
 
+/**
+ * La rotta con cui si è arrivati, letta prima che l'accesso riscriva
+ * l'indirizzo. Chi tocca il promemoria sul telefono deve ritrovarsi davanti la
+ * rata da registrare anche se prima ha dovuto fare l'accesso: senza questo,
+ * dopo il login si finiva sempre in panoramica e il collegamento era carta straccia.
+ */
+let rottaDiIngresso = parseAppRouteHash();
+
 const auth = createAuthHandlers(els, {
-  setView: (v, s) => navigate(v, s),
+  setView: (v, s) => {
+    if (rottaDiIngresso && v === 'panoramica' && !s) {
+      navigate(rottaDiIngresso.view, rottaDiIngresso.subview);
+      return;
+    }
+    navigate(v, s);
+  },
   render,
   setTheme
 });
@@ -717,153 +758,31 @@ onboardingNext?.addEventListener('click', async () => {
   showOnboardingStep();
 });
 
-const CALENDAR_WIZARD_STEPS = ['cadenza', 'preavviso', 'anteprima', 'scarica'];
-let calendarWizardStep = 0;
+/**
+ * Il calendario delle rate si esporta dal resoconto dell'anno che si sta
+ * guardando, con le rate che quel preventivo ha già stabilito: non c'è una
+ * cadenza da scegliere né un'anteprima da configurare, perché il piano esiste
+ * già e l'unica cosa sensata da fare è portarselo nel telefono.
+ */
+const PREAVVISO_GIORNI = 3;
 
-function activeFiscalPeriodId(house) {
-  const p = findPeriodByDate(house, today);
-  return p?.id ?? house.fiscalPeriods[0]?.id ?? null;
-}
-
-function currentCalendarCadence() {
-  const checked = els.calendarWizardForm?.querySelector('input[name="calendarCadence"]:checked');
-  return checked?.value || 'monthly';
-}
-
-function currentCalendarLeadDays() {
-  return Number(els.calendarLeadDays?.value || 3);
-}
-
-function reminderPlanTableHtml(plan) {
-  if (!plan.period) return '<div class="empty">Nessun esercizio fiscale configurato per questa casa.</div>';
-  if (plan.fullyPaid) return `<div class="empty">Nessuna rata residua per ${plan.period.label}: risulti in regola.</div>`;
-  const rows = plan.items
-    .map(it => `<tr><td>${it.index}/${it.count}</td><td>${it.date}</td><td>${fmt(it.amount)}</td></tr>`)
-    .join('');
-  return `<table><thead><tr><th>Rata</th><th>Data</th><th>Importo</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
-
-function renderCalendarWizardPreview() {
-  const house = activeHouse();
-  if (!house || !els.calendarWizardPreviewTable) return;
-  const periodId = activeFiscalPeriodId(house);
-  const plan = periodId
-    ? computeReminderPlan(house, periodId, { cadence: currentCalendarCadence(), leadDays: currentCalendarLeadDays() })
-    : { items: [], totalRemaining: 0, count: 0, period: null, fullyPaid: false };
-  if (els.calendarWizardPreviewSummary) {
-    let summary = '';
-    if (plan.period && !plan.fullyPaid) {
-      summary = `${plan.period.label} · residuo ${fmt(plan.totalRemaining)} in ${plan.count} rate`;
-      if (plan.resumedAfterPayment) summary += ` · ultimo versamento il ${plan.lastPaymentDate}: si riparte dalla rata successiva`;
-    }
-    els.calendarWizardPreviewSummary.textContent = summary;
-  }
-  els.calendarWizardPreviewTable.innerHTML = reminderPlanTableHtml(plan);
-}
-
-function downloadCalendarIcs(house, cadence, leadDays) {
-  const periodId = activeFiscalPeriodId(house);
-  const plan = periodId ? computeReminderPlan(house, periodId, { cadence, leadDays }) : { items: [], period: null, fullyPaid: false };
-  if (!plan.period || plan.fullyPaid || !plan.items.length) {
-    toastError('Nessuna rata residua da esportare per questa casa.');
+function esportaCalendario(house, periodId) {
+  const plan = periodId ? computeReminderPlan(house, periodId) : { items: [], period: null, fullyPaid: false };
+  if (!plan.period) { toastError('Scegli prima un anno condominiale.'); return; }
+  if (plan.fullyPaid || !plan.items.length) {
+    toastError(`Nessuna rata aperta nel ${plan.period.label}: non c’è niente da mettere in calendario.`);
     return;
   }
-  const ics = buildIcsCalendar(house, plan, leadDays);
-  downloadIcsFile(`rate-${house.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ics`, ics);
-  showToast('File calendario scaricato.');
+  const ics = buildIcsCalendar(house, plan, PREAVVISO_GIORNI, window.location.origin);
+  const nome = `rate-${house.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${plan.period.label.replace(/\//g, '-')}.ics`;
+  downloadIcsFile(nome, ics);
+  showToast(`${plan.count} ${plan.count === 1 ? 'rata' : 'rate'} del ${plan.period.label} pronte per il calendario.`);
 }
 
-function showCalendarWizardStep() {
-  const stepKey = CALENDAR_WIZARD_STEPS[calendarWizardStep];
-  els.calendarWizardStepper?.querySelectorAll('.import-step').forEach(li => {
-    li.classList.toggle('active', li.dataset.step === stepKey);
-  });
-  els.calendarWizardForm?.querySelectorAll('.calendar-wizard-step').forEach(panel => {
-    panel.classList.toggle('active', panel.dataset.wizardStep === stepKey);
-  });
-  els.calendarWizardBack?.classList.toggle('hidden', calendarWizardStep === 0);
-  if (els.calendarWizardNext) els.calendarWizardNext.textContent = stepKey === 'scarica' ? 'Fine' : 'Avanti';
-  els.calendarWizardError?.classList.add('hidden');
-  if (stepKey === 'anteprima') renderCalendarWizardPreview();
-}
-
-function openCalendarWizard() {
-  const house = ensureHouse();
-  if (!house || !els.calendarWizardDialog) return;
-  const cadenceInput = els.calendarWizardForm?.querySelector(
-    `input[name="calendarCadence"][value="${house.calendarReminderCadence || 'monthly'}"]`
-  );
-  if (cadenceInput) cadenceInput.checked = true;
-  if (els.calendarLeadDays) els.calendarLeadDays.value = String(house.calendarReminderLeadDays ?? 3);
-  calendarWizardStep = 0;
-  showCalendarWizardStep();
-  els.calendarWizardDialog.showModal();
-}
-
-async function saveCalendarWizard() {
+els.resocontoCalendarBtn?.addEventListener('click', () => {
   const house = ensureHouse();
   if (!house) return;
-  try {
-    await updateCalendarSettings(house, {
-      cadence: currentCalendarCadence(),
-      leadDays: currentCalendarLeadDays()
-    });
-    renderCalendarSettingsView();
-    els.calendarWizardDialog?.close();
-  } catch (err) {
-    if (els.calendarWizardError) {
-      els.calendarWizardError.textContent = err.message || 'Errore salvataggio impostazioni calendario';
-      els.calendarWizardError.classList.remove('hidden');
-    }
-  }
-}
-
-function renderCalendarSettingsView() {
-  const house = activeHouse();
-  if (!els.calendarFeedStatus || !els.calendarFeedPreview) return;
-  if (!house) {
-    els.calendarFeedStatus.innerHTML = '';
-    els.calendarFeedPreview.innerHTML = '';
-    return;
-  }
-  const cadenceLabel = REMINDER_CADENCES[house.calendarReminderCadence]?.label || 'Mensile';
-  els.calendarFeedStatus.innerHTML = `<div class="metric-label">Cadenza rate</div><div class="metric-value" style="font-size:1.1rem;">${cadenceLabel} · preavviso ${house.calendarReminderLeadDays ?? 3} giorni</div>`;
-  const periodId = activeFiscalPeriodId(house);
-  const plan = periodId
-    ? computeReminderPlan(house, periodId, {
-        cadence: house.calendarReminderCadence || 'monthly',
-        leadDays: house.calendarReminderLeadDays ?? 3
-      })
-    : { items: [], totalRemaining: 0, count: 0, period: null, fullyPaid: false };
-  els.calendarFeedPreview.innerHTML = reminderPlanTableHtml(plan);
-}
-
-els.calendarWizardForm?.addEventListener('submit', e => e.preventDefault());
-els.openCalendarWizardBtn?.addEventListener('click', openCalendarWizard);
-els.calendarWizardClose?.addEventListener('click', () => els.calendarWizardDialog?.close());
-els.calendarWizardBack?.addEventListener('click', () => {
-  if (calendarWizardStep > 0) {
-    calendarWizardStep -= 1;
-    showCalendarWizardStep();
-  }
-});
-els.calendarWizardNext?.addEventListener('click', () => {
-  if (calendarWizardStep < CALENDAR_WIZARD_STEPS.length - 1) {
-    calendarWizardStep += 1;
-    showCalendarWizardStep();
-  } else {
-    saveCalendarWizard();
-  }
-});
-els.calendarWizardDownloadBtn?.addEventListener('click', () => {
-  const house = ensureHouse();
-  if (!house) return;
-  downloadCalendarIcs(house, currentCalendarCadence(), currentCalendarLeadDays());
-});
-els.downloadCalendarIcsBtn?.addEventListener('click', () => {
-  const house = ensureHouse();
-  if (!house) return;
-  downloadCalendarIcs(house, house.calendarReminderCadence || 'monthly', house.calendarReminderLeadDays ?? 3);
+  esportaCalendario(house, els.situazionePeriod?.value || null);
 });
 
 els.periodFilter.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
@@ -1683,6 +1602,7 @@ window.addEventListener('hashchange', () => {
   if (!route) return;
   setView(route.view, route.subview);
   render();
+  applyRouteParams(route);
 });
 
 initApp();

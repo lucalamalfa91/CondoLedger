@@ -867,7 +867,12 @@ els.downloadCalendarIcsBtn?.addEventListener('click', () => {
 });
 
 els.periodFilter.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
-els.paymentFilterPeriod?.addEventListener('change', () => { const h = activeHouse(); if (h) render(); });
+els.paymentFilterPeriod?.addEventListener('change', () => {
+  // Da qui in poi comanda la scelta dell'utente, non più l'anno in corso.
+  els.paymentFilterPeriod.dataset.touched = '1';
+  const h = activeHouse();
+  if (h) render();
+});
 els.paymentPeriod?.addEventListener('change', () => {
   const house = activeHouse();
   if (!house) return;

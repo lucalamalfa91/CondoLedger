@@ -13,10 +13,12 @@ import { getDb } from './db.js';
 import { rootDir } from './env.js';
 import { errorHandler, notFound } from './errors.js';
 import { attachSession, loadHouse, originCheck, requireAuth } from './middleware.js';
+import { isReadOnly, readOnlyGuard } from './read-only.js';
 import { authRouter } from './routes/auth.js';
 import { backupRouter } from './routes/backup.js';
 import { bankRouter } from './routes/bank.js';
 import { duesRouter } from './routes/dues.js';
+import { exportRouter } from './routes/export.js';
 import { housesRouter } from './routes/houses.js';
 import { paymentsRouter } from './routes/payments.js';
 import { priorBalancesRouter } from './routes/prior-balances.js';
@@ -31,6 +33,12 @@ export function createApp() {
   app.set('trust proxy', 1);
   app.disable('x-powered-by');
 
+  if (isReadOnly()) {
+    console.log(
+      'CondoLedger in sola lettura: le scritture sono bloccate, GET /api/export/condo-export-v1 resta attivo.'
+    );
+  }
+
   app.use(express.json({ limit: '5mb' }));
   app.use(sessionCleanupMiddleware);
   app.use(attachSession);
@@ -38,6 +46,7 @@ export function createApp() {
   // --- API ---------------------------------------------------------------
   const api = express.Router();
   api.use(originCheck);
+  api.use(readOnlyGuard);
   // Sonda per gli health check della piattaforma di hosting: non tocca il database
   // pesantemente, ma verifica che sia apribile.
   api.get('/health', async (_req, res) => {
@@ -65,6 +74,7 @@ export function createApp() {
   api.use('/houses', requireAuth, housesRouter);
   api.use('/houses/:houseId', requireAuth, houseScoped);
   api.use('/backup', requireAuth, backupRouter);
+  api.use('/export', requireAuth, exportRouter);
 
   api.use((_req, _res, next) => next(notFound('Endpoint non trovato.')));
   app.use('/api', api);

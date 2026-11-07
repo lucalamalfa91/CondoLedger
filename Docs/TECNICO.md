@@ -20,7 +20,7 @@ origine: niente CORS e nessun token nel browser.
 | `js/` | Moduli ES: api, auth, dominio fiscale, rate, import Intesa, UI |
 | `server/` | Express, schema SQLite, autenticazione, rotte |
 | `server/schema.sql` | Schema del database, applicato all'avvio |
-| `scripts/` | CLI utenti, migrazione dati, smoke test |
+| `scripts/` | CLI utenti, export condo-export-v1, migrazione dati, test |
 | `data/` | Il file `.db` (non versionato) |
 | `api/index.js`, `vercel.json` | Entry point serverless e routing |
 | `Dockerfile`, `fly.toml` | Deploy alternativo su container |
@@ -57,6 +57,64 @@ Tutte hanno un default sensato; vedi `.env.example`.
 | `COOKIE_SECURE` | `false` | **`true` in produzione**: su HTTPS il cookie va marcato Secure |
 | `SESSION_TTL_DAYS` | `30` | Durata della sessione, rinnovata a scorrimento |
 | `NODE_ENV` | `development` | |
+| `CONDOLEDGER_READ_ONLY` | `false` | `true` blocca le scritture e lascia attivo l'export. Vedi sotto. |
+
+---
+
+## Export per CasaZen (`condo-export-v1`)
+
+L'export è una copia a senso unico, per lo staging della migrazione. Non esiste
+un import di questo formato: non è una sincronizzazione fra i due database.
+
+```bash
+npm run export:condo                              # tutte le case, JSON su stdout
+npm run export:condo -- --out snapshot.json       # stesso snapshot, su file
+npm run export:condo -- --user tua@email.it --out snapshot.json
+```
+
+Lo stesso dato produce sempre lo stesso file: gli id sono `tipo:id` della chiave
+primaria, gli importi sono centesimi interi, e `contentHash` (`sha256:` + esadecimale)
+è l'hash del contenuto senza il campo stesso. Una seconda esportazione, finché il
+database non cambia, è identica e si può reimportare in staging senza duplicare.
+
+L'endpoint autenticato `GET /api/export/condo-export-v1` restituisce lo stesso
+formato limitato alle case dell'utente connesso. Il comando, senza `--user`,
+include tutte le case: è quello da usare per la migrazione.
+
+Il JSON ha `format` = `condo-export-v1`, `currency` = `EUR`, `amountUnit` = `cents`.
+Per ogni casa: `fiscalPeriods`, `dues` (`kind` `budget` o `final`, `voice`
+`ordinary` o `extraordinary`), `priorBalances`, `payments`, `bankMovements` e
+`installments`. Le rate sono il piano salvato in `split_amounts` del preventivo
+ordinario, con `ordinaryCents`, `priorSettlementCents` e `extraordinaryCents`.
+`splitCustom` resta l'elenco dei mesi, non un importo.
+
+---
+
+## Sola lettura
+
+Quando CasaZen diventa la fonte operativa, CondoLedger si mette in sola lettura
+per il periodo di controllo. L'export continua a funzionare.
+
+Nel pannello dell'host, o nel `.env` in locale:
+
+```bash
+CONDOLEDGER_READ_ONLY=true
+```
+
+Poi riavvia il processo (un nuovo deploy, se l'app è serverless). Vale `true`,
+`1`, `yes` o `on`, maiuscole o minuscole.
+
+Da quel momento ogni `POST`, `PUT`, `PATCH` e `DELETE` sui dati risponde 403
+con codice `read_only`: case, esercizi, dovuti, versamenti, saldi, import
+bancario, ripristino di un backup, cambio password. Restano consentiti:
+
+- tutte le `GET`, quindi Panoramica, Movimenti e `GET /api/export/condo-export-v1`;
+- `POST /api/auth/login` e `POST /api/auth/logout`, così ci si può ancora
+  autenticare per scaricare l'export;
+- `npm run export:condo`, che non scrive.
+
+Le risposte portano l'header `X-CondoLedger-Read-Only: true`. Per tornare a
+scrivere, togli la variabile e riavvia.
 
 ---
 
@@ -82,10 +140,11 @@ dell'app (Impostazioni → Account) funziona normalmente.
 npm test
 ```
 
-Esegue `scripts/smoke-api.test.mjs` con il runner integrato di Node su un database
-temporaneo. Copre login, isolamento fra utenti, CRUD di dovuti, versamenti e saldi, import
-bancario con il collegamento fra movimento e versamento, cancellazioni a cascata e cambio
-password. Non serve nessun servizio esterno.
+Esegue i file `scripts/*.test.mjs` con il runner integrato di Node su un database
+temporaneo. Lo smoke test copre login, isolamento fra utenti, CRUD di dovuti,
+versamenti e saldi, import bancario e cambio password. `condo-export.test.mjs`
+controlla che lo snapshot `condo-export-v1` torni al centesimo e che la sola
+lettura blocchi le scritture lasciando l'export. Non serve nessun servizio esterno.
 
 ---
 

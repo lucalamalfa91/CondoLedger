@@ -1,0 +1,61 @@
+{
+  "note": "Cifre già usate come campione in scripts/conguaglio.test.mjs. Casa A è il resoconto reale 2024/2025 e 2025/2026. Casa B è il caso dello straordinario deliberato nello stesso file.",
+  "houses": [
+    {
+      "name": "Casa A",
+      "location": "Resoconto reale",
+      "fiscalStartMonth": 6,
+      "periods": [
+        {
+          "label": "2024/2025",
+          "startDate": "2024-06-01",
+          "endDate": "2025-05-31",
+          "budgetOrdinaryCents": 49030,
+          "extraordinaryCents": 0,
+          "finalCents": 49030,
+          "priorBalanceCents": 0,
+          "paymentCents": [41280],
+          "expectedSettlementCents": 7750
+        },
+        {
+          "label": "2025/2026",
+          "startDate": "2025-06-01",
+          "endDate": "2026-05-31",
+          "budgetOrdinaryCents": 238687,
+          "extraordinaryCents": 0,
+          "finalCents": 230164,
+          "priorBalanceCents": 7750,
+          "priorSourceLabel": "2024/2025",
+          "paymentCents": [7750, 238687],
+          "expectedSettlementCents": -8523,
+          "bankMovement": {
+            "movementDate": "2025-06-10",
+            "operation": "Bonifico",
+            "details": "Recupero saldo 2024/2025",
+            "amountCents": -7750,
+            "sourceHash": "casa-a-2025-06-saldo",
+            "linksPaymentIndex": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "Casa B",
+      "location": "Campione straordinario",
+      "fiscalStartMonth": 6,
+      "periods": [
+        {
+          "label": "2024/2025",
+          "startDate": "2024-06-01",
+          "endDate": "2025-05-31",
+          "budgetOrdinaryCents": 240000,
+          "extraordinaryCents": 60000,
+          "finalCents": 240000,
+          "priorBalanceCents": 0,
+          "paymentCents": [240000],
+          "expectedSettlementCents": 60000
+        }
+      ]
+    }
+  ]
+}

@@ -13,6 +13,7 @@
     "test": "node --test scripts/*.test.mjs",
     "create-user": "node scripts/create-user.mjs",
     "set-password": "node scripts/set-password.mjs",
+    "export:condo": "node scripts/export-condo.mjs",
     "migrate:supabase": "node scripts/migrate-supabase-to-sqlite.mjs",
     "ricalcola-conguagli": "node scripts/ricalcola-conguagli.mjs"
   },
